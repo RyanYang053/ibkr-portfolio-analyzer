@@ -35,7 +35,7 @@ def _position(symbol: str, adapter: BrokerAdapter):
     try:
         price = MockMarketDataProvider().get_latest_price(sym)
     except Exception:
-        price = 100.0
+        price = 0.0
         
     return Position(
         account_id="WATCHLIST_ONLY",
@@ -108,20 +108,16 @@ def technicals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)
             drawdown = indicators.drawdown_from_52w_high
             trend = indicators.trend_classification
         else:
-            rsi = 50.0
-            drawdown = 0.0
-            trend = "neutral"
-    except Exception:
-        historical_prices = []
-        rsi = 50.0
-        drawdown = 0.0
-        trend = "neutral"
+            raise RuntimeError("At least 200 daily closes are required")
+    except Exception as exc:
+        raise data_provider_not_configured_error(f"Technical data unavailable: {exc}") from exc
     return {
         "symbol": symbol.upper(),
         "historical_prices": historical_prices,
         "rsi_14": rsi,
         "drawdown_from_52w_high": drawdown,
-        "trend_classification": trend
+        "trend_classification": trend,
+        "data_quality": "verified" if not demo_mode_enabled() else "mock_demo",
     }
 
 
@@ -165,6 +161,12 @@ def analysis(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
     position = _position(symbol, adapter)
     from app.services.ai.report_cache import get_cached_report
     cached = get_cached_report(position.symbol)
+    if cached:
+        cached = dict(cached)
+        if "provenance" in cached:
+            prov = dict(cached["provenance"])
+            prov["cached_data"] = True
+            cached["provenance"] = prov
     return {
         "position": position,
         "score": score_stock(position),

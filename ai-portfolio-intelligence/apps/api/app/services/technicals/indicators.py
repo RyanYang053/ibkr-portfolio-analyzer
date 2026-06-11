@@ -63,9 +63,6 @@ def calculate_technical_indicators(symbol: str, prices: list[float]) -> Technica
     macd_signal = _ema(signal_seed, 9)
     high_52w = max(prices[-252:]) if len(prices) >= 252 else max(prices)
     drawdown = (prices[-1] - high_52w) / high_52w * 100
-    daily_ranges = [abs(current - previous) for previous, current in zip(prices[-15:-1], prices[-14:])]
-    atr_14 = sum(daily_ranges) / len(daily_ranges)
-
     return TechnicalIndicators(
         symbol=symbol,
         date=datetime.now(timezone.utc).date(),
@@ -79,11 +76,13 @@ def calculate_technical_indicators(symbol: str, prices: list[float]) -> Technica
         macd=round(macd, 2),
         macd_signal=round(macd_signal, 2),
         macd_histogram=round(macd - macd_signal, 2),
-        atr_14=round(atr_14, 2),
-        beta=1.08,
-        volume_ratio=1.14,
-        relative_strength_spy=1.04,
-        relative_strength_qqq=1.01,
+        # These metrics require high/low, volume, and aligned benchmark returns.
+        # A close-only series cannot calculate them accurately.
+        atr_14=None,
+        beta=None,
+        volume_ratio=None,
+        relative_strength_spy=None,
+        relative_strength_qqq=None,
         drawdown_from_52w_high=round(drawdown, 2),
         trend_classification=_trend(prices[-1], sma_20, sma_50, sma_200),
     )

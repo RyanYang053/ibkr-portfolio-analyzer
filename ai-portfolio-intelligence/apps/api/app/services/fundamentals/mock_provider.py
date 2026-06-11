@@ -1,13 +1,22 @@
+from __future__ import annotations
+
 import sys
+from app.core.config import settings
 from app.schemas.domain import FundamentalSnapshot, recent_mock_date
 
 
 class MockFundamentalProvider:
+    def __init__(self, allow_mock: bool | None = None) -> None:
+        self.allow_mock = (
+            allow_mock
+            if allow_mock is not None
+            else settings.broker_mode == "mock_ibkr_readonly" or "pytest" in sys.modules
+        )
+
     def get_fundamentals(self, symbol: str) -> FundamentalSnapshot:
         is_speculative = symbol.upper() in {"IONQ", "LAES", "INFQ"}
 
-        # In pytest or offline environments, use deterministic mocks
-        if "pytest" in sys.modules:
+        if self.allow_mock:
             return self._mock_fundamentals(symbol, is_speculative)
 
         import httpx
@@ -27,15 +36,15 @@ class MockFundamentalProvider:
                     findata = res.get("financialData", {})
                     stats = res.get("defaultKeyStatistics", {})
 
-                    revenue_growth = findata.get("revenueGrowth", {}).get("raw", 0.18 if not is_speculative else 0.42)
-                    gross_margin = findata.get("grossMargins", {}).get("raw", 0.62 if not is_speculative else 0.28)
-                    operating_margin = findata.get("operatingMargins", {}).get("raw", 0.29 if not is_speculative else -0.65)
+                    revenue_growth = findata.get("revenueGrowth", {}).get("raw")
+                    gross_margin = findata.get("grossMargins", {}).get("raw")
+                    operating_margin = findata.get("operatingMargins", {}).get("raw")
                     fcf = findata.get("freeCashflow", {}).get("raw")
                     if fcf is None:
-                        fcf = findata.get("operatingCashflow", {}).get("raw", 12_000_000_000 if not is_speculative else -80_000_000)
+                        fcf = findata.get("operatingCashflow", {}).get("raw")
 
-                    cash = findata.get("totalCash", {}).get("raw", 78_000_000_000 if not is_speculative else 420_000_000)
-                    total_debt = findata.get("totalDebt", {}).get("raw", 31_000_000_000 if not is_speculative else 18_000_000)
+                    cash = findata.get("totalCash", {}).get("raw")
+                    total_debt = findata.get("totalDebt", {}).get("raw")
 
                     pe_forward = stats.get("forwardPE", {}).get("raw")
                     ev_sales = stats.get("enterpriseToRevenue", {}).get("raw")
@@ -48,27 +57,33 @@ class MockFundamentalProvider:
                         mcap = shares * price
                         if mcap > 0:
                             fcf_yield = fcf / mcap
-                    if fcf_yield is None:
-                        fcf_yield = 0.031 if not is_speculative else None
+                    required = [revenue_growth, gross_margin, operating_margin, fcf, cash, total_debt]
+                    if any(value is None for value in required):
+                        raise RuntimeError(f"Live fundamental data incomplete for {symbol.upper()}")
 
                     return FundamentalSnapshot(
                         symbol=symbol.upper(),
                         period="TTM",
                         report_date=recent_mock_date(1),
-                        revenue_growth_yoy=float(revenue_growth) if revenue_growth is not None else 0.0,
-                        gross_margin=float(gross_margin) if gross_margin is not None else 0.0,
-                        operating_margin=float(operating_margin) if operating_margin is not None else 0.0,
-                        free_cash_flow=float(fcf) if fcf is not None else 0.0,
-                        cash=float(cash) if cash is not None else 0.0,
-                        total_debt=float(total_debt) if total_debt is not None else 0.0,
+                        revenue_growth_yoy=float(revenue_growth),
+                        gross_margin=float(gross_margin),
+                        operating_margin=float(operating_margin),
+                        free_cash_flow=float(fcf),
+                        cash=float(cash),
+                        total_debt=float(total_debt),
                         pe_forward=float(pe_forward) if pe_forward is not None else None,
                         ev_sales=float(ev_sales) if ev_sales is not None else None,
                         fcf_yield=float(fcf_yield) if fcf_yield is not None else None,
+                        source="live_yahoo_finance",
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(f"Live fundamental data unavailable for {symbol.upper()}") from exc
+        finally:
+            close = getattr(client, "close", None)
+            if close:
+                close()
 
-        return self._mock_fundamentals(symbol, is_speculative)
+        raise RuntimeError(f"Live fundamental data unavailable for {symbol.upper()}")
 
     def _mock_fundamentals(self, symbol: str, is_speculative: bool) -> FundamentalSnapshot:
         return FundamentalSnapshot(
@@ -85,4 +100,3 @@ class MockFundamentalProvider:
             ev_sales=9.5 if not is_speculative else 24.0,
             fcf_yield=0.031 if not is_speculative else None,
         )
-

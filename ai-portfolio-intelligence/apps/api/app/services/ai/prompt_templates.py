@@ -31,6 +31,73 @@ Rules:
 - Always state that the system does not execute trades.
 """
 
+EVIDENCE_TEXT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "text": {"type": "string"},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["text", "evidence_ids"],
+}
+
+STOCK_ANALYSIS_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "symbol": {"type": "string"},
+        "company": {"type": "string"},
+        "summary": EVIDENCE_TEXT_SCHEMA,
+        "why_action": EVIDENCE_TEXT_SCHEMA,
+        "business_summary": EVIDENCE_TEXT_SCHEMA,
+        "fundamental_view": EVIDENCE_TEXT_SCHEMA,
+        "valuation_view": EVIDENCE_TEXT_SCHEMA,
+        "technical_view": EVIDENCE_TEXT_SCHEMA,
+        "risk_view": EVIDENCE_TEXT_SCHEMA,
+        "portfolio_fit": EVIDENCE_TEXT_SCHEMA,
+        "action": {"type": "string"},
+        "confidence": {"type": "string"},
+        "strengths": {"type": "array", "items": EVIDENCE_TEXT_SCHEMA},
+        "weaknesses": {"type": "array", "items": EVIDENCE_TEXT_SCHEMA},
+        "risks": {"type": "array", "items": EVIDENCE_TEXT_SCHEMA},
+        "claims": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "type": {"type": "string"},
+                    "text": {"type": "string"},
+                    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["id", "type", "text", "evidence_ids"],
+            },
+        },
+        "missing_data": {"type": "array", "items": {"type": "string"}},
+        "human_review_required": {"type": "boolean"},
+        "disclaimer": {"type": "string"},
+    },
+    "required": [
+        "symbol",
+        "company",
+        "summary",
+        "why_action",
+        "business_summary",
+        "fundamental_view",
+        "valuation_view",
+        "technical_view",
+        "risk_view",
+        "portfolio_fit",
+        "action",
+        "confidence",
+        "strengths",
+        "weaknesses",
+        "risks",
+        "claims",
+        "missing_data",
+        "human_review_required",
+        "disclaimer",
+    ],
+}
+
 
 def _jsonable(value: Any) -> Any:
     if hasattr(value, "model_dump"):
@@ -54,17 +121,17 @@ def build_stock_analysis_prompt(*, position: Position, score: Any, recommendatio
         "symbol": "string",
         "company": "string",
         "portfolio_role": "string",
-        "summary": "string",
+        "summary": {"text": "string", "evidence_ids": ["ev_*"]},
         "why_action": {"text": "string", "evidence_ids": ["ev_*"]},
-        "business_summary": "string",
-        "fundamental_view": "string",
-        "valuation_view": "string",
-        "technical_view": "string",
-        "risk_view": "string",
-        "portfolio_fit": "string",
-        "final_score": "number",
+        "business_summary": {"text": "string", "evidence_ids": ["ev_*"]},
+        "fundamental_view": {"text": "string", "evidence_ids": ["ev_*"]},
+        "valuation_view": {"text": "string", "evidence_ids": ["ev_*"]},
+        "technical_view": {"text": "string", "evidence_ids": ["ev_*"]},
+        "risk_view": {"text": "string", "evidence_ids": ["ev_*"]},
+        "portfolio_fit": {"text": "string", "evidence_ids": ["ev_*"]},
+        "final_score": "number | null",
         "rule_engine_action": "Strong Add | Add | Hold | Watch | Trim Review | Exit Review | Avoid | Data Insufficient",
-        "action": "Strong Add | Add | Hold | Watch | Trim Review | Exit Review | Avoid",
+        "action": "Strong Add | Add | Hold | Watch | Trim Review | Exit Review | Avoid | Data Insufficient",
         "add_zone": "string",
         "hold_zone": "string",
         "trim_review_zone": "string",
@@ -103,12 +170,83 @@ def build_stock_analysis_prompt(*, position: Position, score: Any, recommendatio
 
 def build_portfolio_memo_prompt(*, summary: Any, positions: list[Position], risk: Any, recommendations: Any) -> str:
     payload = {
-        "summary": _jsonable(summary),
-        "positions": [_jsonable(position) for position in positions],
+        "summary": {
+            "net_liquidation": summary.net_liquidation,
+            "cash": summary.cash,
+            "total_unrealized_pnl": summary.total_unrealized_pnl,
+            "total_realized_pnl": summary.total_realized_pnl,
+            "base_currency": summary.base_currency,
+            "data_timestamp": summary.data_timestamp.isoformat(),
+        },
+        "positions": [
+            {
+                "symbol": position.symbol,
+                "company_name": position.company_name,
+                "asset_class": position.asset_class,
+                "market_price": position.market_price,
+                "market_value": position.market_value,
+                "unrealized_pnl": position.unrealized_pnl,
+                "currency": position.currency,
+                "sector": position.sector,
+                "industry": position.industry,
+                "portfolio_weight": position.portfolio_weight,
+                "stock_type": position.stock_type,
+                "is_etf": position.is_etf,
+                "is_speculative": position.is_speculative,
+                "updated_at": position.updated_at.isoformat(),
+            }
+            for position in positions
+        ],
         "risk": _jsonable(risk),
-        "recommendations": [_jsonable(item) for item in recommendations],
+        "recommendations": [
+            {
+                "symbol": item.symbol,
+                "action": item.action,
+                "score": item.score,
+                "confidence": item.confidence,
+                "explanation": item.explanation,
+                "evidence": item.evidence,
+                "data_freshness": item.data_freshness,
+            }
+            for item in recommendations
+        ],
         "required_disclaimer": DISCLAIMER,
+        "data_boundary": {
+            "structured_data_only": True,
+            "broker_credentials_excluded": True,
+            "order_data_excluded": True,
+            "execution_instructions_forbidden": True,
+        },
     }
+
+    try:
+        from app.services.suitability.engine import get_investor_profile, check_position_suitability
+        from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
+
+        active_id = getattr(summary, "account_id", "default")
+        profile = get_investor_profile(active_id)
+        policy = get_portfolio_policy(active_id)
+        drift = analyze_policy_drift(positions, summary.cash, summary.net_liquidation, policy)
+
+        suitability_warnings = []
+        for pos in positions:
+            suitability_warnings.extend(check_position_suitability(profile, pos))
+
+        payload["investor_profile"] = {
+            "objective": profile.objective,
+            "time_horizon_years": profile.time_horizon_years,
+            "risk_tolerance": profile.risk_tolerance,
+            "risk_capacity": profile.risk_capacity,
+            "liquidity_needs": profile.liquidity_needs,
+            "account_type": profile.account_type,
+            "restrictions": profile.restrictions,
+        }
+        payload["target_policy_ips"] = _jsonable(policy)
+        payload["policy_drift_analysis"] = drift
+        payload["suitability_warnings"] = suitability_warnings
+    except Exception:
+        pass
+
     try:
         from app.services.portfolio.pnl_tracker import get_pnl_history
         pnl_history = get_pnl_history()[-7:]
@@ -128,16 +266,14 @@ def build_portfolio_memo_prompt(*, summary: Any, positions: list[Position], risk
     return (
         STOCK_ANALYST_SYSTEM_FRAMEWORK
         + "\nYou are writing a daily portfolio memo. Return strict JSON only.\n"
-        + "Use this schema: title, portfolio_summary, macro_outlook, sector_dynamics, largest_contributors, largest_detractors, "
+        + "Use this schema: title, portfolio_summary, macro_outlook, sector_dynamics, rebalancing_analysis, suitability_and_compliance, largest_contributors, largest_detractors, "
         + "risk_alerts, holdings_to_watch, possible_add_zones, possible_trim_review_zones, "
         + "cash_deployment_view, overall_portfolio_risk, "
         + "do_not_act_warnings, confidence, missing_data, human_review_required, disclaimer.\n"
         + "Instructions:\n"
-        + "1. Use your search grounding capabilities to fetch the latest global economic updates (Fed interest rate trends, inflation figures, global GDP outlook) "
-        + "and sector-specific updates for the assets currently held in the portfolio (such as Semiconductors, software, consumer tech, indices etc.).\n"
-        + "2. Under 'macro_outlook', write a professional economic synthesis explaining current macro trends and how they impact equity risk premium and high-beta assets.\n"
-        + "3. Under 'sector_dynamics', detail current trends (e.g. AI spending cycles, defensive sector rotations) impacting the portfolio's top sectors.\n"
-        + "4. Synthesize the findings into the executive summary under 'portfolio_summary', incorporating analysis of the 'performance_history' trend.\n\n"
+        + "1. Use only the structured JSON below. Do not use outside facts or infer missing market conditions.\n"
+        + "2. State that macro or sector analysis is unavailable when supporting catalyst data is absent.\n"
+        + "3. Describe allocation drift as review flags only. Do not produce buy/sell quantities, order types, or execution instructions.\n"
+        + "4. Evaluate suitability and data quality explicitly and require human review.\n\n"
         + json.dumps(payload, indent=2, sort_keys=True)
     )
-

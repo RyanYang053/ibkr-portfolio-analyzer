@@ -2,9 +2,15 @@ import { AllocationBars } from "@/components/AllocationBars";
 import { Disclaimer } from "@/components/Disclaimer";
 import { HoldingsTable } from "@/components/HoldingsTable";
 import { StatCard } from "@/components/StatCard";
-import { getPortfolioSummary, getPositions } from "@/lib/api";
+import {
+  getPortfolioSummary,
+  getPositions,
+  getAdvancedRiskMetrics,
+  getPerformanceAttribution
+} from "@/lib/api";
 import type { PortfolioRisk, Position } from "@/lib/types";
 import { DonutChart } from "@/components/DonutChart";
+import { ProfessionalRiskDashboard } from "@/components/ProfessionalRiskDashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -82,12 +88,16 @@ export default async function PortfolioPage(props: PageProps) {
   const searchParams = await props.searchParams;
   const accountId = searchParams.account_id || undefined;
 
-  const [summary, positions] = await Promise.all([
+  const [summary, positions, advancedRisk, attribution] = await Promise.all([
     getPortfolioSummary(accountId),
     getPositions(accountId),
+    getAdvancedRiskMetrics(accountId),
+    getPerformanceAttribution(accountId),
   ]);
   const { risk, derivedFromPositions } = deriveRiskFromPositions(summary.risk, positions);
   const [topCurrency, topCurrencyWeight] = topExposure(risk.currency_exposure);
+
+  const suitabilityWarnings = summary.suitability_warnings ?? [];
 
   return (
     <div className="grid gap-6">
@@ -112,6 +122,16 @@ export default async function PortfolioPage(props: PageProps) {
         <StatCard label="Speculative Exposure" value={`${risk.speculative_percent.toFixed(2)}%`} tone="warn" />
         <StatCard label="Currency Exposure" value={topCurrency} detail={`${topCurrencyWeight.toFixed(2)}%`} />
       </section>
+      
+      <HoldingsTable positions={positions} />
+      
+      <ProfessionalRiskDashboard
+        suitabilityWarnings={suitabilityWarnings}
+        advancedRisk={advancedRisk}
+        attribution={attribution}
+        baseCurrency={summary.summary.base_currency}
+      />
+
       <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <div className="rounded-md border border-line bg-white p-4">
           <h3 className="mb-4 text-lg font-semibold">Sector Allocation</h3>
@@ -122,7 +142,6 @@ export default async function PortfolioPage(props: PageProps) {
           <DonutChart data={risk.currency_exposure} title="Currencies" />
         </div>
       </section>
-      <HoldingsTable positions={positions} />
     </div>
   );
 }

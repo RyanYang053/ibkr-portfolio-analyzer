@@ -9,7 +9,7 @@ router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
 
 from typing import Optional
-from app.schemas.domain import AccountSummary, Position, utc_now
+from app.schemas.domain import AccountSummary, Position, utc_now, InvestorProfile, InvestmentPolicyStatement
 from app.services.broker.ibkr_readonly import get_exchange_rate
 
 def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[AccountSummary, list[Position]]:
@@ -149,8 +149,21 @@ def _resolve_account_data(adapter: BrokerAdapter, account_id: Optional[str]) -> 
 def summary(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
     account_summary, positions = _resolve_account_data(adapter, account_id)
     risk_analysis = analyze_portfolio_risk(account_summary, positions)
+    
+    from app.services.suitability.engine import get_investor_profile, check_position_suitability
+    active_id = account_id or account_summary.account_id or "default"
+    profile = get_investor_profile(active_id)
+    suitability_warnings = []
+    for pos in positions:
+        suitability_warnings.extend(check_position_suitability(profile, pos))
+        
     sorted_positions = sorted(positions, key=lambda p: p.market_value, reverse=True)
-    return {"summary": account_summary, "risk": risk_analysis, "positions": sorted_positions[:5]}
+    return {
+        "summary": account_summary,
+        "risk": risk_analysis,
+        "positions": sorted_positions[:5],
+        "suitability_warnings": suitability_warnings
+    }
 
 
 @router.get("/snapshots")
@@ -206,3 +219,53 @@ def _group_percent(positions, total: float, field: str) -> dict[str, float]:
     for position in positions:
         grouped[getattr(position, field)] = grouped.get(getattr(position, field), 0) + position.market_value
     return {key: round(value / total * 100, 2) for key, value in grouped.items()}
+
+
+@router.get("/profile", response_model=InvestorProfile)
+def get_profile(account_id: Optional[str] = "default"):
+    from app.services.suitability.engine import get_investor_profile
+    return get_investor_profile(account_id)
+
+
+@router.post("/profile")
+def update_profile(profile: InvestorProfile, account_id: Optional[str] = "default"):
+    from app.services.suitability.engine import save_investor_profile
+    save_investor_profile(profile, account_id)
+    return {"status": "success", "message": "Investor profile updated successfully"}
+
+
+@router.get("/policy", response_model=InvestmentPolicyStatement)
+def get_policy(account_id: Optional[str] = "default"):
+    from app.services.policy.engine import get_portfolio_policy
+    return get_portfolio_policy(account_id)
+
+
+@router.post("/policy")
+def update_policy(policy: InvestmentPolicyStatement, account_id: Optional[str] = "default"):
+    from app.services.policy.engine import save_portfolio_policy
+    save_portfolio_policy(policy, account_id)
+    return {"status": "success", "message": "Investment Policy Statement updated successfully"}
+
+
+@router.get("/advanced-risk")
+def get_advanced_portfolio_risk(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+    from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
+    from app.services.portfolio.pnl_tracker import get_pnl_history
+    
+    summary, positions = _resolve_account_data(adapter, account_id)
+    active_id = account_id or summary.account_id or "default"
+    history = get_pnl_history(None if active_id == "all" else active_id)
+    
+    return calculate_advanced_risk_metrics(positions, summary, history)
+
+
+@router.get("/attribution")
+def get_portfolio_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+    from app.services.attribution.engine import calculate_performance_attribution
+    from app.services.portfolio.pnl_tracker import get_pnl_history
+    
+    summary, positions = _resolve_account_data(adapter, account_id)
+    active_id = account_id or summary.account_id or "default"
+    history = get_pnl_history(None if active_id == "all" else active_id)
+    
+    return calculate_performance_attribution(positions, history)

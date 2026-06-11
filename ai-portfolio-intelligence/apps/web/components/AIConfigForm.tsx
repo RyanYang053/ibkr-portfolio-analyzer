@@ -5,11 +5,8 @@ import { KeyRound, Save } from "lucide-react";
 import { configureAI } from "@/lib/api";
 
 const GEMINI_MODELS = [
-  "gemini-3.5-flash",
-  "gemini-3-flash-preview",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
-  "gemini-3.1-flash-lite",
 ];
 
 export function AIConfigForm({ defaultModel }: { defaultModel: string }) {

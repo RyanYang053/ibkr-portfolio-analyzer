@@ -76,44 +76,27 @@ def _base_sub_scores(position: Position) -> dict[str, float]:
 
 
 def score_stock(position: Position) -> StockScore:
-    stock_type = position.stock_type if position.stock_type in MODEL_WEIGHTS else "universal"
-    weights = MODEL_WEIGHTS[stock_type]
-
-    if stock_type == "etf":
-        sub_scores = {
-            "market_trend": 76,
-            "index_valuation": 62,
-            "earnings_growth": 71,
-            "macro_environment": 64,
-            "drawdown_opportunity": 58,
-            "portfolio_fit": 86 if position.portfolio_weight < 25 else 66,
-        }
-    elif stock_type == "speculative_growth":
-        sub_scores = {
-            "revenue_product_progress": 58,
-            "cash_runway": 46,
-            "dilution_risk": 38,
-            "technology_product_milestone": 61,
-            "valuation": 44,
-            "technical_trend": 72 if position.market_price >= position.avg_cost else 35,
-            "catalyst_news": 52,
-            "portfolio_fit": 45 if position.portfolio_weight > 3 else 65,
-        }
-    else:
-        sub_scores = _base_sub_scores(position)
-
-    final_score = sum(sub_scores[key] * weight for key, weight in weights.items()) / sum(weights.values())
-    missing_data = ["Live fundamentals", "Live news sentiment", "Peer valuation set"]
-    confidence = "Medium" if missing_data else "High"
+    portfolio_fit = 82.0
+    if position.portfolio_weight > 12:
+        portfolio_fit = 56.0
+    if position.is_speculative and position.portfolio_weight > 3:
+        portfolio_fit = 45.0
+    missing_data = [
+        "Verified fundamental score inputs",
+        "Verified technical score inputs",
+        "Verified valuation score inputs",
+        "Verified catalyst score inputs",
+    ]
     return StockScore(
         symbol=position.symbol,
         stock_type=position.stock_type,
-        final_score=round(final_score, 1),
-        interpretation=_interpret(final_score),
-        sub_scores=sub_scores,
+        final_score=None,
+        interpretation="Data Insufficient",
+        sub_scores={"portfolio_fit": portfolio_fit},
         explanation=(
-            f"{position.symbol} is scored with the {stock_type} model using mock fundamentals, "
-            "mock technicals, position weight, and risk rules."
+            "A company-quality score is withheld because the scoring engine does not yet have "
+            "verified fundamental, valuation, technical, and catalyst inputs. Portfolio fit is "
+            "reported separately and must not be interpreted as a stock-quality score."
         ),
         supporting_evidence=[
             f"Portfolio weight: {position.portfolio_weight:.2f}%",
@@ -121,6 +104,6 @@ def score_stock(position: Position) -> StockScore:
             f"Stock type: {position.stock_type}",
         ],
         missing_data=missing_data,
-        confidence=confidence,
+        confidence="Low",
         data_timestamp=utc_now(),
     )

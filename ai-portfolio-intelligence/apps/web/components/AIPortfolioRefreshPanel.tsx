@@ -179,6 +179,49 @@ export function AIPortfolioRefreshPanel({ initialReport }: { initialReport?: any
             </div>
           </div>
 
+          {report.provenance ? (
+            <div className="rounded-md border border-line p-4 bg-white text-sm">
+              <h4 className="font-semibold text-zinc-950 mb-2.5">Data Provenance (Audit Trail)</h4>
+              <div className="flex flex-wrap gap-2">
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  report.provenance.live_portfolio_data 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700" 
+                    : "bg-zinc-50 border-zinc-200 text-zinc-600"
+                }`}>
+                  Portfolio: {report.provenance.live_portfolio_data ? "Live" : "Mock"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  report.provenance.live_market_data 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700" 
+                    : "bg-zinc-50 border-zinc-200 text-zinc-600"
+                }`}>
+                  Market: {report.provenance.live_market_data ? "Live" : "Mock"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  report.provenance.cached_data 
+                    ? "bg-sky-50 border-sky-200 text-sky-700" 
+                    : "bg-zinc-50 border-zinc-200 text-zinc-600"
+                }`}>
+                  Cached: {report.provenance.cached_data ? "Yes" : "No"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  report.provenance.mock_fallback_data 
+                    ? "bg-amber-50 border-amber-200 text-amber-700" 
+                    : "bg-emerald-50 border-emerald-200 text-emerald-700"
+                }`}>
+                  Fallback: {report.provenance.mock_fallback_data ? "Active" : "None"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  report.provenance.web_grounded_context 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700" 
+                    : "bg-zinc-50 border-zinc-200 text-zinc-600"
+                }`}>
+                  Web-Grounded: {report.provenance.web_grounded_context ? "Grounded" : "No Search"}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
           {/* Missing & Warnings Footer */}
           <div className="rounded-md border border-line p-4 bg-zinc-50 text-xs text-zinc-600 leading-relaxed grid gap-2 md:grid-cols-2">
             <div>

@@ -38,13 +38,21 @@ def build_structured_stock_context(
     portfolio_timestamp: datetime | None,
 ) -> dict[str, Any]:
     now = utc_now()
-    position_payload = position.model_dump(mode="json") if position else None
+    position_payload = _safe_position_payload(position)
     score_payload = score.model_dump(mode="json") if hasattr(score, "model_dump") else score
     recommendation_payload = recommendation.model_dump(mode="json") if hasattr(recommendation, "model_dump") else recommendation
     technical_payload = technicals.model_dump(mode="json") if hasattr(technicals, "model_dump") else technicals
     fundamental_payload = fundamentals.model_dump(mode="json") if hasattr(fundamentals, "model_dump") else fundamentals
 
     price_missing = position is None or position.market_price <= 0
+    price_timestamp = position.updated_at if position else None
+    fundamental_date = getattr(fundamentals, "report_date", None) if fundamentals else None
+    technical_date = getattr(technicals, "date", None) if technicals else None
+    valuation_missing = valuation is None or not any(
+        valuation.get(key) is not None for key in ("pe_forward", "ev_sales", "fcf_yield")
+    )
+    catalysts_missing = not catalysts
+    catalyst_timestamp = _latest_catalyst_timestamp(catalysts)
     categories = {
         "portfolio": {
             "missing": portfolio_timestamp is None,
@@ -53,28 +61,28 @@ def build_structured_stock_context(
         },
         "price": {
             "missing": price_missing,
-            "stale": False,
+            "stale": price_timestamp is not None and price_timestamp < now - timedelta(minutes=15),
             "timestamp": position.updated_at.isoformat() if position else None,
         },
         "fundamentals": {
             "missing": fundamentals is None,
-            "stale": False,
-            "timestamp": str(getattr(fundamentals, "report_date", None)) if fundamentals else None,
+            "stale": _date_is_stale(fundamental_date, now, days=120),
+            "timestamp": str(fundamental_date) if fundamentals else None,
         },
         "technicals": {
             "missing": technicals is None,
-            "stale": False,
-            "timestamp": str(getattr(technicals, "date", None)) if technicals else None,
+            "stale": _date_is_stale(technical_date, now, days=5),
+            "timestamp": str(technical_date) if technicals else None,
         },
         "valuation": {
-            "missing": valuation is None,
+            "missing": valuation_missing,
             "stale": False,
-            "timestamp": now.isoformat() if valuation else None,
+            "timestamp": now.isoformat() if not valuation_missing else None,
         },
         "catalysts": {
-            "missing": catalysts is None,
-            "stale": catalysts is None,
-            "timestamp": now.isoformat() if catalysts is not None else None,
+            "missing": catalysts_missing,
+            "stale": catalysts_missing or catalyst_timestamp is None or catalyst_timestamp < now - timedelta(days=7),
+            "timestamp": catalyst_timestamp.isoformat() if catalyst_timestamp else None,
         },
     }
     missing_count = sum(1 for category in categories.values() if category["missing"])
@@ -90,7 +98,17 @@ def build_structured_stock_context(
         "stale_categories": [name for name, category in categories.items() if category["stale"]],
         "confidence_cap": evaluate_confidence_limits_from_categories(categories)["confidence_cap"],
     }
-    thesis = evaluate_thesis(position, score, data_quality)
+    thesis = evaluate_thesis(
+        position,
+        score,
+        data_quality,
+        current_data={
+            "fundamentals": fundamental_payload,
+            "technicals": technical_payload,
+            "valuation": valuation,
+            "catalysts": catalysts,
+        },
+    )
     rule_engine = build_rule_engine_summary(position, score, recommendation, technicals, fundamentals, valuation, data_quality, thesis)
     evidence = [
         _evidence_item("ev_portfolio_position", "portfolio", "broker_adapter_readonly", position_payload, categories["price"]["timestamp"]),
@@ -181,7 +199,8 @@ def build_rule_engine_summary(
             technical_flags.append("technical_trend_weakening")
         if getattr(technicals, "drawdown_from_52w_high", 0) < -20:
             technical_flags.append("large_drawdown_from_52w_high")
-        if getattr(technicals, "volume_ratio", 1) > 2:
+        volume_ratio = getattr(technicals, "volume_ratio", None)
+        if volume_ratio is not None and volume_ratio > 2:
             technical_flags.append("elevated_volume")
     else:
         technical_flags.append("technical_data_missing")
@@ -227,3 +246,49 @@ def _sub_score(score: Any, key: str) -> float | None:
     if isinstance(score, dict):
         return score.get("sub_scores", {}).get(key)
     return None
+
+
+def _safe_position_payload(position: Position | None) -> dict[str, Any] | None:
+    if position is None:
+        return None
+    return {
+        "symbol": position.symbol,
+        "company_name": position.company_name,
+        "asset_class": position.asset_class,
+        "market_price": position.market_price,
+        "market_value": position.market_value,
+        "unrealized_pnl": position.unrealized_pnl,
+        "realized_pnl": position.realized_pnl,
+        "currency": position.currency,
+        "sector": position.sector,
+        "industry": position.industry,
+        "portfolio_weight": position.portfolio_weight,
+        "stock_type": position.stock_type,
+        "is_etf": position.is_etf,
+        "is_speculative": position.is_speculative,
+        "updated_at": position.updated_at.isoformat(),
+    }
+
+
+def _date_is_stale(value: Any, now: datetime, *, days: int) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, datetime):
+        observed = value
+    else:
+        try:
+            observed = datetime.fromisoformat(str(value))
+        except ValueError:
+            return True
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=timezone.utc)
+    return observed < now - timedelta(days=days)
+
+
+def _latest_catalyst_timestamp(catalysts: list[dict[str, Any]] | None) -> datetime | None:
+    timestamps: list[datetime] = []
+    for item in catalysts or []:
+        raw = item.get("providerPublishTime")
+        if isinstance(raw, (int, float)) and raw > 0:
+            timestamps.append(datetime.fromtimestamp(raw, tz=timezone.utc))
+    return max(timestamps) if timestamps else None

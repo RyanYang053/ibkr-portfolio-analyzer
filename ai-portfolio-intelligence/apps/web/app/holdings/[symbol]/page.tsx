@@ -44,7 +44,7 @@ export default async function HoldingDetailPage({ params }: { params: Promise<{ 
         <StatCard label="Current Price" value={`$${position.market_price.toLocaleString()}`} />
         <StatCard label="Market Value" value={`$${position.market_value.toLocaleString()}`} />
         <StatCard label="Portfolio Weight" value={`${position.portfolio_weight.toFixed(2)}%`} />
-        <StatCard label="Final Score" value={`${data.score.final_score.toFixed(1)}`} detail={data.score.interpretation} />
+        <StatCard label="Final Score" value={data.score.final_score === null ? "Unavailable" : data.score.final_score.toFixed(1)} detail={data.score.interpretation} />
       </section>
       <section className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
         <div className="grid gap-4">
@@ -57,10 +57,10 @@ export default async function HoldingDetailPage({ params }: { params: Promise<{ 
             </div>
             <div className="mt-4 grid gap-3 text-sm text-zinc-700">
               <p>{recommendation.explanation}</p>
-              <p><strong>Add zone:</strong> {recommendation.add_zone}</p>
-              <p><strong>Hold zone:</strong> {recommendation.hold_zone}</p>
-              <p><strong>Trim review zone:</strong> {recommendation.trim_review_zone}</p>
-              <p><strong>Exit review trigger:</strong> {recommendation.exit_review_trigger}</p>
+              <p><strong>Add zone:</strong> {recommendation.add_zone ?? "Unavailable until research inputs are verified."}</p>
+              <p><strong>Hold zone:</strong> {recommendation.hold_zone ?? "Unavailable until research inputs are verified."}</p>
+              <p><strong>Trim review zone:</strong> {recommendation.trim_review_zone ?? "Unavailable until research inputs are verified."}</p>
+              <p><strong>Exit review trigger:</strong> {recommendation.exit_review_trigger ?? "Unavailable until research inputs are verified."}</p>
             </div>
           </div>
 
@@ -69,11 +69,13 @@ export default async function HoldingDetailPage({ params }: { params: Promise<{ 
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h3 className="text-lg font-semibold">Technical Trend</h3>
-                <p className="text-xs text-zinc-500 font-medium capitalize mt-0.5">Classification: {technicals.trend_classification}</p>
+                <p className="text-xs text-zinc-500 font-medium capitalize mt-0.5">Classification: {technicals.trend_classification ?? "Unavailable"}</p>
               </div>
               <div className="text-right">
-                <span className="text-sm font-bold text-zinc-800">RSI (14): {technicals.rsi_14.toFixed(1)}</span>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-wide mt-0.5">52W Drawdown: {technicals.drawdown_from_52w_high.toFixed(1)}%</p>
+                <span className="text-sm font-bold text-zinc-800">RSI (14): {technicals.rsi_14 === null ? "Unavailable" : technicals.rsi_14.toFixed(1)}</span>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wide mt-0.5">
+                  52W Drawdown: {technicals.drawdown_from_52w_high === null ? "Unavailable" : `${technicals.drawdown_from_52w_high.toFixed(1)}%`}
+                </p>
               </div>
             </div>
             <HoldingInteractiveChart symbol={position.symbol} />
@@ -134,38 +136,32 @@ export default async function HoldingDetailPage({ params }: { params: Promise<{ 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-zinc-500 block">Revenue Growth (YoY)</span>
-                <span className="font-semibold text-base">{(fundamentals.revenue_growth_yoy * 100).toFixed(1)}%</span>
+                <span className="font-semibold text-base">{formatPercent(fundamentals.revenue_growth_yoy)}</span>
               </div>
               <div>
                 <span className="text-zinc-500 block">Gross Margin</span>
-                <span className="font-semibold text-base">{(fundamentals.gross_margin * 100).toFixed(1)}%</span>
+                <span className="font-semibold text-base">{formatPercent(fundamentals.gross_margin)}</span>
               </div>
               <div>
                 <span className="text-zinc-500 block">Operating Margin</span>
-                <span className="font-semibold text-base">{(fundamentals.operating_margin * 100).toFixed(1)}%</span>
+                <span className="font-semibold text-base">{formatPercent(fundamentals.operating_margin)}</span>
               </div>
               <div>
                 <span className="text-zinc-500 block">Free Cash Flow</span>
                 <span className="font-semibold text-base">
-                  {fundamentals.free_cash_flow >= 1e9
-                    ? `$${(fundamentals.free_cash_flow / 1e9).toFixed(1)}B`
-                    : `$${(fundamentals.free_cash_flow / 1e6).toFixed(1)}M`}
+                  {formatLargeCurrency(fundamentals.free_cash_flow)}
                 </span>
               </div>
               <div>
                 <span className="text-zinc-500 block">Cash & Equivalents</span>
                 <span className="font-semibold text-base">
-                  {fundamentals.cash >= 1e9
-                    ? `$${(fundamentals.cash / 1e9).toFixed(1)}B`
-                    : `$${(fundamentals.cash / 1e6).toFixed(1)}M`}
+                  {formatLargeCurrency(fundamentals.cash)}
                 </span>
               </div>
               <div>
                 <span className="text-zinc-500 block">Total Debt</span>
                 <span className="font-semibold text-base">
-                  {fundamentals.total_debt >= 1e9
-                    ? `$${(fundamentals.total_debt / 1e9).toFixed(1)}B`
-                    : `$${(fundamentals.total_debt / 1e6).toFixed(1)}M`}
+                  {formatLargeCurrency(fundamentals.total_debt)}
                 </span>
               </div>
               <div>
@@ -205,4 +201,15 @@ export default async function HoldingDetailPage({ params }: { params: Promise<{ 
       <AIRefreshPanel key={position.symbol} symbol={position.symbol} initialProvider={aiStatus.mode === "live_gemini" ? `gemini:${aiStatus.model}` : "deterministic_fallback"} initialReport={data.last_ai_report} />
     </div>
   );
+}
+
+function formatPercent(value: number | null) {
+  return value === null ? "Unavailable" : `${(value * 100).toFixed(1)}%`;
+}
+
+function formatLargeCurrency(value: number | null) {
+  if (value === null) return "Unavailable";
+  return value >= 1e9
+    ? `$${(value / 1e9).toFixed(1)}B`
+    : `$${(value / 1e6).toFixed(1)}M`;
 }

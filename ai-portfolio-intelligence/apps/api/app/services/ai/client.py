@@ -27,33 +27,31 @@ class GeminiClient:
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
         self.api_key = api_key if api_key is not None else _runtime_api_key or os.getenv("GEMINI_API_KEY") or settings.gemini_api_key
         self.model = model or _runtime_model or os.getenv("GEMINI_MODEL") or settings.gemini_model
+        self.last_grounding_used = False
 
     @property
     def configured(self) -> bool:
         return bool(self.api_key)
 
-    def generate_json(self, prompt: str) -> dict[str, Any]:
+    def generate_json(self, prompt: str, response_schema: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured")
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "tools": [{"googleSearch": {}}],
             "generationConfig": {
                 "temperature": 0.2,
                 "topP": 0.8,
                 "responseMimeType": "application/json",
             },
         }
+        if response_schema:
+            payload["generationConfig"]["responseSchema"] = response_schema
+        self.last_grounding_used = False
         headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
         with httpx.Client(timeout=settings.ai_timeout_seconds) as client:
             response = client.post(url, headers=headers, json=payload)
-            # Fallback: if search tools are not supported for this model or key, retry without search tools
-            if response.status_code == 400:
-                payload.pop("tools", None)
-                response = client.post(url, headers=headers, json=payload)
-            
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
@@ -86,7 +84,10 @@ class GeminiClient:
             if response.status_code == 400:
                 payload.pop("tools", None)
                 response = client.post(url, headers=headers, json=payload)
-            
+                self.last_grounding_used = False
+            else:
+                self.last_grounding_used = True
+
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:

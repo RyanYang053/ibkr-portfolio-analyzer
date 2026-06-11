@@ -2,6 +2,8 @@ import { Disclaimer } from "@/components/Disclaimer";
 import { AIConfigForm } from "@/components/AIConfigForm";
 import { IBKRConfigForm } from "@/components/IBKRConfigForm";
 import { ScheduleConfigForm } from "@/components/ScheduleConfigForm";
+import { InvestorProfileForm } from "@/components/InvestorProfileForm";
+import { TargetPolicyForm } from "@/components/TargetPolicyForm";
 import { getAIStatus, getBrokerStatus, getScheduleSettings } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -27,53 +29,53 @@ export default async function SettingsPage() {
         <h2 className="text-3xl font-semibold">Settings</h2>
       </div>
       <Disclaimer />
+      
       <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-md border border-line bg-white p-4">
-          <h3 className="text-lg font-semibold">Broker Connection</h3>
-          <dl className="mt-3 grid gap-2 text-sm">
-            <div className="flex justify-between"><dt>Status</dt><dd>{brokerStatus.status}</dd></div>
-            <div className="flex justify-between"><dt>Mode</dt><dd>{brokerStatus.mode}</dd></div>
-            <div className="flex justify-between"><dt>Socket</dt><dd>{brokerStatus.host ?? "127.0.0.1"}:{brokerStatus.port ?? "4002"}</dd></div>
-            <div className="flex justify-between"><dt>Credential storage</dt><dd>No IBKR password storage</dd></div>
-            <div className="flex justify-between"><dt>Order APIs</dt><dd>Not present</dd></div>
-          </dl>
-          {brokerStatus.error ? <p className="mt-3 rounded-md border border-warning bg-amber-50 p-2 text-sm text-warning">{brokerStatus.error}</p> : null}
-          <IBKRConfigForm
-            defaultMode={brokerStatus.mode}
-            defaultHost={brokerStatus.host}
-            defaultPort={brokerStatus.port}
-            defaultClientId={brokerStatus.client_id}
-            defaultAccountId={brokerStatus.account_id}
-          />
+        <div className="flex flex-col gap-4">
+          <InvestorProfileForm />
+          <TargetPolicyForm />
         </div>
-        <div className="rounded-md border border-line bg-white p-4">
-          <h3 className="text-lg font-semibold">AI Provider</h3>
-          <dl className="mt-3 grid gap-2 text-sm">
-            <div className="flex justify-between"><dt>Provider</dt><dd>{aiStatus.provider}</dd></div>
-            <div className="flex justify-between"><dt>Model</dt><dd>{aiStatus.model}</dd></div>
-            <div className="flex justify-between"><dt>Mode</dt><dd>{aiStatus.mode}</dd></div>
-            <div className="flex justify-between">
-              <dt>Scheduled Analysis</dt>
-              <dd>{scheduleSettings.enabled ? "Active" : "Manual only"}</dd>
-            </div>
-          </dl>
-          <div className="mt-4 rounded-md bg-panel p-3 text-sm">
-            Set <code className="font-mono">GEMINI_API_KEY</code> on the backend process, then restart the API.
-            Do not put the key in browser code.
+        
+        <div className="flex flex-col gap-4">
+          <div className="rounded-md border border-line bg-white p-4">
+            <h3 className="text-lg font-semibold">Broker Connection</h3>
+            <dl className="mt-3 grid gap-2 text-sm">
+              <div className="flex justify-between"><dt>Status</dt><dd>{brokerStatus.status}</dd></div>
+              <div className="flex justify-between"><dt>Mode</dt><dd>{brokerStatus.mode}</dd></div>
+              <div className="flex justify-between"><dt>Socket</dt><dd>{brokerStatus.host ?? "127.0.0.1"}:{brokerStatus.port ?? "4002"}</dd></div>
+              <div className="flex justify-between"><dt>Credential storage</dt><dd>No IBKR password storage</dd></div>
+              <div className="flex justify-between"><dt>Order APIs</dt><dd>Not present</dd></div>
+            </dl>
+            {brokerStatus.error ? <p className="mt-3 rounded-md border border-warning bg-amber-50 p-2 text-sm text-warning">{brokerStatus.error}</p> : null}
+            <IBKRConfigForm
+              defaultMode={brokerStatus.mode}
+              defaultHost={brokerStatus.host}
+              defaultPort={brokerStatus.port}
+              defaultClientId={brokerStatus.client_id}
+              defaultAccountId={brokerStatus.account_id}
+            />
           </div>
-          <AIConfigForm defaultModel={aiStatus.model} />
-          <ScheduleConfigForm initialSettings={scheduleSettings} />
-        </div>
-        <div className="rounded-md border border-line bg-white p-4">
-          <h3 className="text-lg font-semibold">Default Risk Rules</h3>
-          <dl className="mt-3 grid gap-2 text-sm">
-            <div className="flex justify-between"><dt>Core stock review</dt><dd>10%-15%</dd></div>
-            <div className="flex justify-between"><dt>Speculative stock review</dt><dd>1%-3%</dd></div>
-            <div className="flex justify-between"><dt>Speculative basket review</dt><dd>5%-10%</dd></div>
-            <div className="flex justify-between"><dt>Cash target</dt><dd>10%-25%</dd></div>
-          </dl>
+          <div className="rounded-md border border-line bg-white p-4">
+            <h3 className="text-lg font-semibold">AI Provider</h3>
+            <dl className="mt-3 grid gap-2 text-sm">
+              <div className="flex justify-between"><dt>Provider</dt><dd>{aiStatus.provider}</dd></div>
+              <div className="flex justify-between"><dt>Model</dt><dd>{aiStatus.model}</dd></div>
+              <div className="flex justify-between"><dt>Mode</dt><dd>{aiStatus.mode}</dd></div>
+              <div className="flex justify-between">
+                <dt>Scheduled Analysis</dt>
+                <dd>{scheduleSettings.enabled ? "Active" : "Manual only"}</dd>
+              </div>
+            </dl>
+            <div className="mt-4 rounded-md bg-panel p-3 text-sm">
+              Set <code className="font-mono">GEMINI_API_KEY</code> on the backend process, then restart the API.
+              Do not put the key in browser code.
+            </div>
+            <AIConfigForm defaultModel={aiStatus.model} />
+            <ScheduleConfigForm initialSettings={scheduleSettings} />
+          </div>
         </div>
       </section>
+      
       <section className="rounded-md border border-line bg-white p-4">
         <h3 className="text-lg font-semibold">No-Trading Policy Acknowledgement</h3>
         <p className="mt-2 text-sm text-zinc-700">

@@ -77,7 +77,7 @@ export async function getAccounts(): Promise<any[]> {
   return getJson("/broker/accounts", []);
 }
 
-export async function getHoldingAnalysis(symbol: string): Promise<{ position: Position; recommendation: Recommendation; score: { final_score: number; interpretation: string; sub_scores: Record<string, number> }; last_ai_report?: AIStockReport | null }> {
+export async function getHoldingAnalysis(symbol: string): Promise<{ position: Position; recommendation: Recommendation; score: { final_score: number | null; interpretation: string; sub_scores: Record<string, number> }; last_ai_report?: AIStockReport | null }> {
   return getJson(`/stocks/${symbol}/analysis`, {
     position: {
       account_id: "DISCONNECTED",
@@ -114,7 +114,7 @@ export async function getHoldingAnalysis(symbol: string): Promise<{ position: Po
       human_review_reminder: "Human review required before any investment decision.",
       disclaimer: "This is portfolio analysis and decision support only. The system does not execute trades."
     },
-    score: { final_score: 0, interpretation: "Data Insufficient", sub_scores: {} },
+    score: { final_score: null, interpretation: "Data Insufficient", sub_scores: {} },
     last_ai_report: null
   });
 }
@@ -134,7 +134,7 @@ export async function getAuditLogs() {
 export async function getAIStatus(): Promise<AIStatus> {
   return getJson<AIStatus>("/ai/status", {
     provider: "gemini",
-    model: "gemini-3.5-flash",
+    model: "gemini-2.5-flash",
     configured: false,
     mode: "deterministic_fallback",
     schedule: { enabled: false, interval_hours: 24, last_run_at: null }
@@ -193,17 +193,17 @@ export async function getTechnicals(symbol: string): Promise<{
   sma_200: number;
   ema_8: number;
   ema_21: number;
-  rsi_14: number;
+  rsi_14: number | null;
   macd: number;
   macd_signal: number;
   macd_histogram: number;
-  atr_14: number;
-  beta: number;
-  volume_ratio: number;
-  relative_strength_spy: number;
-  relative_strength_qqq: number;
-  drawdown_from_52w_high: number;
-  trend_classification: string;
+  atr_14: number | null;
+  beta: number | null;
+  volume_ratio: number | null;
+  relative_strength_spy: number | null;
+  relative_strength_qqq: number | null;
+  drawdown_from_52w_high: number | null;
+  trend_classification: string | null;
   historical_prices: number[];
 }> {
   return getJson(`/stocks/${symbol}/technicals`, {
@@ -215,17 +215,17 @@ export async function getTechnicals(symbol: string): Promise<{
     sma_200: 0,
     ema_8: 0,
     ema_21: 0,
-    rsi_14: 50,
+    rsi_14: null,
     macd: 0,
     macd_signal: 0,
     macd_histogram: 0,
-    atr_14: 0,
-    beta: 1.0,
-    volume_ratio: 1.0,
-    relative_strength_spy: 1.0,
-    relative_strength_qqq: 1.0,
-    drawdown_from_52w_high: 0,
-    trend_classification: "neutral",
+    atr_14: null,
+    beta: null,
+    volume_ratio: null,
+    relative_strength_spy: null,
+    relative_strength_qqq: null,
+    drawdown_from_52w_high: null,
+    trend_classification: null,
     historical_prices: []
   });
 }
@@ -245,12 +245,12 @@ export async function getFundamentals(symbol: string): Promise<{
   symbol: string;
   period: string;
   report_date: string;
-  revenue_growth_yoy: number;
-  gross_margin: number;
-  operating_margin: number;
-  free_cash_flow: number;
-  cash: number;
-  total_debt: number;
+  revenue_growth_yoy: number | null;
+  gross_margin: number | null;
+  operating_margin: number | null;
+  free_cash_flow: number | null;
+  cash: number | null;
+  total_debt: number | null;
   pe_forward: number | null;
   ev_sales: number | null;
   fcf_yield: number | null;
@@ -259,12 +259,12 @@ export async function getFundamentals(symbol: string): Promise<{
     symbol,
     period: "TTM",
     report_date: new Date().toISOString().split("T")[0],
-    revenue_growth_yoy: 0,
-    gross_margin: 0,
-    operating_margin: 0,
-    free_cash_flow: 0,
-    cash: 0,
-    total_debt: 0,
+    revenue_growth_yoy: null,
+    gross_margin: null,
+    operating_margin: null,
+    free_cash_flow: null,
+    cash: null,
+    total_debt: null,
     pe_forward: null,
     ev_sales: null,
     fcf_yield: null,
@@ -377,6 +377,89 @@ export async function triggerScheduledAnalyze(period: string): Promise<any> {
   return response.json();
 }
 
+export async function getInvestorProfile(accountId?: string): Promise<any> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return getJson(`/portfolio/profile${query}`, {
+    objective: "Growth",
+    time_horizon_years: 10,
+    risk_tolerance: "High",
+    risk_capacity: "Medium",
+    liquidity_needs: 10000.0,
+    net_worth_range: "100k-500k",
+    tax_residency: "Canada",
+    account_type: "Tax-Free",
+    restrictions: []
+  });
+}
 
+export async function updateInvestorProfile(profile: any, accountId?: string): Promise<any> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  const response = await fetch(`${API_URL}/portfolio/profile${query}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile)
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update investor profile: ${response.statusText}`);
+  }
+  return response.json();
+}
 
+export async function getPortfolioPolicy(accountId?: string): Promise<any> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return getJson(`/portfolio/policy${query}`, {
+    target_equity_percent: 85.0,
+    target_cash_percent: 15.0,
+    target_bond_percent: 0.0,
+    max_single_stock_weight: 12.0,
+    max_speculative_weight: 5.0,
+    max_sector_weight: 35.0,
+    max_options_exposure: 3.0,
+    minimum_cash: 10000.0,
+    benchmark: "SPY",
+    rebalancing_drift_threshold: 5.0
+  });
+}
 
+export async function updatePortfolioPolicy(policy: any, accountId?: string): Promise<any> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  const response = await fetch(`${API_URL}/portfolio/policy${query}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(policy)
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update portfolio policy: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function getAdvancedRiskMetrics(accountId?: string): Promise<any> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return getJson(`/portfolio/advanced-risk${query}`, {
+    max_drawdown: null,
+    volatility: null,
+    portfolio_beta_spy: null,
+    portfolio_beta_qqq: null,
+    value_at_risk_95: null,
+    conditional_var_95: null,
+    correlation_matrix: {},
+    factor_exposures: {},
+    stress_tests: [],
+    data_quality: { historical_metrics: "unavailable" },
+    methodology: {}
+  });
+}
+
+export async function getPerformanceAttribution(accountId?: string): Promise<any> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return getJson(`/portfolio/attribution${query}`, {
+    security_selection_return: {},
+    sector_allocation_return: {},
+    asset_class_return: {},
+    realized_vs_unrealized: { realized: 0.0, unrealized: 0.0 },
+    benchmark_relative_alpha: null,
+    data_quality: { benchmark_data: "missing" },
+    methodology: "Unavailable"
+  });
+}

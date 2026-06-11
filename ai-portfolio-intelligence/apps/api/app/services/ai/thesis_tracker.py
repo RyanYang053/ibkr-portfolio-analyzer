@@ -84,18 +84,38 @@ def update_thesis(symbol: str, thesis: str, key_assumptions: list[str], break_tr
     return updated
 
 
-def evaluate_thesis(position: Position | None, score: Any, data_quality: dict[str, Any]) -> dict[str, Any]:
+def evaluate_thesis(
+    position: Position | None,
+    score: Any,
+    data_quality: dict[str, Any],
+    current_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     symbol = position.symbol if position else "UNKNOWN"
     stored = get_thesis(symbol)
     missing_count = data_quality.get("missing_categories_count", 0)
-    final_score = getattr(score, "final_score", None)
+    current_data = current_data or {}
+    assumption_checks = [
+        _evaluate_statement(statement, current_data)
+        for statement in stored.get("key_assumptions", [])
+    ]
+    trigger_checks = [
+        _evaluate_statement(statement, current_data, is_break_trigger=True)
+        for statement in stored.get("break_triggers", [])
+    ]
+    triggered_break_conditions = [
+        check["statement"] for check in trigger_checks if check["status"] == "breached"
+    ]
 
-    if missing_count > 2:
-        status = "unknown_due_to_missing_data"
-        reason = "More than two major data categories are missing, so the stored thesis cannot be confirmed."
-    elif final_score is not None and final_score < 45:
+    if triggered_break_conditions:
         status = "broken"
-        reason = "The current score is below the thesis break threshold."
+        reason = "One or more stored thesis invalidation triggers are supported by current structured data."
+    elif (
+        missing_count > 0
+        or any(check["status"] != "supported" for check in assumption_checks)
+        or any(check["status"] == "not_evaluable" for check in trigger_checks)
+    ):
+        status = "weakened"
+        reason = "The stored thesis cannot be fully confirmed because required assumptions or break triggers lack verified evidence."
     elif position and position.is_speculative and position.portfolio_weight > 3:
         status = "weakened"
         reason = "Speculative exposure is above the default review range."
@@ -110,5 +130,58 @@ def evaluate_thesis(position: Position | None, score: Any, data_quality: dict[st
         "status": status,
         "status_reason": reason,
         "invalidation_triggers": stored["break_triggers"],
+        "assumption_checks": assumption_checks,
+        "trigger_checks": trigger_checks,
+        "triggered_break_conditions": triggered_break_conditions,
         "last_reviewed_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _evaluate_statement(
+    statement: str,
+    current_data: dict[str, Any],
+    *,
+    is_break_trigger: bool = False,
+) -> dict[str, str]:
+    normalized = statement.lower()
+    fundamentals = _as_dict(current_data.get("fundamentals"))
+    technicals = _as_dict(current_data.get("technicals"))
+
+    status = "not_evaluable"
+    evidence = "No structured field is mapped to this statement."
+
+    if "growth" in normalized or "revenue" in normalized:
+        value = fundamentals.get("revenue_growth_yoy")
+        if value is not None:
+            breached = value <= 0
+            status = "breached" if breached == is_break_trigger else "supported"
+            evidence = f"revenue_growth_yoy={value}"
+    elif "margin" in normalized:
+        value = fundamentals.get("operating_margin")
+        if value is not None:
+            breached = value < 0
+            status = "breached" if breached == is_break_trigger else "supported"
+            evidence = f"operating_margin={value}"
+    elif "cash runway" in normalized or "balance sheet" in normalized:
+        cash = fundamentals.get("cash")
+        debt = fundamentals.get("total_debt")
+        if cash is not None and debt is not None:
+            breached = cash <= debt
+            status = "breached" if breached == is_break_trigger else "supported"
+            evidence = f"cash={cash}; total_debt={debt}"
+    elif "technical" in normalized or "breakdown" in normalized:
+        trend = str(technicals.get("trend_classification", "")).lower()
+        if trend:
+            breached = trend in {"downtrend", "breakdown", "weakening"}
+            status = "breached" if breached == is_break_trigger else "supported"
+            evidence = f"trend_classification={trend}"
+
+    return {"statement": statement, "status": status, "evidence": evidence}
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    return {}

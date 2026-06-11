@@ -56,12 +56,12 @@ export function AIRefreshPanel({ symbol, initialProvider, initialReport }: { sym
             <p className="mt-1 text-sm text-zinc-700">Thesis: {active.thesis?.status?.replaceAll("_", " ")}</p>
           </div>
           <div className="grid gap-3 text-sm lg:grid-cols-2">
-            <p><strong>Summary:</strong> {active.summary}</p>
+            <p><strong>Summary:</strong> {evidenceText(active.summary)}</p>
             <p><strong>Why action:</strong> {active.why_action?.text}</p>
-            <p><strong>Business:</strong> {active.business_summary}</p>
-            <p><strong>Valuation:</strong> {active.valuation_view}</p>
-            <p><strong>Technical:</strong> {active.technical_view}</p>
-            <p><strong>Risk:</strong> {active.risk_view}</p>
+            <p><strong>Business:</strong> {evidenceText(active.business_summary)}</p>
+            <p><strong>Valuation:</strong> {evidenceText(active.valuation_view)}</p>
+            <p><strong>Technical:</strong> {evidenceText(active.technical_view)}</p>
+            <p><strong>Risk:</strong> {evidenceText(active.risk_view)}</p>
             <p><strong>Add zone:</strong> {active.add_zone ?? "Unavailable because required data is missing."}</p>
             <p><strong>Exit trigger:</strong> {active.exit_review_trigger}</p>
           </div>
@@ -76,6 +76,48 @@ export function AIRefreshPanel({ symbol, initialProvider, initialReport }: { sym
               ))}
             </div>
           </div>
+          {active.provenance ? (
+            <div className="rounded-md border border-line p-3 text-sm">
+              <h4 className="font-semibold mb-2">Data Provenance (Audit Trail)</h4>
+              <div className="flex flex-wrap gap-2">
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  active.provenance.live_portfolio_data 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700" 
+                    : "bg-zinc-50 border-zinc-200 text-zinc-600"
+                }`}>
+                  Portfolio: {active.provenance.live_portfolio_data ? "Live" : "Mock"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  active.provenance.live_market_data 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700" 
+                    : "bg-zinc-50 border-zinc-200 text-zinc-600"
+                }`}>
+                  Market: {active.provenance.live_market_data ? "Live" : "Mock"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  active.provenance.cached_data 
+                    ? "bg-sky-50 border-sky-200 text-sky-700" 
+                    : "bg-zinc-50 border-zinc-200 text-zinc-600"
+                }`}>
+                  Cached: {active.provenance.cached_data ? "Yes" : "No"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  active.provenance.mock_fallback_data 
+                    ? "bg-amber-50 border-amber-200 text-amber-700" 
+                    : "bg-emerald-50 border-emerald-200 text-emerald-700"
+                }`}>
+                  Fallback: {active.provenance.mock_fallback_data ? "Active" : "None"}
+                </span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  active.provenance.web_grounded_context 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700" 
+                    : "bg-zinc-50 border-zinc-200 text-zinc-600"
+                }`}>
+                  Web-Grounded: {active.provenance.web_grounded_context ? "Grounded" : "No Search"}
+                </span>
+              </div>
+            </div>
+          ) : null}
           <div className="rounded-md border border-line p-3 text-sm">
             <h4 className="font-semibold">Missing and stale data</h4>
             <p>Missing: {active.data_quality?.missing_categories?.join(", ") || "none"}</p>
@@ -91,4 +133,8 @@ export function AIRefreshPanel({ symbol, initialProvider, initialReport }: { sym
       ) : null}
     </section>
   );
+}
+
+function evidenceText(value: string | { text: string } | undefined) {
+  return typeof value === "string" ? value : value?.text ?? "Unavailable";
 }

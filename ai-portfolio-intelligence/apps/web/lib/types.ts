@@ -33,6 +33,7 @@ export type PortfolioSummary = {
   };
   risk: PortfolioRisk;
   positions: Position[];
+  suitability_warnings?: string[];
 };
 
 export type PortfolioRisk = {
@@ -61,12 +62,12 @@ export type Alert = {
 export type Recommendation = {
   symbol: string;
   action: string;
-  score: number;
+  score: number | null;
   confidence: string;
-  add_zone: string;
-  hold_zone: string;
-  trim_review_zone: string;
-  exit_review_trigger: string;
+  add_zone: string | null;
+  hold_zone: string | null;
+  trim_review_zone: string | null;
+  exit_review_trigger: string | null;
   explanation: string;
   evidence: string[];
   human_review_reminder: string;
@@ -101,21 +102,21 @@ export type AIStockReport = {
   symbol: string;
   company: string;
   portfolio_role: string;
-  summary: string;
+  summary: EvidenceText | string;
   why_action: EvidenceText;
-  business_summary: string;
-  fundamental_view: string;
-  valuation_view: string;
-  technical_view: string;
-  risk_view: string;
-  portfolio_fit: string;
-  final_score: number;
+  business_summary: EvidenceText | string;
+  fundamental_view: EvidenceText | string;
+  valuation_view: EvidenceText | string;
+  technical_view: EvidenceText | string;
+  risk_view: EvidenceText | string;
+  portfolio_fit: EvidenceText | string;
+  final_score: number | null;
   rule_engine_action: string;
   action: string;
   add_zone: string | null;
-  hold_zone: string;
-  trim_review_zone: string;
-  exit_review_trigger: string;
+  hold_zone: string | null;
+  trim_review_zone: string | null;
+  exit_review_trigger: string | null;
   confidence: string;
   confidence_limits: {
     confidence_cap: string;
@@ -146,6 +147,13 @@ export type AIStockReport = {
   disclaimer: string;
   provider: string;
   provider_error?: string;
+  provenance?: {
+    live_portfolio_data: boolean;
+    live_market_data: boolean;
+    cached_data: boolean;
+    mock_fallback_data: boolean;
+    web_grounded_context: boolean;
+  };
 };
 
 export type EvidenceText = {

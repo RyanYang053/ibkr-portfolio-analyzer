@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     ibkr_client_id: int = 10
     ibkr_account_id: Optional[str] = None
     gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-3.5-flash"
+    gemini_model: str = "gemini-2.5-flash"
     ai_timeout_seconds: float = 60.0
 
 

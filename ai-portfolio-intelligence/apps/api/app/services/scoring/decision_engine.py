@@ -20,31 +20,29 @@ def _action_for(score: float, position: Position) -> str:
 
 def build_recommendation(position: Position) -> Recommendation:
     score = score_stock(position)
-    action = _action_for(score.final_score, position)
-    support_price = position.market_price * 0.92
-    resistance_price = position.market_price * 1.18
-    exit_price = position.market_price * 0.78
+    inputs_verified = not score.missing_data
+    action = _action_for(score.final_score, position) if inputs_verified and score.final_score is not None else "Data Insufficient"
 
     explanation = (
-        f"{position.symbol} is categorized as {action} for decision support based on a "
-        f"{score.final_score:.1f} score, {position.portfolio_weight:.2f}% portfolio weight, "
-        "and the current mock data set. This suggestion requires independent review."
+        f"{position.symbol} is categorized as {action}. The current score is a placeholder "
+        "heuristic and cannot support an add, trim, or exit category until live fundamental, "
+        "technical, valuation, and catalyst inputs are verified."
     )
     return Recommendation(
         symbol=position.symbol,
         action=action,  # type: ignore[arg-type]
         score=score.final_score,
         confidence=score.confidence,
-        add_zone=f"Potential add zone near {support_price:.2f} if thesis remains intact.",
-        hold_zone=f"Hold review zone around current price {position.market_price:.2f}.",
-        trim_review_zone=f"Trim review zone above {resistance_price:.2f} or if concentration exceeds limits.",
-        exit_review_trigger=f"Exit review trigger below {exit_price:.2f} or if fundamentals/news invalidate the thesis.",
+        add_zone=None,
+        hold_zone=None,
+        trim_review_zone=None,
+        exit_review_trigger=None,
         explanation=explanation,
         evidence=score.supporting_evidence,
         data_freshness={
             "portfolio": position.updated_at.isoformat(),
             "score": score.data_timestamp.isoformat(),
-            "market_data": "mock_current",
-            "fundamentals": "mock_snapshot",
+            "market_data": "unverified",
+            "fundamentals": "unverified",
         },
     )

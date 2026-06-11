@@ -30,6 +30,16 @@ def list_reports(adapter: BrokerAdapter = Depends(get_broker_adapter)):
     from app.services.ai.report_cache import get_cached_report
     cached = get_cached_report("__PORTFOLIO__")
     if cached:
+        # Clone cached to modify safely
+        cached = dict(cached)
+        provenance_obj = None
+        if "provenance" in cached:
+            prov = dict(cached["provenance"])
+            prov["cached_data"] = True
+            cached["provenance"] = prov
+            from app.schemas.domain import Provenance
+            provenance_obj = Provenance(**prov)
+
         # Build markdown text for the cached AI memo
         md_lines = [
             f"# {cached.get('title', 'AI Daily Portfolio Memo')}",
@@ -68,6 +78,7 @@ def list_reports(adapter: BrokerAdapter = Depends(get_broker_adapter)):
                 data_timestamp=utc_now(),
                 confidence=cached.get("confidence", "Medium"),
                 missing_data=cached.get("missing_data", []),
+                provenance=provenance_obj
             )
         )
     return reports

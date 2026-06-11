@@ -55,7 +55,7 @@ The app keeps the Gemini key on the backend only. Do not put it in frontend code
 
 ```bash
 export GEMINI_API_KEY="your_google_ai_studio_key"
-export GEMINI_MODEL="gemini-3.5-flash"
+export GEMINI_MODEL="gemini-2.5-flash"
 cd apps/api
 ../../.venv/bin/uvicorn app.main:app --reload
 ```

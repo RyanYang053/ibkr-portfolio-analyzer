@@ -1,33 +1,46 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import sys
+from typing import Any
+
+from app.core.config import settings
 
 
 class MockMarketDataProvider:
+    def __init__(self, allow_mock: bool | None = None) -> None:
+        self.allow_mock = (
+            allow_mock
+            if allow_mock is not None
+            else settings.broker_mode == "mock_ibkr_readonly" or "pytest" in sys.modules
+        )
+
     def get_latest_price(self, symbol: str) -> float:
         from app.services.broker.mock_ibkr import MOCK_LOTS
+        if self.allow_mock and symbol.upper() in MOCK_LOTS:
+            return MOCK_LOTS[symbol.upper()][2]
+
+        import httpx
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
         try:
-            return MOCK_LOTS[symbol][2]
-        except KeyError:
-            import httpx
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            try:
-                with httpx.Client() as client:
-                    response = client.get(url, headers=headers, timeout=3.0)
-                    if response.status_code == 200:
-                        price = response.json()["chart"]["result"][0]["meta"].get("regularMarketPrice")
-                        if price is not None:
-                            return float(price)
-            except Exception:
-                pass
-            return 100.0
+            with httpx.Client() as client:
+                response = client.get(url, headers=headers, timeout=3.0)
+                if response.status_code == 200:
+                    price = response.json()["chart"]["result"][0]["meta"].get("regularMarketPrice")
+                    if price is not None:
+                        return float(price)
+        except Exception as exc:
+            raise RuntimeError(f"Live market price unavailable for {symbol.upper()}") from exc
+
+        if self.allow_mock and symbol.upper() in MOCK_LOTS:
+            return MOCK_LOTS[symbol.upper()][2]
+        raise RuntimeError(f"Live market price unavailable for {symbol.upper()}")
 
     def get_historical_prices(self, symbol: str, start_date: date, end_date: date) -> list[dict[str, float | str]]:
-        import sys
-        if "pytest" not in sys.modules:
+        if not self.allow_mock:
             import httpx
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}?range=1y&interval=1d"
             headers = {
@@ -47,13 +60,14 @@ class MockMarketDataProvider:
                         for ts, close in zip(timestamps, closes):
                             if close is not None:
                                 date_str = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
-                                prices.append({"date": date_str, "close": float(close)})
+                                prices.append({"date": date_str, "close": float(close), "source": "live_yahoo_finance"})
                         if prices:
                             return prices
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(f"Live price history unavailable for {symbol.upper()}") from exc
+            raise RuntimeError(f"Live price history unavailable for {symbol.upper()}")
 
-        # Fallback to linear mock (also used in unit tests)
+        # Deterministic demo/test data is available only when explicitly enabled.
         from app.services.broker.mock_ibkr import MOCK_LOTS
         if symbol.upper() not in MOCK_LOTS:
             raise KeyError(f"No mock history for {symbol}")
@@ -63,12 +77,11 @@ class MockMarketDataProvider:
         prices = []
         for index in range(days):
             close = base + index * (MOCK_LOTS[symbol.upper()][2] - base) / max(days - 1, 1)
-            prices.append({"date": (start_date + timedelta(days=index)).isoformat(), "close": round(close, 2)})
+            prices.append({"date": (start_date + timedelta(days=index)).isoformat(), "close": round(close, 2), "source": "mock_market_data"})
         return prices
 
     def get_recent_news(self, symbol: str) -> list[dict[str, Any]]:
-        import sys
-        if "pytest" not in sys.modules:
+        if not self.allow_mock:
             import httpx
             url = f"https://query1.finance.yahoo.com/v1/finance/search?q={symbol.upper()}"
             headers = {
@@ -92,10 +105,11 @@ class MockMarketDataProvider:
                             })
                         if parsed_news:
                             return parsed_news
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(f"Live news unavailable for {symbol.upper()}") from exc
+            raise RuntimeError(f"Live news unavailable for {symbol.upper()}")
 
-        # Fallback news
+        # Demo/test catalyst data is always labeled as mock.
         return [
             {
                 "symbol": symbol.upper(),
@@ -108,8 +122,7 @@ class MockMarketDataProvider:
         ]
 
     def get_chart_data(self, symbol: str, range_str: str = "1y", interval_str: str = "1d") -> list[dict[str, float | str]]:
-        import sys
-        if "pytest" not in sys.modules:
+        if not self.allow_mock:
             import httpx
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}?range={range_str}&interval={interval_str}"
             headers = {
@@ -139,14 +152,16 @@ class MockMarketDataProvider:
                                     "close": float(close),
                                     "open": float(open_p) if open_p is not None else float(close),
                                     "high": float(high) if high is not None else float(close),
-                                    "low": float(low) if low is not None else float(close)
+                                    "low": float(low) if low is not None else float(close),
+                                    "source": "live_yahoo_finance",
                                 })
                         if prices:
                             return prices
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(f"Live chart data unavailable for {symbol.upper()}") from exc
+            raise RuntimeError(f"Live chart data unavailable for {symbol.upper()}")
 
-        # Fallback to mock data based on range
+        # Deterministic demo/test chart data.
         from app.services.broker.mock_ibkr import MOCK_LOTS
         base_price = 100.0
         if symbol.upper() in MOCK_LOTS:
@@ -170,10 +185,10 @@ class MockMarketDataProvider:
                 "close": round(close, 2),
                 "open": round(close * 0.99, 2),
                 "high": round(close * 1.01, 2),
-                "low": round(close * 0.985, 2)
+                "low": round(close * 0.985, 2),
+                "source": "mock_market_data",
             })
         return prices
-
 
 
 

@@ -140,7 +140,7 @@ def test_data_quality_rules_limit_confidence_and_action_when_inputs_missing():
     assert limits["add_zone_allowed"] is False
     assert context["scores"]["technical_score"] is None
     assert context["scores"]["catalyst_score"] is None
-    assert context["thesis"]["status"] == "unknown_due_to_missing_data"
+    assert context["thesis"]["status"] == "weakened"
     assert context["data_quality"]["missing_categories_count"] > 2
 
 

@@ -22,7 +22,7 @@ RUNS_FILE = os.path.join(DATA_DIR, "schedule_runs.json")
 
 class AIConfigureRequest(BaseModel):
     api_key: str = Field(min_length=10)
-    model: str = "gemini-3.5-flash"
+    model: str = "gemini-2.5-flash"
 
 
 class ThesisUpdateRequest(BaseModel):
@@ -64,33 +64,7 @@ def _save_settings(settings: dict[str, Any]) -> None:
 
 
 def _seed_initial_runs() -> list[dict[str, Any]]:
-    yest = (date.today() - timedelta(days=1)).isoformat()
-    return [
-        {
-            "timestamp": f"{yest}T09:30:00Z",
-            "period": "morning",
-            "net_liquidation": 155500.0,
-            "cash": 32500.0,
-            "analysis_text": "### **Pre-Market Action Recommendations**\n\n* **Portfolio Health**: Excellent stability going into the open. Cash levels remain high ($32,500.00).\n* **Tactical Opening Move**: Monitor AAPL and NVDA. If AAPL dips below $185.00, consider allocating $5,000.00 cash to increase weight. Avoid buying speculative assets (IONQ, LAES) in pre-market volatility.\n* **Macro Check**: Interest rate yields remain elevated; maintain standard defensive structures.",
-            "is_mock": True
-        },
-        {
-            "timestamp": f"{yest}T12:30:00Z",
-            "period": "midday",
-            "net_liquidation": 155900.0,
-            "cash": 32500.0,
-            "analysis_text": "### **Midday Trend Review**\n\n* **Intraday Momentum**: Markets show consolidation during lunch hour. QQQ is up 0.25%.\n* **Stock Performance Check**: MSFT has found technical support at $425.00, while CRM remains slightly overbought with RSI (14) at 68.2.\n* **Tactical Recommendation**: Hold existing positions. Do not chase CRM at current intraday high. Keep cash buffer intact.",
-            "is_mock": True
-        },
-        {
-            "timestamp": f"{yest}T20:00:00Z",
-            "period": "night",
-            "net_liquidation": 156420.0,
-            "cash": 32500.0,
-            "analysis_text": "### **Post-Market Daily Wrap-Up**\n\n* **Daily Performance**: Portfolio closed up +$920.00 (+0.59%). Net liquidation reached $156,420.00.\n* **Major Drivers**: SOXX and SOFI outperformed, gaining +1.8% and +2.1% respectively. Speculative assets remain stable.\n* **Tactical Suggestions for Tomorrow**: Set limit orders for CELH near $41.50 support. The current cash position is healthy; no immediate selling required.",
-            "is_mock": True
-        }
-    ]
+    return []
 
 
 def _load_runs() -> list[dict[str, Any]]:
@@ -100,7 +74,6 @@ def _load_runs() -> list[dict[str, Any]]:
                 return json.load(f)
         except Exception:
             pass
-    # If no file exists, generate mock runs so layout looks populated
     runs = _seed_initial_runs()
     _save_runs(runs)
     return runs
@@ -128,11 +101,6 @@ def ai_status() -> dict[str, object]:
 @router.post("/configure")
 def configure_ai(payload: AIConfigureRequest) -> dict[str, object]:
     configure_runtime_gemini(payload.api_key, payload.model)
-    from app.core.persistence import update_env_file
-    update_env_file({
-        "GEMINI_API_KEY": payload.api_key,
-        "GEMINI_MODEL": payload.model
-    })
     client = GeminiClient()
     log_audit_action(
         action="ai_configured",
@@ -246,31 +214,12 @@ def trigger_scheduled_analysis(payload: ScheduledAnalyzeRequest, adapter: Broker
         positions = adapter.get_positions(account_id)
         net_liq = summary.net_liquidation
         cash = summary.cash
-    except Exception:
-        net_liq = 156000.0
-        cash = 32500.0
-        positions = []
+    except Exception as exc:
+        raise broker_not_configured_error(exc) from exc
 
     # 2. Gather PnL history text to inject into the analysis
     from app.services.portfolio.pnl_tracker import get_pnl_history
     pnl_history = get_pnl_history()[-7:]
-    history_str = ""
-    for entry in pnl_history:
-        history_str += f"- {entry.date}: Net Liq: ${entry.net_liquidation:,.2f} | Cash: ${entry.cash:,.2f} | PnL: ${entry.daily_pnl:+,.2f} ({entry.daily_pnl_percent:+.2f}%)\n"
-
-    # Gather open orders
-    open_orders_str = ""
-    try:
-        open_orders = adapter.get_open_orders_readonly(account_id)
-        if open_orders:
-            open_orders_str = "Active Open Orders:\n"
-            for order in open_orders:
-                open_orders_str += f"- {order.side} {order.quantity} shares of {order.symbol} (Status: {order.status})\n"
-        else:
-            open_orders_str = "Active Open Orders: None\n"
-    except Exception:
-        open_orders_str = "Active Open Orders: Unavailable\n"
-
     # Fetch index prices
     spy_price = 0.0
     qqq_price = 0.0
@@ -285,46 +234,80 @@ def trigger_scheduled_analysis(payload: ScheduledAnalyzeRequest, adapter: Broker
     # 3. Invoke Gemini or fall back
     gemini = GeminiClient()
     if gemini.configured:
-        prompt = f"""
-Analyze the portfolio state and suggest daily actions for the current period: {period.upper()}.
-Current Portfolio Summary:
-- Net Liquidation: {net_liq:,.2f} {summary.base_currency}
-- Cash Balance: {cash:,.2f} {summary.base_currency}
-- Buying Power: {getattr(summary, 'buying_power', 0):,.2f} {summary.base_currency}
-- Margin Requirement: {getattr(summary, 'margin_requirement', 0):,.2f} {summary.base_currency}
-- Excess Liquidity: {getattr(summary, 'excess_liquidity', 0):,.2f} {summary.base_currency}
-- Total Unrealized P&L: {getattr(summary, 'total_unrealized_pnl', 0):+,.2f} {summary.base_currency}
-- Total Realized P&L: {getattr(summary, 'total_realized_pnl', 0):+,.2f} {summary.base_currency}
-
-Market Indices:
-- SPY (S&P 500 ETF): ${spy_price:.2f}
-- QQQ (Nasdaq 100 ETF): ${qqq_price:.2f}
-
-{open_orders_str}
-
-Recent 7-Day Performance Trend:
-{history_str}
-
-Active Holdings:
+        structured_payload = {
+            "period": period,
+            "portfolio": {
+                "net_liquidation": net_liq,
+                "cash": cash,
+                "base_currency": summary.base_currency,
+                "total_unrealized_pnl": summary.total_unrealized_pnl,
+                "total_realized_pnl": summary.total_realized_pnl,
+                "data_timestamp": summary.data_timestamp.isoformat(),
+            },
+            "market_indices": {
+                "SPY": spy_price if spy_price > 0 else None,
+                "QQQ": qqq_price if qqq_price > 0 else None,
+            },
+            "performance_history": [
+                {
+                    "date": entry.date,
+                    "net_liquidation": entry.net_liquidation,
+                    "cash": entry.cash,
+                    "daily_pnl": entry.daily_pnl,
+                    "daily_pnl_percent": entry.daily_pnl_percent,
+                }
+                for entry in pnl_history
+            ],
+            "holdings": [
+                {
+                    "symbol": pos.symbol,
+                    "market_price": pos.market_price,
+                    "market_value": pos.market_value,
+                    "portfolio_weight": pos.portfolio_weight,
+                    "unrealized_pnl": pos.unrealized_pnl,
+                    "currency": pos.currency,
+                    "stock_type": pos.stock_type,
+                    "is_speculative": pos.is_speculative,
+                    "updated_at": pos.updated_at.isoformat(),
+                }
+                for pos in positions
+            ],
+            "excluded": ["account_id", "credentials", "open_orders", "quantity", "average_cost", "buying_power"],
+        }
+        prompt = json.dumps(structured_payload, indent=2, sort_keys=True)
+        system_instruction = """
+You are a read-only portfolio research analyst. Use only the provided structured data.
+Identify data-quality, concentration, performance, and catalyst review issues.
+Do not provide order types, buy/sell quantities, cash deployment amounts, or execution instructions.
+Do not invent current market conditions. Clearly mark missing data and require human review.
+Write a concise Markdown review with evidence from the supplied fields.
 """
-        for pos in positions:
-            prompt += f"- {pos.symbol} | Quantity: {pos.quantity} | Avg Cost: {pos.avg_cost:.2f} {pos.currency} | Current Price: {pos.market_price:.2f} {pos.currency} | Market Value: {pos.market_value:.2f} {pos.currency} | Weight: {pos.portfolio_weight:.2f}% | Total Unrealized P&L: {pos.unrealized_pnl:+.2f} {pos.currency}\n"
-
-        system_instruction = f"""
-You are a professional investment coach suggesting tactical moves.
-Provide daily decision support for the {period.upper()} session:
-- MORNING: Focus on opening/pre-market moves, limit levels, and catalyst responses.
-- MIDDAY: Focus on momentum check, consolidation zones, and whether to hold or deploy cash.
-- NIGHT: Focus on daily wrap-up, top drivers, drawdown assessments, and suggestions for tomorrow.
-- Use your web-search grounding capabilities to verify any major overnight news, earnings releases, or corporate catalysts for the active holdings or macro indices before formulating your suggestions.
-Be objective and write in concise Markdown. Limit response to 3-4 bullet points under professional headers.
-"""
+        web_grounded = False
         try:
             analysis_text = gemini.generate_text(prompt, system_instruction)
+            web_grounded = gemini.last_grounding_used
         except Exception as exc:
             analysis_text = f"*(Gemini analysis error: {exc})*\n\n" + _get_fallback_analysis_text(period, net_liq, cash)
     else:
+        web_grounded = False
         analysis_text = _get_fallback_analysis_text(period, net_liq, cash)
+
+    from app.core.config import settings
+    import sys
+    is_demo = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+    is_live_portfolio = not is_demo and account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY", "all")
+    is_live_market = not is_demo
+    is_mock_fallback = is_demo or not is_live_portfolio or not is_live_market
+
+    # Append audit badge to analysis_text
+    provenance_badge = (
+        f"\n\n⚡ *Data Provenance: Live Portfolio: {'Yes' if is_live_portfolio else 'No'} | "
+        f"Live Market: {'Yes' if is_live_market else 'No'} | "
+        f"Cached: No | "
+        f"Mock Fallback: {'Yes' if is_mock_fallback else 'No'} | "
+        f"Web-Grounded: {'Yes' if web_grounded else 'No'}*"
+    )
+    analysis_text += provenance_badge
 
     # 4. Save to execution runs
     runs = _load_runs()
@@ -337,7 +320,14 @@ Be objective and write in concise Markdown. Limit response to 3-4 bullet points 
         "period": period,
         "net_liquidation": round(net_liq, 2),
         "cash": round(cash, 2),
-        "analysis_text": analysis_text
+        "analysis_text": analysis_text,
+        "provenance": {
+            "live_portfolio_data": is_live_portfolio,
+            "live_market_data": is_live_market,
+            "cached_data": False,
+            "mock_fallback_data": is_mock_fallback,
+            "web_grounded_context": web_grounded
+        }
     }
     runs.append(new_run)
     _save_runs(runs)
@@ -351,22 +341,10 @@ Be objective and write in concise Markdown. Limit response to 3-4 bullet points 
 
 
 def _get_fallback_analysis_text(period: str, net_liq: float, cash: float) -> str:
-    """Generate realistic deterministic daily reports for each period when Gemini is not configured."""
-    if period == "morning":
-        return f"""### **Pre-Market Action Recommendations**
+    """Return an honest fallback without fabricating market conditions or security facts."""
+    label = {"morning": "Morning", "midday": "Midday", "night": "Night"}.get(period, "Scheduled")
+    return f"""### **{label} Portfolio Data Check**
 
-* **Portfolio Health**: Solid baseline entering the session (Net Liquidation: ${net_liq:,.2f}, Cash: ${cash:,.2f}).
-* **Tactical Opening Move**: Watch AAPL and NVDA. If AAPL opens below $185.00, consider scaling in a small portion. Avoid adding speculative assets during early trading hours.
-* **Cash Deployment**: Preserve the current cash buffer (${cash:,.2f}) unless key support limits are broken on core holdings."""
-    elif period == "midday":
-        return f"""### **Midday Trend Review**
-
-* **Intraday Momentum**: Markets are consolidative with narrow volumes. Standard indices remain flat.
-* **Holding Strength**: MSFT is steady at key moving averages. CRM is exhibiting slightly overbought RSI indicators near 67.8.
-* **Tactical Suggestion**: Hold existing positions. Avoid chasing high-momentum growth segments. Maintain current cash levels."""
-    else:
-        return f"""### **Post-Market Daily Wrap-Up**
-
-* **Session Close**: Portfolio completed the day at a net liquidation of ${net_liq:,.2f}.
-* **Top Contributors**: Tech holdings (MSFT, GOOGL) drove positive performance variance, offset by slight drawdowns in CELH.
-* **Suggestions for Tomorrow**: Establish limit buy targets for CELH near $41.50. Standard portfolio risk scores remain inside target safety limits."""
+* **Portfolio Snapshot**: Net liquidation is ${net_liq:,.2f}; cash is ${cash:,.2f}.
+* **Market Analysis**: Current market, technical, and catalyst data unavailable because Gemini analysis did not complete.
+* **Decision Support**: No security action or price level is generated from incomplete data. Refresh after the missing data source is restored."""

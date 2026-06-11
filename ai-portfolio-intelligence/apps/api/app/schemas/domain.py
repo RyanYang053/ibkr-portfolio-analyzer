@@ -20,6 +20,7 @@ ActionCategory = Literal[
     "Trim Review",
     "Exit Review",
     "Avoid",
+    "Data Insufficient",
 ]
 
 ConfidenceLevel = Literal["High", "Medium-High", "Medium", "Low"]
@@ -122,7 +123,7 @@ class PortfolioRisk(BaseModel):
 class StockScore(BaseModel):
     symbol: str
     stock_type: str
-    final_score: float
+    final_score: Optional[float]
     interpretation: str
     sub_scores: dict[str, float]
     explanation: str
@@ -132,18 +133,27 @@ class StockScore(BaseModel):
     data_timestamp: datetime
 
 
+class Provenance(BaseModel):
+    live_portfolio_data: bool
+    live_market_data: bool
+    cached_data: bool
+    mock_fallback_data: bool
+    web_grounded_context: bool
+
+
 class Recommendation(BaseModel):
     symbol: str
     action: ActionCategory
-    score: float
+    score: Optional[float]
     confidence: ConfidenceLevel
-    add_zone: str
-    hold_zone: str
-    trim_review_zone: str
-    exit_review_trigger: str
+    add_zone: Optional[str]
+    hold_zone: Optional[str]
+    trim_review_zone: Optional[str]
+    exit_review_trigger: Optional[str]
     explanation: str
     evidence: list[str]
     data_freshness: dict[str, str]
+    provenance: Optional[Provenance] = None
     human_review_required: bool = True
     human_review_reminder: str = "Human review required before any investment decision."
     disclaimer: str = DISCLAIMER
@@ -162,11 +172,11 @@ class TechnicalIndicators(BaseModel):
     macd: float
     macd_signal: float
     macd_histogram: float
-    atr_14: float
-    beta: float
-    volume_ratio: float
-    relative_strength_spy: float
-    relative_strength_qqq: float
+    atr_14: Optional[float]
+    beta: Optional[float]
+    volume_ratio: Optional[float]
+    relative_strength_spy: Optional[float]
+    relative_strength_qqq: Optional[float]
     drawdown_from_52w_high: float
     trend_classification: str
 
@@ -195,6 +205,7 @@ class AIReport(BaseModel):
     data_timestamp: datetime
     confidence: ConfidenceLevel
     missing_data: list[str]
+    provenance: Optional[Provenance] = None
     human_review_required: bool = True
     disclaimer: str = DISCLAIMER
 
@@ -202,6 +213,82 @@ class AIReport(BaseModel):
     def risk_alerts(self) -> list[Any]:
         alerts = self.report_json.get("risk_alerts", [])
         return alerts if isinstance(alerts, list) else []
+
+
+class InvestorProfile(BaseModel):
+    objective: Literal["Growth", "Income", "Capital Preservation", "Speculation"]
+    time_horizon_years: int
+    risk_tolerance: Literal["Low", "Medium", "High"]
+    risk_capacity: Literal["Low", "Medium", "High"]
+    liquidity_needs: float
+    net_worth_range: str
+    tax_residency: Literal["US", "Canada", "Other"]
+    account_type: Literal["Tax-Free", "Taxable", "Margin", "Corporate"]
+    restrictions: list[str] = []
+
+
+class InvestmentPolicyStatement(BaseModel):
+    target_equity_percent: float
+    target_cash_percent: float
+    target_bond_percent: float
+    max_single_stock_weight: float = 12.0
+    max_speculative_weight: float = 5.0
+    max_sector_weight: float = 35.0
+    max_options_exposure: float = 3.0
+    minimum_cash: float
+    benchmark: str = "SPY"
+    rebalancing_drift_threshold: float = 5.0
+
+
+class RebalanceProposalItem(BaseModel):
+    symbol: str
+    current_weight: float
+    target_weight: float
+    current_value: float
+    proposed_trade_value: float
+    proposed_trade_qty: float
+    action: Literal["Buy", "Sell", "Hold"]
+    reason: str
+
+
+class RebalanceProposal(BaseModel):
+    proposed_trades: list[RebalanceProposalItem]
+    cash_impact: float
+    tax_impact_warning: str
+    compliance_disclaimer: str = DISCLAIMER
+
+
+class StressScenario(BaseModel):
+    name: str
+    description: str
+    portfolio_change_pct: float
+    estimated_loss: float
+    risk_level: str
+
+
+class AdvancedRiskMetrics(BaseModel):
+    max_drawdown: Optional[float]
+    volatility: Optional[float]
+    portfolio_beta_spy: Optional[float]
+    portfolio_beta_qqq: Optional[float]
+    value_at_risk_95: Optional[float]
+    conditional_var_95: Optional[float]
+    correlation_matrix: dict[str, dict[str, float]]
+    factor_exposures: dict[str, float]
+    stress_tests: list[StressScenario]
+    data_quality: dict[str, str]
+    methodology: dict[str, str]
+
+
+class PerformanceAttribution(BaseModel):
+    security_selection_return: dict[str, float]
+    sector_allocation_return: dict[str, float]
+    asset_class_return: dict[str, float]
+    realized_vs_unrealized: dict[str, float]
+    benchmark_relative_alpha: Optional[float]
+    data_quality: dict[str, str]
+    methodology: str
+
 
 
 def utc_now() -> datetime:
