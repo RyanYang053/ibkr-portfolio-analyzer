@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+ENV/
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+Thumbs.db
+
+# Sensitive local configurations
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+config.json
+
+# Local user-specific data and history databases
+ai-portfolio-intelligence/apps/api/app/data/*.json
+ai-portfolio-intelligence/apps/api/ai_reports.json
+ai-portfolio-intelligence/apps/api/theses.json
