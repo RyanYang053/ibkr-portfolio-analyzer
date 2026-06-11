@@ -17,7 +17,6 @@ from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
 from app.services.technicals.indicators import calculate_technical_indicators
 from app.core.config import settings
-import sys
 
 
 def generate_daily_portfolio_memo(summary: AccountSummary, positions: list[Position]) -> AIReport:
@@ -26,10 +25,10 @@ def generate_daily_portfolio_memo(summary: AccountSummary, positions: list[Posit
     detractors = sorted(positions, key=lambda position: position.unrealized_pnl)[:3]
     recommendations = [build_recommendation(position) for position in positions[:5]]
 
-    is_demo = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+    is_demo = settings.broker_mode == "mock_ibkr_readonly"
     is_live_portfolio = not is_demo and summary.account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY", "all")
     is_live_market = not is_demo
-    is_mock_fallback = is_demo or not is_live_portfolio or not is_live_market
+    is_mock_fallback = is_demo
 
     provenance = Provenance(
         live_portfolio_data=is_live_portfolio,
@@ -76,7 +75,7 @@ def generate_daily_portfolio_memo(summary: AccountSummary, positions: list[Posit
         "possible_add_zones": [item.add_zone for item in recommendations if item.action in {"Strong Add", "Add"} and item.add_zone],
         "possible_trim_review_zones": [item.trim_review_zone for item in recommendations if item.action == "Trim Review" and item.trim_review_zone],
         "do_not_act_warnings": [
-            "Outputs are based on mock data until live data providers are connected.",
+            "Missing research categories remain unavailable until verified providers are connected.",
             "Human review is required before any investment decision.",
             "The system does not submit orders to IBKR.",
         ],
@@ -118,13 +117,11 @@ def generate_stock_research_report(position: Position, client: GeminiClient | No
 
     from app.services.ai.report_cache import set_cached_report
     from app.core.config import settings
-    import sys
-
-    is_demo = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+    is_demo = settings.broker_mode == "mock_ibkr_readonly"
     is_live_portfolio = not is_demo and position.account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY")
     
     is_live_market = not is_demo and _context_has_live_market_data(context)
-    is_mock_fallback = is_demo or not is_live_portfolio or not is_live_market
+    is_mock_fallback = is_demo
 
     if gemini.configured:
         try:
@@ -154,7 +151,7 @@ def generate_stock_research_report(position: Position, client: GeminiClient | No
                 "live_portfolio_data": is_live_portfolio,
                 "live_market_data": is_live_market,
                 "cached_data": False,
-                "mock_fallback_data": True,
+                "mock_fallback_data": is_mock_fallback,
                 "web_grounded_context": False
             }
             set_cached_report(position.symbol, fallback)
@@ -165,7 +162,7 @@ def generate_stock_research_report(position: Position, client: GeminiClient | No
         "live_portfolio_data": is_live_portfolio,
         "live_market_data": is_live_market,
         "cached_data": False,
-        "mock_fallback_data": True,
+        "mock_fallback_data": is_mock_fallback,
         "web_grounded_context": False
     }
     set_cached_report(position.symbol, fallback)
@@ -180,12 +177,10 @@ def generate_ai_portfolio_memo(summary: AccountSummary, positions: list[Position
     
     from app.services.ai.report_cache import set_cached_report
     from app.core.config import settings
-    import sys
-
-    is_demo = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+    is_demo = settings.broker_mode == "mock_ibkr_readonly"
     is_live_portfolio = not is_demo and summary.account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY", "all")
     is_live_market = not is_demo
-    is_mock_fallback = is_demo or not is_live_portfolio or not is_live_market
+    is_mock_fallback = is_demo
 
     if gemini.configured:
         try:
@@ -211,7 +206,7 @@ def generate_ai_portfolio_memo(summary: AccountSummary, positions: list[Position
                 "live_portfolio_data": is_live_portfolio,
                 "live_market_data": is_live_market,
                 "cached_data": False,
-                "mock_fallback_data": True,
+                "mock_fallback_data": is_mock_fallback,
                 "web_grounded_context": False
             }
             fallback["provider"] = "deterministic_fallback"
@@ -226,7 +221,7 @@ def generate_ai_portfolio_memo(summary: AccountSummary, positions: list[Position
         "live_portfolio_data": is_live_portfolio,
         "live_market_data": is_live_market,
         "cached_data": False,
-        "mock_fallback_data": True,
+        "mock_fallback_data": is_mock_fallback,
         "web_grounded_context": False
     }
     fallback["provider"] = "deterministic_fallback"

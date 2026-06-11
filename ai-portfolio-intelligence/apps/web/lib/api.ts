@@ -36,6 +36,7 @@ export async function getPortfolioSummary(accountId?: string): Promise<Portfolio
   const query = accountId ? `?account_id=${accountId}` : "";
   const data = await getJson<PortfolioSummary>(`/portfolio/summary${query}`, {
     summary: {
+      account_id: "DISCONNECTED",
       net_liquidation: 0,
       cash: 0,
       buying_power: 0,
@@ -103,12 +104,12 @@ export async function getHoldingAnalysis(symbol: string): Promise<{ position: Po
     recommendation: {
       symbol,
       action: "Data Insufficient",
-      score: 0,
+      score: null,
       confidence: "Low",
-      add_zone: "Unavailable until IBKR read-only data is connected.",
-      hold_zone: "Unavailable until IBKR read-only data is connected.",
-      trim_review_zone: "Unavailable until IBKR read-only data is connected.",
-      exit_review_trigger: "Unavailable until IBKR read-only data is connected.",
+      add_zone: null,
+      hold_zone: null,
+      trim_review_zone: null,
+      exit_review_trigger: null,
       explanation: "IBKR read-only connector is not configured. Mock holding analysis is disabled.",
       evidence: ["broker_not_connected"],
       human_review_reminder: "Human review required before any investment decision.",

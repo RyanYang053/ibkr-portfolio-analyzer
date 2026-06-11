@@ -63,42 +63,8 @@ def allocate_readonly_client_id(base_client_id: int) -> int:
         return base_client_id + (next(_client_id_offsets) % 1000)
 
 
-def _fetch_yahoo_prices_parallel(symbols: list[str]) -> dict[str, float]:
-    import httpx
-    from concurrent.futures import ThreadPoolExecutor
-
-    def _fetch_one(symbol: str) -> tuple[str, float]:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        try:
-            with httpx.Client() as client:
-                response = client.get(url, headers=headers, timeout=3.0)
-                if response.status_code == 200:
-                    data = response.json()
-                    meta = data["chart"]["result"][0]["meta"]
-                    price = meta.get("regularMarketPrice")
-                    if price is not None:
-                        return symbol, float(price)
-        except Exception:
-            pass
-        return symbol, 0.0
-
-    if not symbols:
-        return {}
-
-    unique_symbols = list(set(symbols))
-    res = {}
-    with ThreadPoolExecutor(max_workers=min(len(unique_symbols), 15)) as executor:
-        results = executor.map(_fetch_one, unique_symbols)
-        for symbol, price in results:
-            if price > 0:
-                res[symbol] = price
-    return res
-
-
 _fx_cache: dict[tuple[str, str], float] = {}
+
 
 def get_exchange_rate(from_curr: str, to_curr: str) -> float:
     if not from_curr or not to_curr or from_curr == to_curr:
@@ -108,15 +74,6 @@ def get_exchange_rate(from_curr: str, to_curr: str) -> float:
     if pair in _fx_cache:
         return _fx_cache[pair]
         
-    fallbacks = {
-        ("USD", "CAD"): 1.38,
-        ("CAD", "USD"): 0.72,
-        ("USD", "EUR"): 0.92,
-        ("EUR", "USD"): 1.08,
-        ("USD", "GBP"): 0.78,
-        ("GBP", "USD"): 1.28,
-    }
-    
     import httpx
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{pair[0]}{pair[1]}=X"
     headers = {
@@ -132,12 +89,10 @@ def get_exchange_rate(from_curr: str, to_curr: str) -> float:
                     val = float(price)
                     _fx_cache[pair] = val
                     return val
-    except Exception:
-        pass
-        
-    val = fallbacks.get(pair, 1.0)
-    _fx_cache[pair] = val
-    return val
+    except Exception as exc:
+        raise RuntimeError(f"Live FX rate unavailable for {pair[0]}/{pair[1]}") from exc
+
+    raise RuntimeError(f"Live FX rate unavailable for {pair[0]}/{pair[1]}")
 
 
 class IBKRReadOnlyAdapter(BrokerAdapter):
@@ -179,51 +134,6 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
             values = _summary_values(ib.accountSummary(account_id))
             total_unrealized = _float_value(values, "UnrealizedPnL")
             base_currency = values.get("Currency", "USD")
-            
-            # Fallback: calculate total unrealized P&L from positions using Yahoo Finance prices if TWS returns 0 or nan
-            import math
-            if total_unrealized == 0.0 or math.isnan(total_unrealized):
-                try:
-                    portfolio_items = ib.portfolio(account_id)
-                    positions_data = []
-                    if not portfolio_items:
-                        raw_positions = ib.positions()
-                        account_positions = [p for p in raw_positions if p.account == account_id]
-                        for p in account_positions:
-                            positions_data.append((
-                                getattr(p.contract, "symbol", "") or getattr(p.contract, "localSymbol", ""),
-                                float(p.position or 0),
-                                float(p.avgCost or 0),
-                                float(p.avgCost or 0),
-                                getattr(p.contract, "currency", "USD") or "USD"
-                            ))
-                    else:
-                        for item in portfolio_items:
-                            positions_data.append((
-                                getattr(item.contract, "symbol", "") or getattr(item.contract, "localSymbol", ""),
-                                float(item.position or 0),
-                                float(item.averageCost or 0),
-                                float(item.marketPrice or 0),
-                                getattr(item.contract, "currency", "USD") or "USD"
-                            ))
-                    
-                    symbols = [sym for sym, _, _, _, _ in positions_data if sym]
-                    if symbols:
-                        yahoo_prices = _fetch_yahoo_prices_parallel(symbols)
-                        sum_unrealized = 0.0
-                        for symbol, quantity, avg_cost, market_price, currency in positions_data:
-                            price = yahoo_prices.get(symbol, market_price)
-                            if price <= 0 or math.isnan(price) or price == avg_cost:
-                                if symbol in yahoo_prices:
-                                    price = yahoo_prices[symbol]
-                                else:
-                                    price = avg_cost
-                            unrealized_pos_curr = (quantity * price - quantity * avg_cost)
-                            rate = get_exchange_rate(currency, base_currency)
-                            sum_unrealized += unrealized_pos_curr * rate
-                        total_unrealized = sum_unrealized
-                except Exception:
-                    pass
 
             res = AccountSummary(
                 account_id=account_id,
@@ -262,11 +172,11 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                     sec_type = getattr(contract, "secType", "STK")
                     quantity = float(p.position or 0)
                     avg_cost = float(p.avgCost or 0)
-                    market_price = avg_cost
-                    market_value = quantity * avg_cost
+                    market_price = 0.0
+                    market_value = 0.0
                     currency = getattr(contract, "currency", "USD") or "USD"
                     
-                    class MockPortfolioItem:
+                    class PositionOnlyItem:
                         def __init__(self, contract, position, averageCost, marketPrice, marketValue, unrealizedPNL, realizedPNL):
                             self.contract = contract
                             self.position = position
@@ -276,7 +186,7 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                             self.unrealizedPNL = unrealizedPNL
                             self.realizedPNL = realizedPNL
                     
-                    item = MockPortfolioItem(contract, quantity, avg_cost, market_price, market_value, 0.0, 0.0)
+                    item = PositionOnlyItem(contract, quantity, avg_cost, market_price, market_value, 0.0, 0.0)
                     positions_data.append((item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency))
             else:
                 for item in portfolio_items:
@@ -287,41 +197,13 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                     avg_cost = float(item.averageCost or 0)
                     market_price = float(item.marketPrice or 0)
                     import math
-                    if (market_price <= 0 or math.isnan(market_price)) and avg_cost > 0:
-                        market_price = avg_cost
+                    if math.isnan(market_price):
+                        market_price = 0.0
                     market_value = float(item.marketValue or 0)
-                    if (market_value <= 0 or math.isnan(market_value)) and market_price > 0:
-                        market_value = quantity * market_price
+                    if math.isnan(market_value):
+                        market_value = 0.0
                     currency = getattr(contract, "currency", "USD") or "USD"
                     positions_data.append((item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency))
-
-            # Fetch Yahoo Finance prices in parallel to compute actual P&L values
-            symbols_to_fetch = [sym for _, sym, sec_type, _, _, _, _, _ in positions_data if sec_type in ("STK", "ETF")]
-            yahoo_prices = _fetch_yahoo_prices_parallel(symbols_to_fetch)
-
-            updated_positions_data = []
-            import math
-            for item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency in positions_data:
-                y_price = yahoo_prices.get(symbol, 0.0)
-                # Override if the connection is positions fallback, or if the price is a placeholder matching avgCost,
-                # or if the price is invalid (<=0 or nan)
-                is_fallback = (
-                    not portfolio_items
-                    or market_price <= 0
-                    or math.isnan(market_price)
-                    or market_price == avg_cost
-                )
-                if y_price > 0 and is_fallback:
-                    market_price = y_price
-                    market_value = quantity * market_price
-
-                # Recalculate item properties to reflect final pricing
-                item.marketPrice = market_price
-                item.marketValue = market_value
-                item.unrealizedPNL = market_value - (quantity * avg_cost)
-
-                updated_positions_data.append((item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency))
-            positions_data = updated_positions_data
 
             # Calculate total value in base currency
             total_value_in_base = 0.0
@@ -330,7 +212,7 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                 total_value_in_base += market_value * rate
 
             net_liq = _float_value(summary_values, "NetLiquidation")
-            total_value = max(net_liq, total_value_in_base, 1.0)
+            total_value = net_liq if net_liq > 0 else max(total_value_in_base, 1.0)
             
             positions: list[Position] = []
             for item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency in positions_data:
@@ -419,13 +301,7 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
             }
 
     def _connect(self):
-        import asyncio
-
-        try:
-            asyncio.get_event_loop()
-        except RuntimeError:
-            asyncio.set_event_loop(asyncio.new_event_loop())
-
+        _ensure_sync_event_loop()
         try:
             from ib_insync import IB
         except ImportError as exc:
@@ -466,6 +342,19 @@ class _IBConnection:
     def __exit__(self, exc_type, exc, tb) -> None:
         if self.ib.isConnected():
             self.ib.disconnect()
+
+
+def _ensure_sync_event_loop():
+    import asyncio
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+    if loop is None or loop.is_closed() or loop.is_running():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop
 
 
 def _summary_values(account_values) -> dict[str, str]:

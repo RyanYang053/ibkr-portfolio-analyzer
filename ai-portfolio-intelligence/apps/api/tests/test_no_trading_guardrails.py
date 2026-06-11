@@ -10,6 +10,7 @@ FORBIDDEN_ROUTES = {
     "/orders/execute",
     "/trades/execute",
     "/rebalance/execute",
+    "/portfolio/rebalance",
     "/options/execute",
     "/broker/order",
     "/broker/trade",

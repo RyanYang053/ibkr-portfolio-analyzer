@@ -31,7 +31,7 @@ def test_chat_endpoint_fallback_without_gemini_key(monkeypatch):
         response_text = data["response"]
         
         # Assert fallback details
-        assert "Demo mode active" in response_text or "Gemini API connection error" in response_text
+        assert "Gemini is not configured" in response_text or "Gemini API connection error" in response_text
         assert "NVDA" in response_text
         assert "AAPL" in response_text
         assert "Current price" in response_text

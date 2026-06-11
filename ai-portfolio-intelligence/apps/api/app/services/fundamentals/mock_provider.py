@@ -48,6 +48,7 @@ class MockFundamentalProvider:
 
                     pe_forward = stats.get("forwardPE", {}).get("raw")
                     ev_sales = stats.get("enterpriseToRevenue", {}).get("raw")
+                    most_recent_quarter = stats.get("mostRecentQuarter", {}).get("raw")
 
                     # Compute FCF yield
                     fcf_yield = None
@@ -57,14 +58,19 @@ class MockFundamentalProvider:
                         mcap = shares * price
                         if mcap > 0:
                             fcf_yield = fcf / mcap
-                    required = [revenue_growth, gross_margin, operating_margin, fcf, cash, total_debt]
+                    required = [revenue_growth, gross_margin, operating_margin, fcf, cash, total_debt, most_recent_quarter]
                     if any(value is None for value in required):
                         raise RuntimeError(f"Live fundamental data incomplete for {symbol.upper()}")
+
+                    from datetime import datetime, timezone
 
                     return FundamentalSnapshot(
                         symbol=symbol.upper(),
                         period="TTM",
-                        report_date=recent_mock_date(1),
+                        report_date=datetime.fromtimestamp(
+                            float(most_recent_quarter),
+                            tz=timezone.utc,
+                        ).date(),
                         revenue_growth_yoy=float(revenue_growth),
                         gross_margin=float(gross_margin),
                         operating_margin=float(operating_margin),

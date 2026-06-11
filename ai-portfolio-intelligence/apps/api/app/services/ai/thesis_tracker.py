@@ -6,25 +6,6 @@ from typing import Any
 from app.schemas.domain import Position
 
 
-DEFAULT_THESES: dict[str, dict[str, Any]] = {
-    "MSFT": {
-        "symbol": "MSFT",
-        "thesis": "Mega-cap quality compounder supported by durable software, cloud, and AI infrastructure demand.",
-        "key_assumptions": ["Revenue growth remains positive", "Margins remain resilient", "Balance sheet remains strong"],
-        "break_triggers": ["Sustained growth slowdown", "Margin compression", "Technical breakdown plus fundamentals deterioration"],
-        "created_at": "2026-06-09T00:00:00Z",
-        "updated_at": "2026-06-09T00:00:00Z",
-    },
-    "IONQ": {
-        "symbol": "IONQ",
-        "thesis": "Speculative quantum position depends on commercialization progress, cash runway, and controlled dilution.",
-        "key_assumptions": ["Cash runway remains adequate", "Commercial milestones continue", "Dilution risk stays manageable"],
-        "break_triggers": ["Cash runway pressure", "Rising dilution risk", "Milestone delays"],
-        "created_at": "2026-06-09T00:00:00Z",
-        "updated_at": "2026-06-09T00:00:00Z",
-    },
-}
-
 import json
 import os
 
@@ -53,17 +34,14 @@ def get_thesis(symbol: str) -> dict[str, Any]:
     normalized = symbol.upper()
     return _runtime_theses.get(
         normalized,
-        DEFAULT_THESES.get(
-            normalized,
-            {
-                "symbol": normalized,
-                "thesis": "No custom thesis stored yet. AI should treat this as a watchlist-style review.",
-                "key_assumptions": ["Position data remains current", "Core risk rules remain acceptable"],
-                "break_triggers": ["Missing critical data", "Thesis data unavailable"],
-                "created_at": "2026-06-09T00:00:00Z",
-                "updated_at": "2026-06-09T00:00:00Z",
-            },
-        ),
+        {
+            "symbol": normalized,
+            "thesis": "No custom thesis stored.",
+            "key_assumptions": [],
+            "break_triggers": [],
+            "created_at": None,
+            "updated_at": None,
+        },
     )
 
 
@@ -102,11 +80,15 @@ def evaluate_thesis(
         _evaluate_statement(statement, current_data, is_break_trigger=True)
         for statement in stored.get("break_triggers", [])
     ]
+    custom_thesis_stored = bool(stored.get("updated_at"))
     triggered_break_conditions = [
         check["statement"] for check in trigger_checks if check["status"] == "breached"
     ]
 
-    if triggered_break_conditions:
+    if not custom_thesis_stored:
+        status = "weakened"
+        reason = "No custom investment thesis has been stored for this holding."
+    elif triggered_break_conditions:
         status = "broken"
         reason = "One or more stored thesis invalidation triggers are supported by current structured data."
     elif (
@@ -126,6 +108,7 @@ def evaluate_thesis(
     return {
         "symbol": symbol,
         "stored_thesis": stored["thesis"],
+        "custom_thesis_stored": custom_thesis_stored,
         "key_assumptions": stored["key_assumptions"],
         "status": status,
         "status_reason": reason,

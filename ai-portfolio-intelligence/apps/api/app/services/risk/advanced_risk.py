@@ -132,8 +132,8 @@ def calculate_advanced_risk_metrics(
             "opt_shock": -95.0,
         },
         {
-            "name": "2008 Global Financial Crisis",
-            "desc": "Systemic debt crisis. Financials collapse, broad equities decline 48%.",
+            "name": "Illustrative systemic credit shock",
+            "desc": "Assumption-based scenario: broad equities fall 45% and speculative assets fall 65%.",
             "mkt_shock": -45.0,
             "spec_shock": -65.0,
             "opt_shock": -85.0,

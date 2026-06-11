@@ -117,9 +117,8 @@ def configure_ai(payload: AIConfigureRequest) -> dict[str, object]:
 
 
 def _get_filtered_runs(adapter: BrokerAdapter) -> list[dict[str, Any]]:
-    import sys
     from app.core.config import settings
-    is_demo = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+    is_demo = settings.broker_mode == "mock_ibkr_readonly"
     runs = _load_runs()
     if not is_demo:
         runs = [r for r in runs if not r.get("is_mock")]
@@ -293,11 +292,10 @@ Write a concise Markdown review with evidence from the supplied fields.
         analysis_text = _get_fallback_analysis_text(period, net_liq, cash)
 
     from app.core.config import settings
-    import sys
-    is_demo = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+    is_demo = settings.broker_mode == "mock_ibkr_readonly"
     is_live_portfolio = not is_demo and account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY", "all")
     is_live_market = not is_demo
-    is_mock_fallback = is_demo or not is_live_portfolio or not is_live_market
+    is_mock_fallback = is_demo
 
     # Append audit badge to analysis_text
     provenance_badge = (

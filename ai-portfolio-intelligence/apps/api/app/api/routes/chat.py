@@ -136,7 +136,7 @@ Your job is to analyze securities and portfolios using the provided structured s
 
 Rules:
 1. Ground your analysis in the provided facts. Do not invent financial data.
-2. If Google Search grounding is available, distinguish grounded web context from supplied portfolio data.
+2. Do not use outside facts or infer missing market conditions.
 3. Be professional, balanced, and objective. Write your responses in clear Markdown.
 4. Do not provide order types, buy/sell quantities, cash deployment amounts, or execution instructions.
 5. Remind the user that the system is read-only, does not place orders, and requires human review.
@@ -156,12 +156,43 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
 
     # 2. Gather user's real-time portfolio summary and cash situation
     portfolio_summary_text = ""
+    portfolio_context: dict[str, Any] = {
+        "status": "unavailable",
+        "reason": "Broker portfolio data was not available.",
+    }
     try:
         accounts = adapter.get_accounts()
         if accounts:
             acct_id = accounts[0].id
             summary = adapter.get_account_summary(acct_id)
             positions = adapter.get_positions(acct_id)
+            portfolio_context = {
+                "status": "available",
+                "summary": {
+                    "net_liquidation": summary.net_liquidation,
+                    "cash": summary.cash,
+                    "base_currency": summary.base_currency,
+                    "total_unrealized_pnl": summary.total_unrealized_pnl,
+                    "total_realized_pnl": summary.total_realized_pnl,
+                    "data_timestamp": summary.data_timestamp.isoformat(),
+                },
+                "positions": [
+                    {
+                        "symbol": pos.symbol,
+                        "market_price": pos.market_price,
+                        "market_value": pos.market_value,
+                        "portfolio_weight": pos.portfolio_weight,
+                        "stock_type": pos.stock_type,
+                        "is_speculative": pos.is_speculative,
+                        "currency": pos.currency,
+                        "updated_at": pos.updated_at.isoformat(),
+                    }
+                    for pos in positions
+                    if pos.quantity > 0
+                ],
+                "performance_history": [],
+                "suitability": None,
+            }
             
             portfolio_summary_text += "Current User Portfolio State:\n"
             portfolio_summary_text += f"- Net Liquidation: ${summary.net_liquidation:,.2f} {summary.base_currency}\n"
@@ -176,6 +207,16 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
                 from app.services.portfolio.pnl_tracker import get_pnl_history
                 pnl_history = get_pnl_history(acct_id)[-7:]
                 if pnl_history:
+                    portfolio_context["performance_history"] = [
+                        {
+                            "date": entry.date,
+                            "net_liquidation": entry.net_liquidation,
+                            "cash": entry.cash,
+                            "daily_pnl": entry.daily_pnl,
+                            "daily_pnl_percent": entry.daily_pnl_percent,
+                        }
+                        for entry in pnl_history
+                    ]
                     portfolio_summary_text += "- Recent 7-Day Performance Trend:\n"
                     for entry in pnl_history:
                         portfolio_summary_text += f"  * {entry.date}: Net Liq: ${entry.net_liquidation:,.2f} | Cash: ${entry.cash:,.2f} | PnL: ${entry.daily_pnl:+,.2f} ({entry.daily_pnl_percent:+.2f}%)\n"
@@ -193,6 +234,25 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
                 suitability_warnings = []
                 for pos in positions:
                     suitability_warnings.extend(check_position_suitability(profile, pos))
+                portfolio_context["suitability"] = {
+                    "investor_profile": {
+                        "objective": profile.objective,
+                        "risk_tolerance": profile.risk_tolerance,
+                        "risk_capacity": profile.risk_capacity,
+                        "time_horizon_years": profile.time_horizon_years,
+                        "account_type": profile.account_type,
+                        "liquidity_needs": profile.liquidity_needs,
+                        "restrictions": profile.restrictions,
+                    },
+                    "target_policy": {
+                        "target_equity_percent": policy.target_equity_percent,
+                        "target_cash_percent": policy.target_cash_percent,
+                        "target_bond_percent": policy.target_bond_percent,
+                        "minimum_cash": policy.minimum_cash,
+                    },
+                    "policy_drift": drift,
+                    "warnings": suitability_warnings,
+                }
                     
                 portfolio_summary_text += "\nInvestor Profile & Policy IPS:\n"
                 portfolio_summary_text += f"- Objective: {profile.objective} | Risk Tolerance: {profile.risk_tolerance} | Time Horizon: {profile.time_horizon_years} years | Account: {profile.account_type}\n"
@@ -206,40 +266,58 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
             portfolio_summary_text += "\n"
     except Exception as exc:
         portfolio_summary_text += f"Current User Portfolio State: Unavailable ({exc})\n\n"
+        portfolio_context = {
+            "status": "unavailable",
+            "reason": str(exc),
+        }
 
     from app.core.config import settings
     is_demo = (settings.broker_mode == "mock_ibkr_readonly")
-    is_live_portfolio = not is_demo
+    is_live_portfolio = not is_demo and portfolio_context.get("status") == "available"
     
     # Check if tagged contexts used live market data
     if tagged_contexts:
-        is_live_market = any(ctx.get("fundamentals_source") == "live_yahoo_finance" for ctx in tagged_contexts)
+        is_live_market = any(
+            ctx.get("fundamentals_source") == "live_yahoo_finance"
+            or not ctx.get("data_quality", {}).get("price_missing", True)
+            for ctx in tagged_contexts
+        )
     else:
-        is_live_market = not is_demo
+        is_live_market = is_live_portfolio and any(
+            position.get("market_price", 0) > 0
+            for position in portfolio_context.get("positions", [])
+        )
         
-    is_mock_fallback = is_demo or not is_live_portfolio or not is_live_market
+    is_mock_fallback = is_demo
 
     gemini = GeminiClient()
     if gemini.configured:
-        # 3. Build conversational prompt
-        history_text = ""
-        for msg in payload.history:
-            role_label = "User" if msg.role == "user" else "Assistant"
-            history_text += f"{role_label}: {msg.content}\n\n"
+        # Gemini receives a single structured payload with no broker identifiers,
+        # credentials, order data, quantities, or average costs.
+        import json
 
-        prompt = ""
-        # Inject the user's real-time cash and holdings context first
-        prompt += portfolio_summary_text
-        
-        if tagged_contexts:
-            prompt += "Tagged Stock Contexts (specifically selected by user for this message):\n"
-            import json
-            prompt += json.dumps(tagged_contexts, indent=2) + "\n\n"
-        
-        if history_text:
-            prompt += f"Conversation History:\n{history_text}"
-            
-        prompt += f"User: {payload.message}"
+        prompt = json.dumps(
+            {
+                "user_query": payload.message,
+                "conversation_history": [
+                    {"role": msg.role, "content": msg.content}
+                    for msg in payload.history
+                ],
+                "portfolio": portfolio_context,
+                "tagged_stock_contexts": tagged_contexts,
+                "data_boundary": {
+                    "structured_data_only": True,
+                    "broker_credentials_excluded": True,
+                    "account_identifiers_excluded": True,
+                    "order_data_excluded": True,
+                    "position_quantities_excluded": True,
+                    "average_costs_excluded": True,
+                    "external_search_disabled": True,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
 
         try:
             response_text = gemini.generate_text(prompt, CHAT_SYSTEM_INSTRUCTION)
@@ -264,7 +342,7 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
                 "live_portfolio_data": is_live_portfolio,
                 "live_market_data": is_live_market,
                 "cached_data": False,
-                "mock_fallback_data": True,
+                "mock_fallback_data": is_demo,
                 "web_grounded_context": False
             }
             response_text = f"*(Gemini API connection error: {exc})*\n\nHere is a local deterministic research overview for the requested symbols:\n\n" + _fallback_chat_response(payload.message, tagged_contexts, portfolio_summary_text)
@@ -272,7 +350,7 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
                 f"\n\n⚡ *Data Provenance: Live Portfolio: {'Yes' if is_live_portfolio else 'No'} | "
                 f"Live Market: {'Yes' if is_live_market else 'No'} | "
                 f"Cached: No | "
-                f"Mock Fallback: Yes | "
+                f"Mock Fallback: {'Yes' if is_demo else 'No'} | "
                 f"Web-Grounded: No*"
             )
             return {"response": response_text + provenance_badge, "provenance": provenance}
@@ -282,15 +360,15 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
         "live_portfolio_data": is_live_portfolio,
         "live_market_data": is_live_market,
         "cached_data": False,
-        "mock_fallback_data": True,
+        "mock_fallback_data": is_demo,
         "web_grounded_context": False
     }
-    response_text = "*(Demo mode active: Gemini key not configured)*\n\nHere is a local deterministic research overview for your query:\n\n" + _fallback_chat_response(payload.message, tagged_contexts, portfolio_summary_text)
+    response_text = "*(Gemini is not configured; using deterministic analysis only.)*\n\nHere is a local deterministic research overview for your query:\n\n" + _fallback_chat_response(payload.message, tagged_contexts, portfolio_summary_text)
     provenance_badge = (
         f"\n\n⚡ *Data Provenance: Live Portfolio: {'Yes' if is_live_portfolio else 'No'} | "
         f"Live Market: {'Yes' if is_live_market else 'No'} | "
         f"Cached: No | "
-        f"Mock Fallback: Yes | "
+        f"Mock Fallback: {'Yes' if is_demo else 'No'} | "
         f"Web-Grounded: No*"
     )
     return {"response": response_text + provenance_badge, "provenance": provenance}

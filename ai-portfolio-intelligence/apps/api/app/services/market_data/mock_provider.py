@@ -145,14 +145,14 @@ class MockMarketDataProvider:
                         prices = []
                         from datetime import datetime, timezone
                         for ts, close, open_p, high, low in zip(timestamps, closes, opens, highs, lows):
-                            if close is not None:
+                            if None not in (close, open_p, high, low):
                                 date_str = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
                                 prices.append({
                                     "date": date_str,
                                     "close": float(close),
-                                    "open": float(open_p) if open_p is not None else float(close),
-                                    "high": float(high) if high is not None else float(close),
-                                    "low": float(low) if low is not None else float(close),
+                                    "open": float(open_p),
+                                    "high": float(high),
+                                    "low": float(low),
                                     "source": "live_yahoo_finance",
                                 })
                         if prices:
@@ -189,6 +189,5 @@ class MockMarketDataProvider:
                 "source": "mock_market_data",
             })
         return prices
-
 
 

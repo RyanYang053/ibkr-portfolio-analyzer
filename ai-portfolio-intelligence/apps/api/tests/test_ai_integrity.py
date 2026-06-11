@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+import asyncio
 import json
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 from app.api.routes import ai as ai_routes
+from app.api.routes.pnl import create_pnl_snapshot
 from app.schemas.domain import AccountSummary, Position, utc_now
 from app.services.ai.client import GeminiClient
 from app.services.ai.prompt_templates import build_portfolio_memo_prompt
@@ -18,9 +21,11 @@ from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
 from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
 from app.services.attribution.engine import calculate_performance_attribution
+from app.services.broker.ibkr_readonly import _ensure_sync_event_loop, get_exchange_rate
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
 from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
+from app.services import scheduler
 
 
 def _position() -> Position:
@@ -168,8 +173,11 @@ def test_gemini_json_request_is_structured_only_and_not_falsely_grounded(monkeyp
     monkeypatch.setattr(httpx, "Client", _Client)
     client = GeminiClient(api_key="test-key-123", model="gemini-2.5-flash")
 
-    assert client.generate_json('{"structured": true}') == {"summary": "ok"}
+    assert client.generate_json('{"structured": true}', tools=[]) == {"summary": "ok"}
     assert "tools" not in captured_payloads[0]
+    assert client.last_grounding_used is False
+    assert client.generate_text('{"structured": true}', tools=[]) == '{"summary": "ok"}'
+    assert "tools" not in captured_payloads[1]
     assert client.last_grounding_used is False
 
 
@@ -252,6 +260,7 @@ def test_thesis_tracker_weakens_when_required_evidence_is_missing(monkeypatch):
             "thesis": "Growth and margins remain durable.",
             "key_assumptions": ["Revenue growth remains positive", "Margins remain resilient"],
             "break_triggers": ["Sustained growth slowdown", "Margin compression"],
+            "updated_at": "2026-06-11T18:00:00Z",
         },
     )
 
@@ -277,6 +286,7 @@ def test_thesis_tracker_marks_explicit_growth_trigger_broken(monkeypatch):
             "thesis": "Growth remains positive.",
             "key_assumptions": ["Revenue growth remains positive"],
             "break_triggers": ["Sustained growth slowdown"],
+            "updated_at": "2026-06-11T18:00:00Z",
         },
     )
 
@@ -293,3 +303,79 @@ def test_thesis_tracker_marks_explicit_growth_trigger_broken(monkeypatch):
 
     assert result["status"] == "broken"
     assert "Sustained growth slowdown" in result["triggered_break_conditions"]
+
+
+def test_ibkr_sync_connector_replaces_running_event_loop(monkeypatch):
+    class _RunningLoop:
+        def is_closed(self):
+            return False
+
+        def is_running(self):
+            return True
+
+    replacement = asyncio.new_event_loop()
+    installed = []
+    monkeypatch.setattr(asyncio, "get_event_loop", lambda: _RunningLoop())
+    monkeypatch.setattr(asyncio, "new_event_loop", lambda: replacement)
+    monkeypatch.setattr(asyncio, "set_event_loop", installed.append)
+
+    try:
+        assert _ensure_sync_event_loop() is replacement
+        assert installed == [replacement]
+    finally:
+        replacement.close()
+
+
+def test_live_fx_failure_never_uses_hardcoded_rate(monkeypatch):
+    class _Response:
+        status_code = 503
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, *args, **kwargs):
+            return _Response()
+
+    monkeypatch.setattr(httpx, "Client", _Client)
+
+    with pytest.raises(RuntimeError, match="Live FX rate unavailable"):
+        get_exchange_rate("CHF", "JPY")
+
+
+def test_scheduler_does_not_backfill_missed_analysis_slots(monkeypatch):
+    monkeypatch.setattr(
+        scheduler,
+        "_load_settings",
+        lambda: {
+            "enabled": True,
+            "morning_time": "09:30",
+            "midday_time": "12:30",
+            "night_time": "20:00",
+        },
+    )
+    monkeypatch.setattr(scheduler, "_load_runs", lambda: [])
+    monkeypatch.setattr(
+        scheduler,
+        "get_broker_adapter",
+        lambda: pytest.fail("A missed schedule must not connect to IBKR"),
+    )
+
+    scheduler._run_scheduler_sync(datetime(2026, 6, 11, 18, 0))
+
+
+def test_disconnected_snapshot_endpoint_never_records_dummy_portfolio():
+    class _OfflineAdapter:
+        def get_accounts(self):
+            raise ConnectionError("IB Gateway unavailable")
+
+    with pytest.raises(HTTPException) as exc:
+        create_pnl_snapshot(adapter=_OfflineAdapter())
+
+    assert exc.value.status_code == 503

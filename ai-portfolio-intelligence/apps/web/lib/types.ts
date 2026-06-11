@@ -22,6 +22,7 @@ export type Position = {
 
 export type PortfolioSummary = {
   summary: {
+    account_id?: string;
     net_liquidation: number;
     cash: number;
     buying_power: number;
