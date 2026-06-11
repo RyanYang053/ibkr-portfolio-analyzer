@@ -28,13 +28,17 @@ def _position(symbol: str, adapter: BrokerAdapter):
     # Fallback: create synthetic position for watchlist / non-held stocks
     from app.services.broker.securities import classify_security
     from app.schemas.domain import Position, utc_now
+    from app.core.config import settings
     
     sym = symbol.upper().strip()
     sec_info = classify_security(sym)
     
+    allow_mock = (settings.broker_mode == "mock_ibkr_readonly")
     try:
-        price = MockMarketDataProvider().get_latest_price(sym)
-    except Exception:
+        price = MockMarketDataProvider(allow_mock=allow_mock).get_latest_price(sym)
+    except Exception as exc:
+        if not allow_mock:
+            raise HTTPException(status_code=404, detail=f"Stock data not found for {sym}") from exc
         price = 0.0
         
     return Position(
@@ -86,16 +90,23 @@ def stock(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
 
 @router.get("/{symbol}/fundamentals")
 def fundamentals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    if not demo_mode_enabled() and not _is_held(symbol, adapter):
+    is_demo = demo_mode_enabled()
+    if not is_demo and not _is_held(symbol, adapter):
         raise data_provider_not_configured_error("Fundamental")
-    return MockFundamentalProvider().get_fundamentals(symbol.upper())
+    allow_mock = is_demo
+    try:
+        return MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(symbol.upper())
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Fundamental data not found for {symbol.upper()}: {exc}")
 
 
 @router.get("/{symbol}/technicals")
 def technicals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    if not demo_mode_enabled() and not _is_held(symbol, adapter):
+    is_demo = demo_mode_enabled()
+    if not is_demo and not _is_held(symbol, adapter):
         raise data_provider_not_configured_error("Technical")
-    provider = MockMarketDataProvider()
+    allow_mock = is_demo
+    provider = MockMarketDataProvider(allow_mock=allow_mock)
     try:
         history = provider.get_historical_prices(symbol.upper(), date.today() - timedelta(days=260), date.today())
         historical_prices = [item["close"] for item in history[-30:]]
@@ -110,44 +121,60 @@ def technicals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)
         else:
             raise RuntimeError("At least 200 daily closes are required")
     except Exception as exc:
-        raise data_provider_not_configured_error(f"Technical data unavailable: {exc}") from exc
+        raise HTTPException(status_code=404, detail=f"Technical data not found for {symbol.upper()}: {exc}")
     return {
         "symbol": symbol.upper(),
         "historical_prices": historical_prices,
         "rsi_14": rsi,
         "drawdown_from_52w_high": drawdown,
         "trend_classification": trend,
-        "data_quality": "verified" if not demo_mode_enabled() else "mock_demo",
+        "data_quality": "verified" if not is_demo else "mock_demo",
     }
 
 
 
 @router.get("/{symbol}/chart")
 def chart(symbol: str, range: str = "1Y", adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    if not demo_mode_enabled() and not _is_held(symbol, adapter):
+    is_demo = demo_mode_enabled()
+    if not is_demo and not _is_held(symbol, adapter):
         raise data_provider_not_configured_error("Chart")
     range_map = {"1D": "1d", "1M": "1mo", "3M": "3mo", "1Y": "1y"}
     interval_map = {"1D": "5m", "1M": "1d", "3M": "1d", "1Y": "1d"}
     
     r_val = range_map.get(range.upper(), "1y")
     i_val = interval_map.get(range.upper(), "1d")
-    return MockMarketDataProvider().get_chart_data(symbol, r_val, i_val)
+    allow_mock = is_demo
+    try:
+        return MockMarketDataProvider(allow_mock=allow_mock).get_chart_data(symbol, r_val, i_val)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Chart data not found for {symbol.upper()}: {exc}")
 
 
 @router.get("/{symbol}/valuation")
 def valuation(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
 
-    if not demo_mode_enabled() and not _is_held(symbol, adapter):
+    is_demo = demo_mode_enabled()
+    if not is_demo and not _is_held(symbol, adapter):
         raise data_provider_not_configured_error("Valuation")
-    data = MockFundamentalProvider().get_fundamentals(symbol.upper())
-    return {"symbol": symbol.upper(), "pe_forward": data.pe_forward, "ev_sales": data.ev_sales, "fcf_yield": data.fcf_yield}
+    allow_mock = is_demo
+    try:
+        data = MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(symbol.upper())
+        return {"symbol": symbol.upper(), "pe_forward": data.pe_forward, "ev_sales": data.ev_sales, "fcf_yield": data.fcf_yield}
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Valuation data not found for {symbol.upper()}: {exc}")
 
 
 @router.get("/{symbol}/news")
 def news(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    if not demo_mode_enabled() and not _is_held(symbol, adapter):
+    is_demo = demo_mode_enabled()
+    if not is_demo and not _is_held(symbol, adapter):
         raise data_provider_not_configured_error("News/catalyst")
-    return MockMarketDataProvider().get_recent_news(symbol)
+    allow_mock = is_demo
+    try:
+        return MockMarketDataProvider(allow_mock=allow_mock).get_recent_news(symbol)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"News data not found for {symbol.upper()}: {exc}")
+        raise HTTPException(status_code=404, detail=f"News data not found for {symbol.upper()}: {exc}")
 
 
 

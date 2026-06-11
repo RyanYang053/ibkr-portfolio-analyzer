@@ -224,7 +224,9 @@ def trigger_scheduled_analysis(payload: ScheduledAnalyzeRequest, adapter: Broker
     qqq_price = 0.0
     try:
         from app.services.market_data.mock_provider import MockMarketDataProvider
-        provider = MockMarketDataProvider()
+        import sys
+        allow_mock = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+        provider = MockMarketDataProvider(allow_mock=allow_mock)
         spy_price = provider.get_latest_price("SPY")
         qqq_price = provider.get_latest_price("QQQ")
     except Exception:

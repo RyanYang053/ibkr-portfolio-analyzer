@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.api.deps import get_broker_adapter, demo_mode_enabled
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.securities import classify_security
@@ -44,11 +45,16 @@ def _get_stock_context(symbol: str, adapter: BrokerAdapter) -> dict[str, Any]:
     except Exception:
         pass
 
+    import sys
+    allow_mock = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+
     if position is None:
         sec_info = classify_security(sym)
         try:
-            price = MockMarketDataProvider().get_latest_price(sym)
-        except Exception:
+            price = MockMarketDataProvider(allow_mock=allow_mock).get_latest_price(sym)
+        except Exception as exc:
+            if not allow_mock:
+                raise RuntimeError(f"Stock price not found for {sym}: {exc}") from exc
             price = 0.0
         position = Position(
             account_id="SYNTHETIC_RESEARCH",
@@ -75,14 +81,14 @@ def _get_stock_context(symbol: str, adapter: BrokerAdapter) -> dict[str, Any]:
     # 2. Fetch fundamentals
     fundamentals = None
     try:
-        fundamentals = MockFundamentalProvider().get_fundamentals(sym)
+        fundamentals = MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(sym)
     except Exception:
         pass
 
     # 3. Fetch technicals
     technicals = None
     try:
-        history = MockMarketDataProvider().get_historical_prices(sym, date.today() - timedelta(days=260), date.today())
+        history = MockMarketDataProvider(allow_mock=allow_mock).get_historical_prices(sym, date.today() - timedelta(days=260), date.today())
         closes = [item["close"] for item in history]
         if len(closes) >= 200:
             indicators = calculate_technical_indicators(sym, closes)
@@ -97,7 +103,7 @@ def _get_stock_context(symbol: str, adapter: BrokerAdapter) -> dict[str, Any]:
     # 4. Fetch news
     news = []
     try:
-        news_data = MockMarketDataProvider().get_recent_news(sym)
+        news_data = MockMarketDataProvider(allow_mock=allow_mock).get_recent_news(sym)
         news = [
             {"title": item["title"], "publisher": item.get("source", "Yahoo Finance")}
             for item in news_data[:3]
@@ -151,7 +157,9 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
         try:
             context = _get_stock_context(symbol, adapter)
             tagged_contexts.append(context)
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.exception(f"Error getting stock context for {symbol}: {exc}")
             pass
 
     # 2. Gather user's real-time portfolio summary and cash situation

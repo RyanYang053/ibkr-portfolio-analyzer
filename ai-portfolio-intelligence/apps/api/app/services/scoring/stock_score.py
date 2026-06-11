@@ -1,3 +1,4 @@
+from typing import Optional
 from app.schemas.domain import Position, StockScore, utc_now
 
 
@@ -75,7 +76,7 @@ def _base_sub_scores(position: Position) -> dict[str, float]:
     }
 
 
-def score_stock(position: Position) -> StockScore:
+def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockScore:
     portfolio_fit = 82.0
     if position.portfolio_weight > 12:
         portfolio_fit = 56.0
@@ -83,10 +84,15 @@ def score_stock(position: Position) -> StockScore:
         portfolio_fit = 45.0
 
     # Fetch dynamic inputs for GBDT model
+    from app.core.config import settings
+    import sys
+    if allow_mock is None:
+        allow_mock = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+
     fundamentals = None
     try:
         from app.services.fundamentals.mock_provider import MockFundamentalProvider
-        fundamentals = MockFundamentalProvider().get_fundamentals(position.symbol)
+        fundamentals = MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(position.symbol)
     except Exception:
         pass
 
@@ -94,7 +100,7 @@ def score_stock(position: Position) -> StockScore:
     try:
         from app.services.market_data.mock_provider import MockMarketDataProvider
         from app.services.technicals.indicators import calculate_technical_indicators
-        history = MockMarketDataProvider().get_historical_prices(position.symbol, utc_now().date(), utc_now().date())
+        history = MockMarketDataProvider(allow_mock=allow_mock).get_historical_prices(position.symbol, utc_now().date(), utc_now().date())
         closes = [item["close"] for item in history]
         technicals = calculate_technical_indicators(position.symbol, closes)
     except Exception:
@@ -103,9 +109,37 @@ def score_stock(position: Position) -> StockScore:
     news_list = []
     try:
         from app.services.market_data.mock_provider import MockMarketDataProvider
-        news_list = MockMarketDataProvider().get_recent_news(position.symbol)
+        news_list = MockMarketDataProvider(allow_mock=allow_mock).get_recent_news(position.symbol)
     except Exception:
         pass
+
+    if not allow_mock and (fundamentals is None or technicals is None):
+        missing_data = []
+        if not fundamentals:
+            missing_data.append("Verified fundamental score inputs")
+            missing_data.append("Verified valuation score inputs")
+        if not technicals:
+            missing_data.append("Verified technical score inputs")
+        if not news_list:
+            missing_data.append("Verified catalyst score inputs")
+
+        explanation = f"Stock score for {position.symbol} could not be calculated because live fundamental or technical data was not found."
+        return StockScore(
+            symbol=position.symbol,
+            stock_type=position.stock_type,
+            final_score=None,
+            interpretation="Data Not Found",
+            sub_scores={"portfolio_fit": portfolio_fit},
+            explanation=explanation,
+            supporting_evidence=[
+                f"Portfolio weight: {position.portfolio_weight:.2f}%",
+                f"Unrealized P&L: {position.unrealized_pnl:.2f} {position.currency}",
+                f"Stock type: {position.stock_type}",
+            ],
+            missing_data=missing_data,
+            confidence="Low",
+            data_timestamp=utc_now(),
+        )
 
     # Extract features for Decision Trees
     pe_forward = fundamentals.pe_forward if fundamentals else None

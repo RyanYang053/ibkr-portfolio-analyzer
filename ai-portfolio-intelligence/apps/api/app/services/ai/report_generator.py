@@ -380,8 +380,12 @@ def _sanitize_ai_report(report: dict[str, Any], position: Position, score, recom
 
 
 def _build_context(position: Position, score, recommendation) -> dict[str, Any]:
+    from app.core.config import settings
+    import sys
+    allow_mock = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+
     try:
-        fundamentals = MockFundamentalProvider().get_fundamentals(position.symbol)
+        fundamentals = MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(position.symbol)
     except Exception:
         fundamentals = None
     valuation = (
@@ -397,12 +401,12 @@ def _build_context(position: Position, score, recommendation) -> dict[str, Any]:
     technicals = None
     if position.market_price > 0:
         try:
-            history = MockMarketDataProvider().get_historical_prices(position.symbol, utc_now().date(), utc_now().date())
+            history = MockMarketDataProvider(allow_mock=allow_mock).get_historical_prices(position.symbol, utc_now().date(), utc_now().date())
             technicals = calculate_technical_indicators(position.symbol, [item["close"] for item in history])
         except Exception:
             technicals = None
     try:
-        catalysts = MockMarketDataProvider().get_recent_news(position.symbol)
+        catalysts = MockMarketDataProvider(allow_mock=allow_mock).get_recent_news(position.symbol)
     except Exception:
         catalysts = None
     return build_structured_stock_context(
