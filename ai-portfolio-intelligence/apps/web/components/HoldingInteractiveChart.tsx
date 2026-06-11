@@ -80,6 +80,20 @@ export function HoldingInteractiveChart({ symbol }: { symbol: string }) {
   const strokeColor = isUpTrend ? "#22c55e" : "#ef4444";
   const areaGradientId = `gradient-${symbol}-${range}`;
 
+  const formatTickDate = (dateStr: string, rangeStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr;
+      if (rangeStr === "1D") {
+        return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      } else {
+        return date.toLocaleDateString([], { timeZone: "UTC", month: "short", day: "numeric" });
+      }
+    } catch {
+      return dateStr;
+    }
+  };
+
   return (
     <div className="mt-4 border-t border-line pt-4">
       {/* Header Controls */}
@@ -225,14 +239,10 @@ export function HoldingInteractiveChart({ symbol }: { symbol: string }) {
           {data.length > 1 && (
             <>
               <text x={margin.left} y={height - 8} textAnchor="start" className="text-[9px] fill-zinc-400 font-medium">
-                {range === "1D" 
-                  ? new Date(data[0].date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-                  : new Date(data[0].date).toLocaleDateString([], {month: 'short', day: 'numeric'})}
+                {formatTickDate(data[0].date, range)}
               </text>
               <text x={width - margin.right} y={height - 8} textAnchor="end" className="text-[9px] fill-zinc-400 font-medium">
-                {range === "1D" 
-                  ? new Date(data[data.length - 1].date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-                  : new Date(data[data.length - 1].date).toLocaleDateString([], {month: 'short', day: 'numeric'})}
+                {formatTickDate(data[data.length - 1].date, range)}
               </text>
             </>
           )}

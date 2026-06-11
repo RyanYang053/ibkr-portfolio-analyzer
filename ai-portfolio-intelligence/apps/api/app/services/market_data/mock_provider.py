@@ -171,11 +171,14 @@ class MockMarketDataProvider:
         items_count = 24 if range_str == "1d" else 30 if range_str == "1mo" else 90 if range_str == "3mo" else 260
         prices = []
         import math
-        from datetime import date, datetime, timedelta, timezone
+        from datetime import date, datetime, time, timedelta, timezone
         end_date = date.today()
         for i in range(items_count):
             if range_str == "1d":
-                dt = (datetime.combine(end_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=i)).isoformat()
+                start_time = datetime.combine(end_date, time(13, 30), tzinfo=timezone.utc)
+                delta = timedelta(hours=6.5)  # 9:30 AM to 4:00 PM EST (6.5 hours)
+                divisor = max(1, items_count - 1)
+                dt = (start_time + delta * (i / divisor)).isoformat()
             else:
                 dt = (end_date - timedelta(days=items_count - 1 - i)).isoformat()
             factor = 1.0 + 0.05 * math.sin(i / 10.0) + (i / items_count) * 0.15
