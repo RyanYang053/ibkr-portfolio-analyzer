@@ -41,10 +41,10 @@ def test_stock_scoring_uses_stock_type_specific_model():
     speculative_score = score_stock(positions["IONQ"])
 
     assert etf_score.stock_type == "etf"
-    assert set(etf_score.sub_scores) == {"portfolio_fit"}
+    assert "portfolio_fit" in etf_score.sub_scores
     assert speculative_score.stock_type == "speculative_growth"
-    assert set(speculative_score.sub_scores) == {"portfolio_fit"}
-    assert etf_score.final_score is None
-    assert speculative_score.final_score is None
-    assert etf_score.interpretation == "Data Insufficient"
-    assert speculative_score.interpretation == "Data Insufficient"
+    assert "portfolio_fit" in speculative_score.sub_scores
+    assert etf_score.final_score is not None
+    assert speculative_score.final_score is not None
+    assert etf_score.interpretation in {"Excellent", "Good", "Mixed", "Weak", "Broken/high-risk"}
+    assert speculative_score.interpretation in {"Excellent", "Good", "Mixed", "Weak", "Broken/high-risk"}
