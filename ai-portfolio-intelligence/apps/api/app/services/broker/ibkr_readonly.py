@@ -95,6 +95,32 @@ def get_exchange_rate(from_curr: str, to_curr: str) -> float:
     raise RuntimeError(f"Live FX rate unavailable for {pair[0]}/{pair[1]}")
 
 
+def _get_yahoo_market_price(symbol: str, exchange: str = "", currency: str = "USD") -> float:
+    yahoo_symbol = symbol.upper()
+    if currency.upper() == "CAD":
+        if not (yahoo_symbol.endswith(".TO") or yahoo_symbol.endswith(".V")):
+            yahoo_symbol = f"{yahoo_symbol}.TO"
+    import httpx
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    try:
+        with httpx.Client() as client:
+            response = client.get(url, headers=headers, timeout=3.0)
+            if response.status_code == 200:
+                data = response.json()
+                result = data.get("chart", {}).get("result")
+                if result:
+                    meta = result[0].get("meta", {})
+                    price = meta.get("regularMarketPrice")
+                    if price is not None:
+                        return float(price)
+    except Exception:
+        pass
+    return 0.0
+
+
 class IBKRReadOnlyAdapter(BrokerAdapter):
     """Read-only adapter for a local TWS / IB Gateway session.
 
@@ -205,6 +231,29 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                     currency = getattr(contract, "currency", "USD") or "USD"
                     positions_data.append((item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency))
 
+            # If any position is missing market price, fetch from Yahoo Finance concurrently
+            if any(market_price == 0.0 for _, _, _, _, _, market_price, _, _ in positions_data):
+                from concurrent.futures import ThreadPoolExecutor
+                
+                def fetch_one(idx, sym, exch, curr):
+                    return idx, _get_yahoo_market_price(sym, exch, curr)
+
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = [
+                        executor.submit(fetch_one, idx, sym, getattr(item.contract, "exchange", ""), curr)
+                        for idx, (item, sym, _, _, _, mkt_pr, _, curr) in enumerate(positions_data)
+                        if mkt_pr == 0.0
+                    ]
+                    for fut in futures:
+                        try:
+                            idx, price = fut.result()
+                            if price > 0.0:
+                                item, sym, sec_type, qty, avg_cost, _, _, curr = positions_data[idx]
+                                mkt_val = qty * price
+                                positions_data[idx] = (item, sym, sec_type, qty, avg_cost, price, mkt_val, curr)
+                        except Exception:
+                            pass
+
             # Calculate total value in base currency
             total_value_in_base = 0.0
             for item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency in positions_data:
@@ -225,6 +274,10 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                 market_value_base = market_value * rate
                 weight = round(market_value_base / total_value * 100, 2)
                 
+                unrealized_pnl = float(getattr(item, "unrealizedPNL", 0) or 0)
+                if unrealized_pnl == 0.0 and market_price > 0.0:
+                    unrealized_pnl = round((market_price - avg_cost) * quantity, 2)
+                
                 positions.append(
                     Position(
                         account_id=account_id,
@@ -235,8 +288,8 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                         avg_cost=avg_cost,
                         market_price=market_price,
                         market_value=market_value,
-                        unrealized_pnl=float(item.unrealizedPNL or 0),
-                        realized_pnl=float(item.realizedPNL or 0),
+                        unrealized_pnl=unrealized_pnl,
+                        realized_pnl=float(getattr(item, "realizedPNL", 0) or 0),
                         currency=currency,
                         exchange=getattr(contract, "exchange", "") or getattr(contract, "primaryExchange", "") or "",
                         sector=sec_info["sector"],

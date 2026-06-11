@@ -43,16 +43,13 @@ def get_pnl_history(account_id: Optional[str] = None) -> list[PortfolioPnLSnapsh
     from app.core.config import settings
     is_demo = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
 
-    # Determine file path based on account_id
-    history_file = HISTORY_FILE
-    if account_id and not is_demo:
-        history_file = os.path.join(DATA_DIR, f"pnl_history_{account_id}.json")
-        # Fallback to main file if the specific file doesn't exist and we want to preserve default data
-        if not os.path.exists(history_file) and os.path.exists(HISTORY_FILE) and account_id != "all":
-            history_file = HISTORY_FILE
-
-    if not os.path.exists(history_file) and is_demo:
-        _initialize_mock_history(history_file)
+    if is_demo:
+        history_file = HISTORY_FILE
+        if not os.path.exists(history_file):
+            _initialize_mock_history(history_file)
+    else:
+        active_id = account_id or "default"
+        history_file = os.path.join(DATA_DIR, f"pnl_history_{active_id}.json")
 
     try:
         if not os.path.exists(history_file):
@@ -132,7 +129,8 @@ def record_pnl_snapshot(summary: AccountSummary, positions: list[Position], acco
         margin_requirement=round(summary.margin_requirement, 2),
         daily_pnl=round(daily_pnl, 2),
         daily_pnl_percent=round(daily_pnl_percent, 2),
-        positions=positions_pnl
+        positions=positions_pnl,
+        is_mock=is_demo
     )
 
     history.append(new_snapshot)

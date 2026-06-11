@@ -15,7 +15,23 @@ from typing import Optional
 @router.get("", response_model=list[PortfolioPnLSnapshot])
 def read_pnl_history(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
     """Retrieve historical PnL records."""
-    return get_pnl_history(account_id)
+    from app.api.deps import demo_mode_enabled
+    if demo_mode_enabled():
+        return get_pnl_history(account_id)
+        
+    try:
+        if not account_id or account_id == "all":
+            if account_id == "all":
+                return get_pnl_history("all")
+            accounts = adapter.get_accounts()
+            if not accounts:
+                return []
+            active_id = accounts[0].id
+        else:
+            active_id = account_id
+        return get_pnl_history(active_id)
+    except Exception:
+        return []
 
 
 @router.post("/record", response_model=PortfolioPnLSnapshot)
