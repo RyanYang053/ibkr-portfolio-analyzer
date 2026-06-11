@@ -19,6 +19,10 @@ class MockFundamentalProvider:
         if self.allow_mock:
             return self._mock_fundamentals(symbol, is_speculative)
 
+        from app.services.broker.securities import classify_security
+        sec_info = classify_security(symbol)
+        is_etf = sec_info.get("is_etf", False) or sec_info.get("asset_class", "") == "ETF"
+
         import httpx
         client = httpx.Client(headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -33,8 +37,27 @@ class MockFundamentalProvider:
                 resp = client.get(url, timeout=5.0)
                 if resp.status_code == 200:
                     res = resp.json()["quoteSummary"]["result"][0]
-                    findata = res.get("financialData", {})
-                    stats = res.get("defaultKeyStatistics", {})
+                    findata = res.get("financialData", {}) or {}
+                    stats = res.get("defaultKeyStatistics", {}) or {}
+
+                    if is_etf:
+                        total_assets = stats.get("totalAssets", {}).get("raw", 0.0)
+                        from datetime import date
+                        return FundamentalSnapshot(
+                            symbol=symbol.upper(),
+                            period="TTM",
+                            report_date=date.today(),
+                            revenue_growth_yoy=0.0,
+                            gross_margin=0.0,
+                            operating_margin=0.0,
+                            free_cash_flow=0.0,
+                            cash=float(total_assets) if total_assets is not None else 0.0,
+                            total_debt=0.0,
+                            pe_forward=None,
+                            ev_sales=None,
+                            fcf_yield=None,
+                            source="live_yahoo_finance_etf",
+                        )
 
                     revenue_growth = findata.get("revenueGrowth", {}).get("raw")
                     gross_margin = findata.get("grossMargins", {}).get("raw")
