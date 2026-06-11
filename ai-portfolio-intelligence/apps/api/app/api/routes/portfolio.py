@@ -82,18 +82,25 @@ def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[Acc
     for symbol, group in grouped.items():
         first = group[0]
         total_qty = sum(p.quantity for p in group)
-        total_mv = sum(p.market_value for p in group)
-        total_unrealized = sum(p.unrealized_pnl for p in group)
-        total_realized = sum(p.realized_pnl for p in group)
+
+        # Convert each position's monetary values to base_currency before summing
+        total_mv = 0.0
+        total_unrealized = 0.0
+        total_realized = 0.0
+        weighted_cost_sum = 0.0
+        for p in group:
+            rate = get_exchange_rate(p.currency, base_currency)
+            total_mv += p.market_value * rate
+            total_unrealized += p.unrealized_pnl * rate
+            total_realized += p.realized_pnl * rate
+            weighted_cost_sum += p.avg_cost * p.quantity * rate
         
         if total_qty > 0:
-            avg_cost = sum(p.avg_cost * p.quantity for p in group) / total_qty
+            avg_cost = weighted_cost_sum / total_qty
         else:
             avg_cost = 0.0
             
-        rate = get_exchange_rate(first.currency, base_currency)
-        market_value_base = total_mv * rate
-        weight = round(market_value_base / total_val * 100, 2)
+        weight = round(total_mv / total_val * 100, 2)
         
         consolidated_positions.append(Position(
             account_id="all",
@@ -106,7 +113,7 @@ def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[Acc
             market_value=round(total_mv, 2),
             unrealized_pnl=round(total_unrealized, 2),
             realized_pnl=round(total_realized, 2),
-            currency=first.currency,
+            currency=base_currency,
             exchange=first.exchange,
             sector=first.sector,
             industry=first.industry,
@@ -134,11 +141,9 @@ def _resolve_account_data(adapter: BrokerAdapter, account_id: Optional[str]) -> 
                     summary = summary.model_copy(update={"account_id": "all"})
                     positions = [p.model_copy(update={"account_id": "all"}) for p in positions]
                 return summary, positions
-            if account_id == "all":
-                return _get_consolidated_summary_and_positions(adapter)
-            # Default to first account if none specified
-            acct_id = accounts[0].id
-            return adapter.get_account_summary(acct_id), adapter.get_positions(acct_id)
+            # When account_id is "all" or unspecified with multiple accounts,
+            # default to consolidated view to match the frontend dropdown.
+            return _get_consolidated_summary_and_positions(adapter)
         else:
             return adapter.get_account_summary(account_id), adapter.get_positions(account_id)
     except Exception as exc:
