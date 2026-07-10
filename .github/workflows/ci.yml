@@ -159,6 +159,59 @@ jobs:
         working-directory: ai-portfolio-intelligence/apps/api
         run: python -m pytest tests/test_e2e_authenticated.py -q
 
+  migration-roundtrip:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence/apps/api
+    env:
+      DATABASE_URL: postgresql+psycopg://portfolio:portfolio@localhost:5432/portfolio
+      PERSISTENCE_BACKEND: postgres
+      ENVIRONMENT: development
+      JWT_SECRET: ci-test-secret
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: portfolio
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: portfolio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U portfolio -d portfolio"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ai-portfolio-intelligence/apps/api/requirements.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: alembic upgrade head
+      - run: alembic downgrade 0017_edgar_fact_lineage
+      - run: alembic upgrade head
+
+  financial-golden-master:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence/apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ai-portfolio-intelligence/apps/api/requirements.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest tests/test_financial_integrity.py tests/test_optimizer_min_variance_constraints.py tests/test_optimizer_reference_solutions.py tests/test_edgar_point_in_time.py tests/test_valuation_model_gates.py tests/test_options_contract_risk.py tests/test_risk_factor_diagnostics.py -q
+
   docker-smoke:
     runs-on: ubuntu-latest
     steps:

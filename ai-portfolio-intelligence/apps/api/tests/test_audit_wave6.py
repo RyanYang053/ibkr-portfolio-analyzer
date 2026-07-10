@@ -62,16 +62,15 @@ def test_modified_dietz_early_and_late_deposits_produce_different_returns():
     assert early_return != pytest.approx(late_return, rel=1e-4)
 
 
-def test_hrp_matches_scipy_reference_on_fixed_covariance():
+def test_hrp_matches_independent_reference_vector():
     covariance = [
         [0.04, 0.01, 0.005],
         [0.01, 0.09, 0.02],
         [0.005, 0.02, 0.16],
     ]
-    weights = hierarchical_risk_parity_weights(covariance)
-    assert weights is not None
-    assert pytest.approx(sum(weights), rel=1e-6) == 1.0
-    assert all(weight >= 0 for weight in weights)
+    expected = [0.5770653514180025, 0.25647348951911225, 0.16646115906288528]
+    actual = hierarchical_risk_parity_weights(covariance)
+    assert actual == pytest.approx(expected, abs=1e-8)
 
 
 def test_cvar_solver_reports_post_solve_feasibility():

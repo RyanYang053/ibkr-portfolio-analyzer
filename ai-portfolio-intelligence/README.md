@@ -1,12 +1,52 @@
 # AI Portfolio Intelligence and Research System
 
-Read-only portfolio analytics and research system for an Interactive Brokers-style account. The MVP runs fully on mock IBKR data and does not execute trades.
+Read-only portfolio analytics and research for Interactive Brokers-style accounts. The system does not execute trades.
 
-## Product Boundary
+## Quick Start (Docker)
 
-This platform connects read-only to broker-style data, analyzes portfolio allocation and risk, scores stocks and ETFs, and produces decision-support suggestions and reports.
+```bash
+cp .env.example .env
+# fill POSTGRES_PASSWORD, JWT_SECRET, BOOTSTRAP_TOKEN
+cd infra
+docker compose up --build
+curl -X POST http://localhost:8000/auth/bootstrap \
+  -H 'Content-Type: application/json' \
+  -d '{"bootstrap_token":"<BOOTSTRAP_TOKEN>","email":"owner@example.com","password":"change-me-now","name":"Owner"}'
+open http://localhost:3000/login
+```
 
-It does not place orders, modify orders, cancel orders, execute trades, automate rebalancing, or provide broker execution controls.
+Supported runtimes: Python 3.12, Node 22.
+
+## Required Environment
+
+| Variable | Purpose |
+| --- | --- |
+| `POSTGRES_PASSWORD` | Postgres credential for compose |
+| `JWT_SECRET` | Session signing secret |
+| `BOOTSTRAP_TOKEN` | One-time owner bootstrap |
+| `PERSISTENCE_BACKEND` | `postgres` for production-safe persistence |
+| `BROKER_MODE` | `mock_ibkr_readonly` (demo) or `ibkr_readonly` (live read-only) |
+| `IBKR_HOST` | Use `host.docker.internal` when Gateway runs on the host |
+| `GEMINI_API_KEY` | Optional AI provider key (environment only in production) |
+
+Migrations run automatically on API container start via Alembic `upgrade head`.
+
+## Operating Modes
+
+- **Demo**: `BROKER_MODE=mock_ibkr_readonly` with explicit mock fixtures.
+- **Production-safe**: Postgres persistence, auth enforcement enabled, immutable audit events.
+- **Withheld until validated**: scenario fair values, institutional attribution, tax reporting, live advanced optimization.
+
+## IBKR Host Networking
+
+When TWS or IB Gateway runs on the host machine, set:
+
+```bash
+IBKR_HOST=host.docker.internal
+IBKR_PORT=4001
+```
+
+Docker Compose maps `host.docker.internal` through `extra_hosts`.
 
 ## Local Development
 
@@ -27,78 +67,14 @@ npm install
 npm run dev
 ```
 
-Docker Compose:
-
-```bash
-cd infra
-docker compose up --build
-```
-
-The web app runs at `http://localhost:3000`; the API runs at `http://localhost:8000`.
-
-## Implemented MVP
-
-- FastAPI backend with read-only broker routes
-- Live IBKR read-only placeholder by default, with mock IBKR available only through explicit demo mode
-- Portfolio summary, positions, allocation, performance, and risk endpoints
-- Stock detail, fundamentals, valuation, technicals, score, and analysis endpoints
-- Decision-support recommendation engine
-- Gemini-backed AI research layer with deterministic fallback when no key is configured
-- Structured daily report generator and manual per-stock AI refresh endpoint
-- Watchlist, alerts, settings, and audit endpoints
-- Next.js dashboard and core pages
-- No-trading guardrail tests
-
-## Gemini AI Setup
-
-The app keeps the Gemini key on the backend only. Do not put it in frontend code.
-
-```bash
-export GEMINI_API_KEY="your_google_ai_studio_key"
-export GEMINI_MODEL="gemini-2.5-flash"
-cd apps/api
-../../.venv/bin/uvicorn app.main:app --reload
-```
-
-Manual stock analysis endpoint after a live read-only portfolio is connected, or in explicit demo mode:
-
-```bash
-curl -X POST http://localhost:8000/ai/analyze-stock/MSFT
-```
-
-Portfolio memo endpoint:
-
-```bash
-curl -X POST http://localhost:8000/ai/analyze-portfolio
-```
-
-If `GEMINI_API_KEY` is missing or Gemini returns an error, the API returns a deterministic fallback report with the same no-trading disclaimer.
-
-## Demo Mode
-
-Mock portfolio data is disabled by default. To run the old local demo data intentionally:
-
-```bash
-export BROKER_MODE=mock_ibkr_readonly
-cd apps/api
-../../.venv/bin/uvicorn app.main:app --reload
-```
-
-For normal use, keep:
-
-```bash
-BROKER_MODE=ibkr_readonly
-```
-
-Until the live IBKR read-only connector is implemented, the app will show a disconnected state instead of fake holdings.
-
 ## Verification
 
 ```bash
-npm run api:test
+cd apps/api && python -m pytest tests -q
 cd apps/web && npm run build
+bash infra/scripts/docker_smoke.sh
 ```
 
 ## Required Disclaimer
 
-This is portfolio analysis and decision support only. The system does not execute trades. The user must independently review any suggestion before making investment decisions outside the platform.
+This is portfolio analysis and decision support only. The system does not execute trades. Review every suggestion independently before acting outside the platform.
