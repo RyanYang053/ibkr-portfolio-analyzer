@@ -16,6 +16,8 @@ import type { PortfolioRisk, Position, RebalanceProposal, PortfolioOptimizationP
 import { DonutChart } from "@/components/DonutChart";
 import { ProfessionalRiskDashboard } from "@/components/ProfessionalRiskDashboard";
 import { PortfolioConstructionPanel } from "@/components/PortfolioConstructionPanel";
+import { DataQualityPanel } from "@/components/DataQualityBadge";
+import { CalculationLineagePanel } from "@/components/CalculationLineagePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -217,6 +219,20 @@ export default async function PortfolioPage(props: PageProps) {
           attribution={attribution}
           baseCurrency={summary.summary.base_currency}
         />
+      ) : null}
+
+      {advancedRisk ? (
+        <section className="grid gap-4 xl:grid-cols-2">
+          <DataQualityPanel dataQuality={advancedRisk.data_quality ?? {}} />
+          <CalculationLineagePanel
+            calculationRunId={advancedRisk.calculation_run_id}
+            methodology={advancedRisk.methodology}
+            exclusions={Object.entries(advancedRisk.data_quality ?? {})
+              .filter(([, value]) => value === "missing" || value === "insufficient")
+              .map(([key]) => key)}
+            factorModelStatus={advancedRisk.factor_model_status}
+          />
+        </section>
       ) : null}
 
       <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">

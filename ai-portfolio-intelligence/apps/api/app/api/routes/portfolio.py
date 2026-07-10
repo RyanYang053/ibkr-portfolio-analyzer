@@ -633,6 +633,13 @@ def get_portfolio_attribution(
     return prepare_professional_response(result, account_summary, account_positions, validation)
 
 
+@router.get("/methodologies")
+def methodologies() -> list[dict[str, object]]:
+    from app.services.methodology_registry import list_methodologies
+
+    return list_methodologies()
+
+
 @router.get("/decision-journal")
 def decision_journal(
     account_id: Optional[str] = None,
