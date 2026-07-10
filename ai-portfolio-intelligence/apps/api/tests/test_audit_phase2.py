@@ -7,7 +7,8 @@ from app.services.attribution.engine import calculate_brinson_attribution, calcu
 from app.services.fundamentals.sector_models import get_sector_norms, resolve_scoring_model, score_fundamentals_for_sector
 from app.services.portfolio.performance_returns import calculate_time_weighted_return, calculate_xirr
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
-from app.services.portfolio.transaction_store import external_cash_flow_amount, save_transactions
+from app.services.portfolio.ledger_coverage import external_cash_flow_amount
+from app.services.portfolio.transaction_store import save_transactions
 from app.services.scoring.calibration import run_score_calibration
 
 
@@ -110,22 +111,23 @@ def test_scoring_model_routes_by_sector():
     assert resolve_scoring_model(position) == "financials_pb_rotce"
 
 
-def test_brinson_attribution_decomposes_effects():
+def test_brinson_attribution_withheld_without_portfolio_sector_returns():
     positions = [
         _position("MSFT", "Technology", 30000),
         _position("JPM", "Financials", 10000),
     ]
-    alloc, sel, inter, active, by_sector, _ = calculate_brinson_attribution(
+    alloc, sel, inter, active, by_sector, methodology = calculate_brinson_attribution(
         positions,
         "USD",
         lambda _from, _to: 1.0,
         allow_mock=True,
     )
-    assert by_sector
-    assert alloc is not None
-    assert sel is not None
-    assert inter is not None
-    assert active is not None
+    assert by_sector == {}
+    assert alloc is None
+    assert sel is None
+    assert inter is None
+    assert active is None
+    assert "withheld" in methodology.lower()
 
 
 def test_performance_attribution_includes_brinson_fields():
@@ -145,8 +147,8 @@ def test_performance_attribution_includes_brinson_fields():
         )
     ]
     result = calculate_performance_attribution(positions, history, base_currency="USD", fx_resolver=lambda _a, _b: 1.0)
-    assert result.brinson_by_sector
-    assert result.data_quality["brinson_attribution"] == "sufficient"
+    assert result.brinson_by_sector == {}
+    assert result.data_quality["brinson_attribution"] == "insufficient"
 
 
 def test_score_calibration_reports_ic_and_buckets():

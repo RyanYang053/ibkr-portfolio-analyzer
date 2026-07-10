@@ -92,6 +92,10 @@ class Transaction(BaseModel):
         "deposit",
         "withdrawal",
         "transfer",
+        "transfer_in",
+        "transfer_out",
+        "contribution",
+        "distribution",
         "corporate_action",
     ]
     quantity: float
@@ -349,11 +353,13 @@ class TaxLot(BaseModel):
 class RealizedLotAttribution(BaseModel):
     symbol: str
     realized_gain_loss: float
-    short_term_gain_loss: float
-    long_term_gain_loss: float
+    short_term_gain_loss: Optional[float] = None
+    long_term_gain_loss: Optional[float] = None
     quantity_sold: float
+    unmatched_sell_quantity: float = 0.0
     proceeds: float
     cost_basis: float
+    holding_period_days: int = 0
     method: str = "fifo"
 
 
@@ -364,6 +370,10 @@ class TaxLotAttributionReport(BaseModel):
     total_realized_gain_loss: float
     total_short_term: float
     total_long_term: float
+    reporting_currency: str = "USD"
+    period_start: Optional[date] = None
+    period_end: Optional[date] = None
+    unmatched_sell_quantity: float = 0.0
     data_quality: dict[str, str]
     methodology: str
 
@@ -374,6 +384,9 @@ class FundamentalSnapshotRecord(BaseModel):
     snapshot: FundamentalSnapshot
     point_in_time: bool = True
     source: str
+    report_period: Optional[str] = None
+    ingested_at: Optional[datetime] = None
+    synthetic_demo: bool = False
 
 
 class ScoreCalibrationReport(BaseModel):

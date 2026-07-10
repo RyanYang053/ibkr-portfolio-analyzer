@@ -331,7 +331,8 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
     try:
         from app.services.market_data.mock_provider import MockMarketDataProvider
 
-        news_list = MockMarketDataProvider(allow_mock=allow_mock).get_recent_news(position.symbol)
+        if allow_mock:
+            news_list = MockMarketDataProvider(allow_mock=True).get_recent_news(position.symbol)
     except Exception:
         news_list = []
 

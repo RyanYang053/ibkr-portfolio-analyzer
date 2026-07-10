@@ -128,23 +128,27 @@ def record_pnl_snapshot(
     investment_return_percent = None
     try:
         from app.services.broker.ibkr_readonly import get_exchange_rate
-        from app.services.portfolio.transaction_store import (
-            external_cash_flows_by_date,
-            get_transactions,
-        )
+        from app.services.portfolio.ledger_coverage import external_cash_flows_for_interval, load_ledger_coverage
+        from app.services.portfolio.transaction_store import get_transactions
 
         transactions = get_transactions(active_account_id)
-        cash_flows = external_cash_flows_by_date(
-            transactions,
-            summary.base_currency,
-            get_exchange_rate,
-        )
-        external_cash_flow = round(cash_flows.get(today, 0.0), 2)
-        if last_entry and last_entry.net_liquidation != 0:
-            investment_return_percent = round(
-                (summary.net_liquidation - external_cash_flow) / last_entry.net_liquidation - 1.0,
-                6,
-            ) * 100.0
+        coverage = load_ledger_coverage(active_account_id)
+        if last_entry and coverage and coverage.has_external_cash_flows:
+            external_cash_flow = round(
+                external_cash_flows_for_interval(
+                    transactions,
+                    date.fromisoformat(last_entry.date),
+                    date.fromisoformat(today),
+                    summary.base_currency,
+                    get_exchange_rate,
+                ),
+                2,
+            )
+            if last_entry.net_liquidation != 0:
+                investment_return_percent = round(
+                    (summary.net_liquidation - external_cash_flow) / last_entry.net_liquidation - 1.0,
+                    6,
+                ) * 100.0
     except Exception:
         external_cash_flow = None
         investment_return_percent = None
