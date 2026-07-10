@@ -245,6 +245,13 @@ def _fallback_stock_report(position: Position, score, recommendation, context: d
     
     confidence = _min_confidence("Medium", limits["confidence_cap"])
     add_zone = recommendation.add_zone if limits["add_zone_allowed"] else None
+    invalidation_triggers = list(context["thesis"]["invalidation_triggers"])
+    if not invalidation_triggers:
+        invalidation_triggers = [
+            "Revenue growth turns negative or materially below the stored assumption range",
+            "Operating margin compression or balance-sheet stress versus stored assumptions",
+            "Technical trend breakdown against the stored review framework",
+        ]
     claims = [
         build_claim(
             "claim_portfolio_role",
@@ -289,8 +296,8 @@ def _fallback_stock_report(position: Position, score, recommendation, context: d
         "confidence": confidence,
         "confidence_limits": limits,
         "data_quality": context["data_quality"],
-        "thesis": context["thesis"],
-        "thesis_invalidation_triggers": context["thesis"]["invalidation_triggers"],
+        "thesis": {**context["thesis"], "invalidation_triggers": invalidation_triggers},
+        "thesis_invalidation_triggers": invalidation_triggers,
         "strengths": [
             {"text": "The portfolio position and data-quality state are available for review.", "evidence_ids": ["ev_portfolio_position", "ev_data_quality"]},
             {"text": "The stored thesis has been compared against current data.", "evidence_ids": ["ev_thesis", "ev_rule_engine"]},
@@ -509,8 +516,21 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
     is_live_market = not is_demo
     is_mock_fallback = is_demo
 
-    # Deterministic Option Chain Generator (using Black-Scholes around current price)
-    chain = generate_mock_options_chain(position.symbol, position.market_price)
+    # Deterministic or live option chain
+    chain = []
+    live_chain_unavailable = False
+    if is_live_market:
+        try:
+            from app.services.options.chain_provider import fetch_live_options_chain
+
+            chain = fetch_live_options_chain(position.symbol, position.market_price)
+            is_mock_fallback = False
+        except Exception:
+            live_chain_unavailable = True
+    if not chain:
+        chain = generate_mock_options_chain(position.symbol, position.market_price)
+        if is_live_market:
+            is_mock_fallback = True
     chain_dict = [c.model_dump() for c in chain]
     
     trend_str = "Neutral"
@@ -621,31 +641,38 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
                 "max_profit": max_profit,
                 "max_loss": max_loss,
                 "breakeven": breakeven,
-                "probability_of_profit": main_contract.open_interest % 25 + 50,
+                "probability_of_profit": (main_contract.open_interest % 25 + 50) if is_demo else None,
                 "rationale": strat.get("rationale", ""),
                 "eligible": eligible,
                 "eligibility_reason": eligibility_reason
             })
 
         from app.schemas.domain import utc_now
+        from app.services.options.chain_provider import atm_implied_volatility
+
         warnings = []
         if is_demo:
             warnings.append("Simulated data — not suitable for trading decisions.")
-            
+        elif live_chain_unavailable:
+            warnings.append("Live options chain unavailable; IV percentile and probability of profit are withheld.")
+        else:
+            warnings.append("Live options chain quotes sourced from market data; verify before trading.")
+
+        atm_iv = atm_implied_volatility(chain, position.market_price)
         return {
             "symbol": position.symbol,
             "stock_price": position.market_price,
-            "implied_volatility": 0.30,
-            "iv_percentile": 50,
-            "implied_move_percent": 5.0,
+            "implied_volatility": 0.30 if is_demo else atm_iv,
+            "iv_percentile": 50 if is_demo else None,
+            "implied_move_percent": round(atm_iv * 100.0, 2) if (not is_demo and atm_iv is not None) else (5.0 if is_demo else None),
             "strategies": validated_strategies,
             "market_sentiment": report.get("market_sentiment", "Educational market analysis active."),
             "human_review_required": True,
             "disclaimer": report.get("disclaimer", "Disclaimer: This options analysis is for educational purposes only."),
             "provider": f"gemini:{gemini.model}",
             "asOf": utc_now().isoformat(),
-            "dataSource": "Mock" if is_demo else "GeminiGroundedSearch",
-            "isMock": is_demo,
+            "dataSource": "Mock" if is_demo else ("LiveYahooOptions" if not live_chain_unavailable else "SimulatedChainNoLiveQuotes"),
+            "isMock": is_demo or (is_live_market and live_chain_unavailable),
             "quoteDelaySeconds": 15 if is_demo else 0,
             "warnings": warnings,
             "provenance": {
@@ -675,9 +702,9 @@ def _fallback_options_report(symbol: str, price: float, error_msg: str, is_live_
     return {
         "symbol": symbol.upper(),
         "stock_price": price,
-        "implied_volatility": 0.30,
-        "iv_percentile": 50,
-        "implied_move_percent": 5.0,
+        "implied_volatility": 0.30 if is_mock_fallback else None,
+        "iv_percentile": 50 if is_mock_fallback else None,
+        "implied_move_percent": 5.0 if is_mock_fallback else None,
         "strategies": [
             {
                 "name": "Covered Call (Educational Candidate)",
@@ -688,7 +715,7 @@ def _fallback_options_report(symbol: str, price: float, error_msg: str, is_live_
                 "max_profit": f"${premium * 100:.2f} (premium) + ${(strike - price) * 100:.2f} (upside cap)" if strike > price else f"${premium * 100:.2f}",
                 "max_loss": f"${(price - premium) * 100:.2f} (stock drops to zero)",
                 "breakeven": round(price - premium, 2),
-                "probability_of_profit": 68,
+                "probability_of_profit": 68 if is_mock_fallback else None,
                 "rationale": f"Simulated Covered Call strategy candidate due to live API fallback: {error_msg}.",
                 "eligible": False,
                 "eligibility_reason": "Ineligible for Covered Call: You own 0 shares. (minimum 100 shares required)"

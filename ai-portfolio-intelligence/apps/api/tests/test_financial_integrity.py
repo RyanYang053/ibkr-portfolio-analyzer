@@ -353,12 +353,16 @@ def test_rebalancing_proposes_aapl_and_ionq_sells():
     assert any(trade.symbol == "IONQ" for trade in sells)
 
 
-def test_ledger_covers_period_requires_external_rows():
+def test_complete_activity_ledger_can_cover_zero_flow_period():
+    period_start = date.today() - timedelta(days=30)
+    period_end = date.today()
     coverage = build_ledger_coverage(
         "MOCK-001",
         [_txn("deposit", date.today() - timedelta(days=400), 1000)],
         imported_sections=["flex_cash_ledger"],
-        period_start=date.today() - timedelta(days=30),
-        period_end=date.today(),
+        period_start=period_start,
+        period_end=period_end,
     )
-    assert ledger_covers_period(coverage, date.today() - timedelta(days=30), date.today()) is False
+    assert coverage.has_external_cash_flows is True
+    assert coverage.status == "completed"
+    assert ledger_covers_period(coverage, period_start, period_end) is True

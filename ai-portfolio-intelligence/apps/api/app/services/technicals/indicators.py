@@ -103,6 +103,34 @@ def _trend(price: float, sma_20: float, sma_50: float, sma_200: float) -> str:
     return "neutral"
 
 
+def _atr(highs: list[float], lows: list[float], closes: list[float], window: int = 14) -> float | None:
+    if len(highs) < window + 1 or len(lows) < window + 1 or len(closes) < window + 1:
+        return None
+    true_ranges: list[float] = []
+    for index in range(1, len(closes)):
+        tr = max(
+            highs[index] - lows[index],
+            abs(highs[index] - closes[index - 1]),
+            abs(lows[index] - closes[index - 1]),
+        )
+        true_ranges.append(tr)
+    if len(true_ranges) < window:
+        return None
+    return sum(true_ranges[-window:]) / window
+
+
+def calculate_technical_indicators_from_bars(symbol: str, bars: list[dict[str, float | str]]) -> TechnicalIndicators:
+    closes = [float(bar["close"]) for bar in bars if bar.get("close") is not None]
+    highs = [float(bar["high"]) for bar in bars if bar.get("high") is not None]
+    lows = [float(bar["low"]) for bar in bars if bar.get("low") is not None]
+    indicators = calculate_technical_indicators(symbol, closes)
+    if len(highs) == len(closes) == len(lows) and len(closes) >= 15:
+        atr = _atr(highs, lows, closes)
+        if atr is not None:
+            return indicators.model_copy(update={"atr_14": round(atr, 4)})
+    return indicators
+
+
 def calculate_technical_indicators(symbol: str, prices: list[float]) -> TechnicalIndicators:
     cleaned = _validated_prices(prices, minimum=200)
 

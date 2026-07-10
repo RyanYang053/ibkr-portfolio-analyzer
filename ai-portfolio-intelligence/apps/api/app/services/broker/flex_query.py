@@ -142,6 +142,7 @@ def _parse_flex_csv(account_id: str, payload: str) -> FlexParseResult:
         price = _parse_float(row.get("Price") or row.get("TradePrice"))
         commission = _parse_float(row.get("Commission") or row.get("Comm/Fee"))
         currency = row.get("CurrencyPrimary") or row.get("Currency") or "USD"
+        description = row.get("Description") or row.get("ActivityDescription") or None
 
         if action in {"buy", "sell"}:
             action = "buy" if quantity > 0 else "sell"
@@ -159,6 +160,7 @@ def _parse_flex_csv(account_id: str, payload: str) -> FlexParseResult:
                 amount=abs(amount) if amount else None,
                 source="ibkr_flex_query",
                 transaction_id=row.get("TransactionID") or row.get("TradeID") or None,
+                description=description,
             )
         )
     return result
@@ -249,5 +251,6 @@ def mock_flex_transactions(account_id: str) -> list[Transaction]:
             amount=0,
             source="mock_flex_query",
             transaction_id=f"{account_id}:flex:corp:SPY",
+            description="Stock Split 2 for 1",
         ),
     ]

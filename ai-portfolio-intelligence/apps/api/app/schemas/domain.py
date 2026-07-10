@@ -108,6 +108,7 @@ class Transaction(BaseModel):
     local_symbol: Optional[str] = None
     transaction_id: Optional[str] = None
     amount: Optional[float] = None
+    description: Optional[str] = None
 
 
 class OpenOrderReadOnly(BaseModel):
@@ -282,6 +283,28 @@ class RebalanceProposal(BaseModel):
     compliance_disclaimer: str = DISCLAIMER
 
 
+class PortfolioOptimizationItem(BaseModel):
+    symbol: str
+    current_weight: float
+    optimal_weight: float
+    current_value: float
+    proposed_trade_value: float
+    proposed_trade_qty: float
+    action: Literal["Buy", "Sell", "Hold"]
+    reason: str
+
+
+class PortfolioOptimizationProposal(BaseModel):
+    objective: str
+    proposed_trades: list[PortfolioOptimizationItem]
+    expected_volatility: Optional[float] = None
+    expected_return: Optional[float] = None
+    sharpe_ratio: Optional[float] = None
+    constraints_applied: list[str] = Field(default_factory=list)
+    methodology: str
+    compliance_disclaimer: str = DISCLAIMER
+
+
 class StressScenario(BaseModel):
     name: str
     description: str
@@ -297,6 +320,7 @@ class AdvancedRiskMetrics(BaseModel):
     portfolio_beta_qqq: Optional[float]
     value_at_risk_95: Optional[float]
     conditional_var_95: Optional[float]
+    historical_var_95: Optional[float] = None
     sharpe_ratio: Optional[float] = None
     sortino_ratio: Optional[float] = None
     jensens_alpha: Optional[float] = None
@@ -385,6 +409,7 @@ class FundamentalSnapshotRecord(BaseModel):
     point_in_time: bool = True
     source: str
     report_period: Optional[str] = None
+    filing_date: Optional[date] = None
     ingested_at: Optional[datetime] = None
     synthetic_demo: bool = False
 

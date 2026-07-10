@@ -48,7 +48,8 @@ export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrateg
     };
   }, [symbol, initialData]);
 
-  const formatIV = (iv: number) => {
+  const formatIV = (iv: number | null | undefined) => {
+    if (iv == null) return "Unavailable";
     return `${(iv * 100).toFixed(1)}%`;
   };
 
@@ -197,7 +198,7 @@ export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrateg
               <Percent className="h-4 w-4 text-zinc-400" />
             </div>
             <div className="mt-2 text-2xl font-bold text-zinc-900">
-              {data.iv_percentile}%
+              {data.iv_percentile != null ? `${data.iv_percentile}%` : "Unavailable"}
             </div>
             <div className="text-[10px] text-zinc-400 mt-1">Relative to 52W range</div>
           </div>
@@ -208,7 +209,7 @@ export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrateg
               <TrendingUp className="h-4 w-4 text-zinc-400" />
             </div>
             <div className="mt-2 text-2xl font-bold text-accent">
-              ±{data.implied_move_percent.toFixed(1)}%
+              ±{data.implied_move_percent != null ? `${data.implied_move_percent.toFixed(1)}%` : "Unavailable"}
             </div>
             <div className="text-[10px] text-zinc-400 mt-1">Estimated monthly price range</div>
           </div>
@@ -264,7 +265,9 @@ export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrateg
                   </div>
                   <div>
                     <span className="text-zinc-500 block text-xs">Probability of Profit</span>
-                    <span className="font-semibold text-zinc-800">{strat.probability_of_profit}%</span>
+                    <span className="font-semibold text-zinc-800">
+                      {strat.probability_of_profit != null ? `${strat.probability_of_profit}%` : "Unavailable"}
+                    </span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block text-xs">Breakeven Stock Price</span>

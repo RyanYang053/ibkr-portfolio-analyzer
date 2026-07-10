@@ -75,6 +75,7 @@ def calculate_brinson_attribution(
     fx_resolver,
     allow_mock: bool,
     portfolio_sector_returns: Optional[dict[str, float]] = None,
+    portfolio_sector_weights: Optional[dict[str, float]] = None,
     period_start: Optional[date] = None,
     period_end: Optional[date] = None,
 ) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], dict[str, dict[str, float]], str]:
@@ -88,7 +89,7 @@ def calculate_brinson_attribution(
             "Brinson attribution withheld: actual beginning-weight portfolio sector returns are unavailable.",
         )
 
-    portfolio_weights = _portfolio_sector_weights(positions, base_currency, fx_resolver)
+    portfolio_weights = portfolio_sector_weights or _portfolio_sector_weights(positions, base_currency, fx_resolver)
     benchmark_weights = _benchmark_sector_weights()
     sectors = sorted(set(portfolio_weights) | set(benchmark_weights))
 
@@ -143,6 +144,8 @@ def calculate_brinson_attribution(
         "Brinson-Fachler attribution uses beginning portfolio sector weights and period-aligned portfolio "
         "sector returns versus benchmark sector ETF total returns."
     )
+    if portfolio_sector_weights is not None:
+        methodology += " Beginning weights are reconstructed from the transaction ledger."
     return (
         round(allocation * 100.0, 2),
         round(selection * 100.0, 2),
@@ -151,6 +154,33 @@ def calculate_brinson_attribution(
         by_sector,
         methodology,
     )
+
+
+def _portfolio_sector_returns_from_reconstruction(
+    positions: list[Position],
+    reconstruction: dict,
+) -> dict[str, float] | None:
+    from collections import defaultdict
+
+    asset_returns = reconstruction.get("asset_returns", {})
+    if not asset_returns:
+        return None
+    sector_returns: dict[str, list[float]] = defaultdict(list)
+    for position in positions:
+        daily_returns = asset_returns.get(position.symbol)
+        if not daily_returns:
+            continue
+        compounded = 1.0
+        for daily_return in daily_returns:
+            compounded *= 1.0 + daily_return
+        sector_returns[position.sector or "Unknown"].append(compounded - 1.0)
+    if not sector_returns:
+        return None
+    return {
+        sector: sum(values) / len(values)
+        for sector, values in sector_returns.items()
+        if values
+    }
 
 
 def calculate_performance_attribution(
@@ -165,6 +195,10 @@ def calculate_performance_attribution(
     from app.services.broker.ibkr_readonly import get_exchange_rate
     from app.services.portfolio.tax_lots import realized_gain_by_symbol
     from app.services.portfolio.transaction_store import get_transactions
+    from app.services.attribution.brinson_ledger import (
+        beginning_sector_weights,
+        sector_returns_from_ledger,
+    )
 
     if fx_resolver is None:
         fx_resolver = get_exchange_rate
@@ -185,6 +219,7 @@ def calculate_performance_attribution(
                 reporting_currency=base_currency,
                 period_start=period_start,
                 period_end=period_end,
+                fx_resolver=fx_resolver,
             )
             if tax_lot_realized:
                 tax_lot_total = round(sum(tax_lot_realized.values()), 2)
@@ -254,30 +289,67 @@ def calculate_performance_attribution(
         )
 
         recon = None
+        portfolio_sector_returns = None
+        portfolio_sector_weights = None
+        period_start = None
+        period_end = None
+        ordered_history = sorted(history, key=lambda item: (item.date, item.timestamp))
+        if ordered_history:
+            period_start = date.fromisoformat(ordered_history[0].date)
+            period_end = date.fromisoformat(ordered_history[-1].date)
+        if account_id and period_start and period_end:
+            coverage = load_ledger_coverage(account_id)
+            if coverage and ledger_covers_period(coverage, period_start, period_end):
+                ledger_transactions = get_transactions(account_id)
+                portfolio_sector_weights = beginning_sector_weights(
+                    ledger_transactions,
+                    positions,
+                    period_start,
+                    base_currency,
+                    fx_resolver,
+                    allow_mock=allow_mock,
+                )
+                portfolio_sector_returns = sector_returns_from_ledger(
+                    ledger_transactions,
+                    positions,
+                    period_start,
+                    period_end,
+                    allow_mock=allow_mock,
+                )
         if "pytest" not in sys.modules:
-            recon = reconstruct_portfolio_history(positions, summary)
+            recon = reconstruct_portfolio_history(positions, summary, allow_mock=allow_mock)
+            if portfolio_sector_returns is None and recon is not None:
+                portfolio_sector_returns = _portfolio_sector_returns_from_reconstruction(positions, recon)
+
         if recon is not None:
-            port_returns = recon["port_returns"]
-            spy_returns = recon["spy_returns"]
+            port_returns = recon.get("port_returns") or []
+            spy_returns = recon.get("spy_returns") or []
             var_spy = calculate_variance(spy_returns)
-            if var_spy > 0:
+            if var_spy > 0 and port_returns:
                 beta_spy = calculate_covariance(port_returns, spy_returns) / var_spy
-                nav_series = recon["portfolio_nav"]
-                spy_series = recon["spy_prices"]
-                if nav_series and spy_series and nav_series[0] > 0 and spy_series[0] > 0:
+                nav_series = recon.get("portfolio_nav") or []
+                if nav_series and spy_returns and nav_series[0] > 0:
                     p_ret = (nav_series[-1] - nav_series[0]) / nav_series[0]
-                    spy_ret = (spy_series[-1] - spy_series[0]) / spy_series[0]
-                    rf = 0.04
+                    spy_compounded = 1.0
+                    for daily_return in spy_returns:
+                        spy_compounded *= 1.0 + daily_return
+                    spy_ret = spy_compounded - 1.0
+                    from app.core.config import settings
+
+                    rf = float(getattr(settings, "risk_free_rate_annual", 0.0))
                     alpha = p_ret - (rf + beta_spy * (spy_ret - rf))
                     benchmark_relative_alpha = round(alpha * 100.0, 2)
-                    data_quality_benchmark = "sufficient"
+                    data_quality_benchmark = "modeled_current_holdings_alpha"
 
         alloc, sel, inter, active, by_sector, brinson_methodology = calculate_brinson_attribution(
             positions,
             base_currency,
             fx_resolver,
             allow_mock=allow_mock,
-            portfolio_sector_returns=None,
+            portfolio_sector_returns=portfolio_sector_returns,
+            portfolio_sector_weights=portfolio_sector_weights,
+            period_start=period_start,
+            period_end=period_end,
         )
         if by_sector:
             allocation_effect = alloc

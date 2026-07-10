@@ -64,14 +64,14 @@ def list_snapshot_records(symbol: str, include_synthetic_demo: bool = False) -> 
 
 def get_point_in_time_fundamentals(symbol: str, as_of: date, allow_synthetic_demo: bool = False) -> Optional[FundamentalSnapshot]:
     records = list_snapshot_records(symbol, include_synthetic_demo=allow_synthetic_demo)
-    eligible = [
-        record
-        for record in records
-        if record.as_of_date <= as_of and (record.point_in_time or (allow_synthetic_demo and record.synthetic_demo))
-    ]
+    eligible = []
+    for record in records:
+        effective_date = record.filing_date or record.as_of_date
+        if effective_date <= as_of and (record.point_in_time or (allow_synthetic_demo and record.synthetic_demo)):
+            eligible.append((effective_date, record))
     if not eligible:
         return None
-    latest = sorted(eligible, key=lambda record: record.as_of_date)[-1]
+    latest = sorted(eligible, key=lambda item: item[0])[-1][1]
     return latest.snapshot
 
 

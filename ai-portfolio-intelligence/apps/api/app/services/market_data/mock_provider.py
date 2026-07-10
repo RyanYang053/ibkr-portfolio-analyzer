@@ -47,46 +47,47 @@ class MockMarketDataProvider:
         total_return: bool = False,
     ) -> list[dict[str, float | str]]:
         if not self.allow_mock:
-            import httpx
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}?range=1y&interval=1d"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            try:
-                with httpx.Client() as client:
-                    response = client.get(url, headers=headers, timeout=5.0)
-                    if response.status_code == 200:
-                        data = response.json()
-                        result = data["chart"]["result"][0]
-                        timestamps = result["timestamp"]
-                        indicators = result.get("indicators", {})
-                        adj = indicators.get("adjclose", [{}])[0].get("adjclose", [])
-                        closes = indicators.get("quote", [{}])[0].get("close", [])
-                        series = adj if total_return and any(value is not None for value in adj) else closes
-                        label = "live_yahoo_adjclose" if series is adj else "live_yahoo_finance"
+            from app.services.market_data.http_client import filter_rows_by_date, request_with_retry
 
-                        prices = []
-                        from datetime import datetime, timezone
-                        for ts, close in zip(timestamps, series):
-                            if close is not None:
-                                date_str = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
-                                prices.append({"date": date_str, "close": float(close), "source": label})
-                        if prices:
-                            return prices
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}?range=1y&interval=1d"
+            try:
+                response = request_with_retry(url, timeout=5.0)
+                data = response.json()
+                result = data["chart"]["result"][0]
+                timestamps = result["timestamp"]
+                indicators = result.get("indicators", {})
+                adj = indicators.get("adjclose", [{}])[0].get("adjclose", [])
+                closes = indicators.get("quote", [{}])[0].get("close", [])
+                series = adj if total_return and any(value is not None for value in adj) else closes
+                label = "live_yahoo_adjclose" if series is adj else "live_yahoo_finance"
+
+                prices = []
+                from datetime import datetime, timezone
+                for ts, close in zip(timestamps, series):
+                    if close is not None:
+                        date_str = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+                        prices.append({"date": date_str, "close": float(close), "source": label})
+                if prices:
+                    return filter_rows_by_date(prices, start_date, end_date)
             except Exception as exc:
                 raise RuntimeError(f"Live price history unavailable for {symbol.upper()}") from exc
             raise RuntimeError(f"Live price history unavailable for {symbol.upper()}")
 
         # Deterministic demo/test data is available only when explicitly enabled.
         from app.services.broker.mock_ibkr import MOCK_LOTS
-        if symbol.upper() not in MOCK_LOTS:
+
+        symbol_upper = symbol.upper()
+        extended_mock_symbols = {"VLUE", "MTUM", "USMV", "JPM", "AAPL", "XLK", "XLF", "XLY", "XLP", "XLC", "XLV", "XLE", "XLI", "XLU", "XLRE", "XLB"}
+        if symbol_upper not in MOCK_LOTS and symbol_upper not in extended_mock_symbols:
             raise KeyError(f"No mock history for {symbol}")
 
+        lot = MOCK_LOTS.get(symbol_upper)
+        base_close = lot[2] if lot else 100.0 + (sum(ord(char) for char in symbol_upper) % 40)
         days = max((end_date - start_date).days, 220)
-        base = MOCK_LOTS[symbol.upper()][2] * 0.72
+        base = base_close * 0.72
         prices = []
         for index in range(days):
-            close = base + index * (MOCK_LOTS[symbol.upper()][2] - base) / max(days - 1, 1)
+            close = base + index * (base_close - base) / max(days - 1, 1)
             prices.append(
                 {
                     "date": (start_date + timedelta(days=index)).isoformat(),

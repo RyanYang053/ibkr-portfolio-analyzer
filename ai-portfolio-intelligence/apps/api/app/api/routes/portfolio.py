@@ -265,31 +265,20 @@ def performance(account_id: Optional[str] = None, adapter: BrokerAdapter = Depen
 
 @router.get("/score-calibration")
 def score_calibration(model_name: str = "universal"):
-    from app.services.scoring.calibration import run_score_calibration
+    from app.core.config import settings
+    from app.services.scoring.calibration import (
+        demo_calibration_observations,
+        load_calibration_observations,
+        run_score_calibration,
+    )
+    from app.services.scoring.calibration_ingestion import materialize_calibration_observations
 
-    # Demo calibration uses reproducible score/return pairs until live walk-forward history is stored.
-    observations = [
-        {"symbol": "MSFT", "score": 82.0, "forward_return": 0.12},
-        {"symbol": "META", "score": 78.0, "forward_return": 0.09},
-        {"symbol": "IONQ", "score": 48.0, "forward_return": -0.08},
-        {"symbol": "QQQ", "score": 74.0, "forward_return": 0.07},
-        {"symbol": "SOFI", "score": 55.0, "forward_return": 0.01},
-        {"symbol": "NKE", "score": 42.0, "forward_return": -0.04},
-        {"symbol": "CRM", "score": 69.0, "forward_return": 0.05},
-        {"symbol": "GOOGL", "score": 76.0, "forward_return": 0.08},
-        {"symbol": "LAES", "score": 35.0, "forward_return": -0.15},
-        {"symbol": "SPY", "score": 71.0, "forward_return": 0.06},
-        {"symbol": "CELH", "score": 58.0, "forward_return": 0.02},
-        {"symbol": "INFQ", "score": 31.0, "forward_return": -0.12},
-        {"symbol": "SOXX", "score": 73.0, "forward_return": 0.10},
-        {"symbol": "AAPL", "score": 80.0, "forward_return": 0.11},
-        {"symbol": "NVDA", "score": 84.0, "forward_return": 0.18},
-        {"symbol": "TSLA", "score": 52.0, "forward_return": -0.02},
-        {"symbol": "AMZN", "score": 77.0, "forward_return": 0.09},
-        {"symbol": "MSFT", "score": 79.0, "forward_return": 0.06},
-        {"symbol": "META", "score": 75.0, "forward_return": 0.04},
-        {"symbol": "QQQ", "score": 72.0, "forward_return": 0.05},
-    ]
+    allow_mock = settings.broker_mode == "mock_ibkr_readonly"
+    materialize_calibration_observations(model_name, allow_mock=allow_mock)
+    if allow_mock:
+        observations = demo_calibration_observations()
+    else:
+        observations = load_calibration_observations(model_name)
     return run_score_calibration(observations, model_name=model_name)
 
 
@@ -362,6 +351,8 @@ def get_portfolio_attribution(
     from app.services.attribution.engine import calculate_performance_attribution
     from app.services.portfolio.pnl_tracker import get_pnl_history
 
+    from app.services.market_data.fx_store import make_transaction_fx_resolver
+
     account_summary, account_positions = _resolve_account_data(adapter, account_id)
     active_id = account_id or account_summary.account_id or "default"
     history = get_pnl_history(None if active_id == "all" else active_id)
@@ -369,7 +360,7 @@ def get_portfolio_attribution(
         account_positions,
         history,
         base_currency=account_summary.base_currency,
-        fx_resolver=get_exchange_rate,
+        fx_resolver=make_transaction_fx_resolver(),
         account_id=None if active_id == "all" else active_id,
     )
 
@@ -397,6 +388,7 @@ def ledger_coverage(account_id: Optional[str] = None, adapter: BrokerAdapter = D
 def tax_lot_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
     from datetime import date as date_type
 
+    from app.services.market_data.fx_store import make_transaction_fx_resolver
     from app.services.portfolio.tax_lots import build_tax_lot_attribution
     from app.services.portfolio.pnl_tracker import get_pnl_history
     from app.services.portfolio.transaction_store import get_transactions, sync_transactions
@@ -425,7 +417,44 @@ def tax_lot_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter
         period_start=period_start,
         period_end=period_end,
         tax_labeling_jurisdiction=jurisdiction,
+        fx_resolver=make_transaction_fx_resolver(),
     )
+
+
+@router.get("/rebalance-proposal")
+def rebalance_proposal(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    from app.services.policy.engine import get_portfolio_policy
+    from app.services.portfolio_construction.engine import generate_rebalance_proposal
+    from app.services.suitability.engine import get_investor_profile
+
+    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    active_id = account_id or account_summary.account_id or "default"
+    if active_id == "all":
+        active_id = adapter.get_accounts()[0].id
+    policy = get_portfolio_policy(active_id)
+    profile = get_investor_profile(active_id)
+    return generate_rebalance_proposal(account_positions, account_summary, policy, profile)
+
+
+@router.get("/optimization-proposal")
+def optimize_portfolio(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    from app.services.policy.engine import get_portfolio_policy
+    from app.services.portfolio_construction.optimizer import generate_portfolio_optimization
+    from app.services.suitability.engine import get_investor_profile
+
+    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    active_id = account_id or account_summary.account_id or "default"
+    if active_id == "all":
+        active_id = adapter.get_accounts()[0].id
+    policy = get_portfolio_policy(active_id)
+    profile = get_investor_profile(active_id)
+    return generate_portfolio_optimization(account_positions, account_summary, policy, profile)
 
 
 @router.get("/fundamentals/{symbol}/point-in-time")

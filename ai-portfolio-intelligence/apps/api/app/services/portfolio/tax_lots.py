@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import math
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import date
-from typing import Deque, Literal, Optional
+from typing import Callable, Deque, Literal, Optional
 
 from app.schemas.domain import RealizedLotAttribution, TaxLot, TaxLotAttributionReport, Transaction
+from app.services.portfolio.corporate_actions import apply_corporate_action_to_lots, parse_corporate_action
 
 EXECUTION_ACTIONS = frozenset({"buy", "sell"})
+CORPORATE_ACTIONS = frozenset({"corporate_action"})
 
 
 @dataclass
@@ -23,6 +26,31 @@ def _lot_key(txn: Transaction) -> tuple[str, int | None]:
     return (txn.symbol.upper(), txn.con_id)
 
 
+def _convert_amount(
+    amount: float,
+    currency: str,
+    reporting_currency: str,
+    trade_date: date,
+    fx_resolver: Optional[Callable[..., float]],
+    txn_fx_rate: Optional[float] = None,
+) -> tuple[Optional[float], Optional[str]]:
+    reporting = reporting_currency.upper()
+    native = (currency or reporting).upper()
+    if native == reporting:
+        return amount, None
+    if txn_fx_rate is not None and math.isfinite(float(txn_fx_rate)) and float(txn_fx_rate) > 0:
+        return amount * float(txn_fx_rate), "transaction_reported_fx"
+    if fx_resolver is None:
+        return None, "withheld_mixed_currency"
+    try:
+        rate = fx_resolver(native, reporting, trade_date)
+    except TypeError:
+        return None, "withheld_mixed_currency"
+    if rate is None or not math.isfinite(float(rate)):
+        return None, "withheld_mixed_currency"
+    return amount * float(rate), "transaction_date_fx"
+
+
 def build_tax_lot_attribution(
     account_id: str,
     transactions: list[Transaction],
@@ -30,11 +58,14 @@ def build_tax_lot_attribution(
     period_start: Optional[date] = None,
     period_end: Optional[date] = None,
     tax_labeling_jurisdiction: Literal["US", "CA", "OTHER"] = "OTHER",
+    fx_resolver: Optional[Callable[..., float]] = None,
 ) -> TaxLotAttributionReport:
     open_lots: dict[tuple[str, int | None], Deque[_OpenLot]] = defaultdict(deque)
     realized_rows: list[RealizedLotAttribution] = []
     execution_rows = [txn for txn in transactions if txn.action in EXECUTION_ACTIONS]
+    corporate_rows = [txn for txn in transactions if txn.action in CORPORATE_ACTIONS]
     buys_before_period = 0
+    fx_status: Optional[str] = None
 
     ordered = sorted(transactions, key=lambda item: (item.trade_date, item.symbol, item.action))
     if period_start:
@@ -42,15 +73,34 @@ def build_tax_lot_attribution(
 
     for txn in ordered:
         key = _lot_key(txn)
+        if txn.action == "corporate_action":
+            action = parse_corporate_action(txn)
+            if action and open_lots[key]:
+                apply_corporate_action_to_lots(open_lots[key], action, txn)
+            continue
         if txn.action == "buy":
+            notional = txn.price + (txn.commission / abs(txn.quantity) if txn.quantity else 0.0)
+            converted, status = _convert_amount(
+                notional,
+                txn.currency,
+                reporting_currency,
+                txn.trade_date,
+                fx_resolver,
+                txn.fx_rate,
+            )
+            if converted is None:
+                fx_status = status
+                continue
+            if status:
+                fx_status = status
             if period_start and txn.trade_date < period_start:
                 buys_before_period += 1
             open_lots[key].append(
                 _OpenLot(
                     quantity=abs(txn.quantity),
-                    cost_basis_per_share=txn.price + (txn.commission / abs(txn.quantity) if txn.quantity else 0.0),
+                    cost_basis_per_share=converted,
                     acquired_date=txn.trade_date,
-                    currency=txn.currency,
+                    currency=reporting_currency.upper(),
                     con_id=txn.con_id,
                 )
             )
@@ -63,12 +113,27 @@ def build_tax_lot_attribution(
             continue
 
         remaining = abs(txn.quantity)
-        proceeds_per_share = txn.price - (txn.commission / abs(txn.quantity) if txn.quantity else 0.0)
+        proceeds_per_share_native = txn.price - (txn.commission / abs(txn.quantity) if txn.quantity else 0.0)
+        proceeds_per_share, status = _convert_amount(
+            proceeds_per_share_native,
+            txn.currency,
+            reporting_currency,
+            txn.trade_date,
+            fx_resolver,
+            txn.fx_rate,
+        )
+        if proceeds_per_share is None:
+            fx_status = status
+            continue
+        if status:
+            fx_status = status
+
         total_proceeds = 0.0
         total_cost = 0.0
         short_term = 0.0
         long_term = 0.0
         matched_qty = 0.0
+        max_holding_days = 0
 
         while remaining > 1e-9 and open_lots[key]:
             lot = open_lots[key][0]
@@ -77,6 +142,7 @@ def build_tax_lot_attribution(
             proceeds = matched * proceeds_per_share
             gain = proceeds - cost
             holding_days = (txn.trade_date - lot.acquired_date).days
+            max_holding_days = max(max_holding_days, holding_days)
             if tax_labeling_jurisdiction == "US":
                 if holding_days >= 365:
                     long_term += gain
@@ -100,7 +166,7 @@ def build_tax_lot_attribution(
                 unmatched_sell_quantity=round(remaining, 6),
                 proceeds=round(total_proceeds, 2),
                 cost_basis=round(total_cost, 2),
-                holding_period_days=max((txn.trade_date - ordered[0].trade_date).days, 0) if ordered else 0,
+                holding_period_days=max_holding_days,
             )
         )
 
@@ -123,26 +189,68 @@ def build_tax_lot_attribution(
 
     unmatched_total = round(sum(row.unmatched_sell_quantity for row in realized_rows), 6)
     has_unmatched = unmatched_total > 0
-    incomplete_opening_lots = has_unmatched or (bool(execution_rows) and buys_before_period == 0 and any(txn.action == "sell" for txn in execution_rows))
+    incomplete_opening_lots = has_unmatched
+    if period_start:
+        incomplete_opening_lots = incomplete_opening_lots or (
+            bool(execution_rows)
+            and buys_before_period == 0
+            and any(txn.action == "sell" for txn in execution_rows)
+        )
 
-    if incomplete_opening_lots or has_unmatched:
+    txn_currencies = {txn.currency.upper() for txn in execution_rows if txn.currency}
+    mixed_currency = any(currency != reporting_currency.upper() for currency in txn_currencies)
+
+    unparsed_corporate_actions = [txn for txn in corporate_rows if parse_corporate_action(txn) is None]
+    corp_note = None
+
+    if fx_status == "withheld_mixed_currency" or (mixed_currency and fx_resolver is None):
+        status = "incomplete"
+    elif unparsed_corporate_actions:
+        status = "incomplete"
+        corp_note = "corporate_actions_partial"
+    elif incomplete_opening_lots or has_unmatched:
         status = "incomplete"
     elif realized_rows or open_rows:
         status = "sufficient"
+        if corporate_rows:
+            corp_note = "corporate_actions_applied"
     else:
         status = "missing"
 
-    total_realized = round(sum(row.realized_gain_loss for row in realized_rows), 2)
-    total_short = round(sum(row.short_term_gain_loss or 0.0 for row in realized_rows), 2)
-    total_long = round(sum(row.long_term_gain_loss or 0.0 for row in realized_rows), 2)
+    total_realized = round(sum(row.realized_gain_loss for row in realized_rows), 2) if status == "sufficient" else 0.0
+    total_short = round(sum(row.short_term_gain_loss or 0.0 for row in realized_rows), 2) if status == "sufficient" else 0.0
+    total_long = round(sum(row.long_term_gain_loss or 0.0 for row in realized_rows), 2) if status == "sufficient" else 0.0
 
     methodology = (
         "Realized gains and losses are computed using FIFO tax lots from buy/sell executions only. "
         "Tax-lot output is separate from portfolio performance attribution and is withheld when opening "
-        "lots or execution history are incomplete."
+        "lots, execution history, or transaction-date FX conversion are incomplete."
     )
     if tax_labeling_jurisdiction != "US":
         methodology += " US short-term/long-term tax labels are omitted for non-US reporting."
+    if fx_status == "withheld_mixed_currency":
+        methodology += (
+            f" Mixed-currency execution history requires transaction-date FX conversion into "
+            f"{reporting_currency.upper()}; totals are withheld until conversion is available."
+        )
+    if corporate_rows and unparsed_corporate_actions:
+        methodology += " Some corporate actions could not be parsed; output is withheld."
+    elif corporate_rows:
+        methodology += " Supported corporate actions (stock splits) are applied to FIFO tax lots."
+
+    data_quality = {
+        "tax_lot_method": "fifo",
+        "transaction_count": str(len(transactions)),
+        "execution_count": str(len(execution_rows)),
+        "status": status,
+        "tax_labeling_jurisdiction": tax_labeling_jurisdiction,
+    }
+    if fx_status:
+        data_quality["fx_conversion"] = fx_status
+    elif mixed_currency and fx_resolver is not None:
+        data_quality["fx_conversion"] = "transaction_date_fx"
+    if corp_note:
+        data_quality["corporate_actions"] = corp_note
 
     return TaxLotAttributionReport(
         account_id=account_id,
@@ -155,13 +263,7 @@ def build_tax_lot_attribution(
         period_start=period_start,
         period_end=period_end,
         unmatched_sell_quantity=unmatched_total,
-        data_quality={
-            "tax_lot_method": "fifo",
-            "transaction_count": str(len(transactions)),
-            "execution_count": str(len(execution_rows)),
-            "status": status,
-            "tax_labeling_jurisdiction": tax_labeling_jurisdiction,
-        },
+        data_quality=data_quality,
         methodology=methodology,
     )
 
@@ -172,6 +274,7 @@ def realized_gain_by_symbol(
     reporting_currency: str = "USD",
     period_start: Optional[date] = None,
     period_end: Optional[date] = None,
+    fx_resolver: Optional[Callable[..., float]] = None,
 ) -> dict[str, float]:
     report = build_tax_lot_attribution(
         account_id,
@@ -179,6 +282,7 @@ def realized_gain_by_symbol(
         reporting_currency=reporting_currency,
         period_start=period_start,
         period_end=period_end,
+        fx_resolver=fx_resolver,
     )
     if report.data_quality.get("status") != "sufficient":
         return {}

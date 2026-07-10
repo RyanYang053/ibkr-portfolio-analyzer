@@ -140,16 +140,18 @@ def test_live_advanced_risk_metrics_calculation(monkeypatch):
             sys.modules["pytest"] = pytest_module
             
     assert metrics is not None
-    assert metrics.sharpe_ratio is not None
-    assert metrics.sortino_ratio is not None
-    assert metrics.jensens_alpha is not None
-    assert metrics.tracking_error is not None
-    assert metrics.information_ratio is not None
-    
-    # Verify reasonable types
-    assert isinstance(metrics.sharpe_ratio, float)
-    assert isinstance(metrics.sortino_ratio, float)
-    assert isinstance(metrics.jensens_alpha, float)
-    assert isinstance(metrics.tracking_error, float)
-    assert isinstance(metrics.information_ratio, float)
+    # Current-holdings reconstruction is an ex-ante covariance model, not realized
+    # account performance. Historical ratios are withheld without actual snapshots
+    # and full activity-ledger coverage.
+    assert metrics.sharpe_ratio is None
+    assert metrics.sortino_ratio is None
+    assert metrics.jensens_alpha is None
+    assert metrics.tracking_error is None
+    assert metrics.information_ratio is None
+    assert metrics.data_quality["historical_metrics"] == "insufficient"
+    assert metrics.data_quality["cash_flow_ledger"] == "insufficient_history"
+    assert metrics.data_quality["security_return_series"] in {
+        "sufficient_modeled_current_holdings",
+        "partial_modeled_current_holdings",
+    }
 

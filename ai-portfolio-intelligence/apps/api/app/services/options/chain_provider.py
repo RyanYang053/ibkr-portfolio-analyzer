@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+import math
+from datetime import date, datetime
+from typing import Any
+
+from app.services.market_data.http_client import request_with_retry
+from app.services.options.engine import OptionContract, calculate_bs_greeks, calculate_bs_price
+
+
+def _parse_expiration(value: Any) -> date:
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(int(value)).date()
+    return date.fromisoformat(str(value)[:10])
+
+
+def fetch_live_options_chain(symbol: str, current_price: float, *, max_expirations: int = 1) -> list[OptionContract]:
+    if current_price <= 0:
+        return []
+
+    url = f"https://query2.finance.yahoo.com/v7/finance/options/{symbol.upper()}"
+    response = request_with_retry(url, timeout=6.0, max_attempts=3)
+    payload = response.json()
+    result = (payload.get("optionChain", {}).get("result") or [None])[0]
+    if not result:
+        raise RuntimeError(f"Live options chain unavailable for {symbol.upper()}")
+
+    expirations = [int(value) for value in result.get("expirationDates") or []]
+    if not expirations:
+        raise RuntimeError(f"No option expirations for {symbol.upper()}")
+
+    chain: list[OptionContract] = []
+    r = 0.045
+    for expiration_ts in expirations[:max_expirations]:
+        detail_url = f"{url}?date={expiration_ts}"
+        detail_response = request_with_retry(detail_url, timeout=6.0, max_attempts=3)
+        detail = (detail_response.json().get("optionChain", {}).get("result") or [None])[0]
+        if not detail:
+            continue
+        options = detail.get("options") or []
+        if not options:
+            continue
+        option_block = options[0]
+        expiration = _parse_expiration(option_block.get("expirationDate") or expiration_ts)
+        days = max((expiration - date.today()).days, 1)
+        time_to_expiry = days / 365.0
+
+        for right, rows in (("C", option_block.get("calls") or []), ("P", option_block.get("puts") or [])):
+            for row in rows:
+                strike = float(row.get("strike") or 0.0)
+                if strike <= 0:
+                    continue
+                bid = float(row.get("bid") or 0.0)
+                ask = float(row.get("ask") or 0.0)
+                last = float(row.get("lastPrice") or 0.0)
+                mid = (bid + ask) / 2.0 if bid > 0 and ask > 0 else last
+                if mid <= 0:
+                    mid = calculate_bs_price(current_price, strike, time_to_expiry, r, 0.30, right)
+                implied = row.get("impliedVolatility")
+                sigma = float(implied) if implied not in (None, 0) else 0.30
+                if sigma > 3:
+                    sigma /= 100.0
+                delta, theta = calculate_bs_greeks(current_price, strike, time_to_expiry, r, max(sigma, 0.05), right)
+                chain.append(
+                    OptionContract(
+                        symbol=str(row.get("contractSymbol") or f"{symbol.upper()}{expiration.strftime('%y%m%d')}{right}{int(strike*1000):08d}"),
+                        strike=round(strike, 2),
+                        right=right,
+                        expiration=expiration,
+                        bid=round(bid, 2),
+                        ask=round(ask, 2),
+                        mid=round(mid, 2),
+                        implied_volatility=round(max(sigma, 0.01), 4),
+                        delta=delta,
+                        theta=theta,
+                        open_interest=int(row.get("openInterest") or 0) or None,
+                        volume=int(row.get("volume") or 0) or None,
+                    )
+                )
+
+    if not chain:
+        raise RuntimeError(f"Live options chain empty for {symbol.upper()}")
+
+    chain.sort(key=lambda item: (abs(item.strike - current_price), item.expiration, item.right))
+    return chain[:20]
+
+
+def atm_implied_volatility(chain: list[OptionContract], current_price: float) -> float | None:
+    if not chain or current_price <= 0:
+        return None
+    atm = min(chain, key=lambda item: abs(item.strike - current_price))
+    if atm.implied_volatility and math.isfinite(atm.implied_volatility):
+        return float(atm.implied_volatility)
+    return None

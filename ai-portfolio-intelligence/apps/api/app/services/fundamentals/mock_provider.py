@@ -33,7 +33,7 @@ class MockFundamentalProvider:
             crumb_resp = client.get("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=3.0)
             if crumb_resp.status_code == 200:
                 crumb = crumb_resp.text.strip()
-                url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol.upper()}?crumb={crumb}&modules=defaultKeyStatistics,financialData"
+                url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol.upper()}?crumb={crumb}&modules=defaultKeyStatistics,financialData,secFilings"
                 resp = client.get(url, timeout=5.0)
                 if resp.status_code == 200:
                     res = resp.json()["quoteSummary"]["result"][0]
@@ -70,6 +70,24 @@ class MockFundamentalProvider:
                     pe_forward = stats.get("forwardPE", {}).get("raw")
                     ev_sales = stats.get("enterpriseToRevenue", {}).get("raw")
                     most_recent_quarter = stats.get("mostRecentQuarter", {}).get("raw")
+                    from datetime import date as date_type, datetime, timezone
+
+                    filing_date = None
+                    sec_filings = res.get("secFilings", {}) or {}
+                    filings = sec_filings.get("filings", []) if isinstance(sec_filings, dict) else []
+                    for filing in filings:
+                        filing_type = str(filing.get("type") or "")
+                        if filing_type not in {"10-Q", "10-K"}:
+                            continue
+                        filed_on = filing.get("date")
+                        if filed_on is None:
+                            continue
+                        if isinstance(filed_on, str):
+                            candidate = date_type.fromisoformat(filed_on[:10])
+                        else:
+                            candidate = datetime.fromtimestamp(float(filed_on), tz=timezone.utc).date()
+                        if filing_date is None or candidate > filing_date:
+                            filing_date = candidate
 
                     # Compute FCF yield
                     fcf_yield = None
@@ -83,15 +101,16 @@ class MockFundamentalProvider:
                     if any(value is None for value in required):
                         raise RuntimeError(f"Live fundamental data incomplete for {symbol.upper()}")
 
-                    from datetime import datetime, timezone
+                    report_date = datetime.fromtimestamp(float(most_recent_quarter), tz=timezone.utc).date()
+                    as_of_date = filing_date or report_date
 
-                    return FundamentalSnapshot(
+                    from app.schemas.domain import FundamentalSnapshotRecord
+                    from app.services.fundamentals.snapshot_store import save_snapshot_record
+
+                    snapshot = FundamentalSnapshot(
                         symbol=symbol.upper(),
                         period="TTM",
-                        report_date=datetime.fromtimestamp(
-                            float(most_recent_quarter),
-                            tz=timezone.utc,
-                        ).date(),
+                        report_date=report_date,
                         revenue_growth_yoy=float(revenue_growth),
                         gross_margin=float(gross_margin),
                         operating_margin=float(operating_margin),
@@ -103,6 +122,20 @@ class MockFundamentalProvider:
                         fcf_yield=float(fcf_yield) if fcf_yield is not None else None,
                         source="live_yahoo_finance",
                     )
+                    save_snapshot_record(
+                        FundamentalSnapshotRecord(
+                            symbol=snapshot.symbol,
+                            as_of_date=as_of_date,
+                            snapshot=snapshot,
+                            point_in_time=True,
+                            source=snapshot.source,
+                            report_period=snapshot.period,
+                            filing_date=filing_date,
+                            ingested_at=datetime.now(timezone.utc),
+                            synthetic_demo=False,
+                        )
+                    )
+                    return snapshot
         except Exception as exc:
             raise RuntimeError(f"Live fundamental data unavailable for {symbol.upper()}") from exc
         finally:

@@ -20,6 +20,7 @@ INTERNAL_ACTIONS = frozenset(
     {"buy", "sell", "dividend", "fee", "interest", "fx", "corporate_action", "transfer"}
 )
 EXECUTION_ACTIONS = frozenset({"buy", "sell"})
+ACTIVITY_LEDGER_SECTIONS = frozenset({"flex_cash_ledger", "mock_flex_cash_ledger"})
 
 
 class TransactionLedgerCoverage(BaseModel):
@@ -71,7 +72,7 @@ def is_external_cash_flow(txn: Transaction) -> bool:
 
 
 def external_cash_flow_amount(txn: Transaction) -> float:
-    """Signed external cash flow. Positive = money added to the account from outside."""
+    """Signed external cash flow. Positive means capital entered the account."""
     if txn.action in INTERNAL_ACTIONS or txn.action in EXECUTION_ACTIONS:
         return 0.0
     notional = txn.amount if txn.amount is not None else txn.quantity * txn.price
@@ -89,9 +90,12 @@ def external_cash_flows_for_interval(
     base_currency: str,
     fx_resolver,
 ) -> float:
-    """Sum external flows with trade_date in (interval_start_exclusive, interval_end_inclusive].
+    """Sum external flows in ``(start, end]`` in the reporting currency.
 
-    Weekend and holiday flows are assigned to the next portfolio snapshot interval.
+    Weekend and holiday flows therefore roll into the next available portfolio
+    snapshot interval. Historical FX is still required for fully accurate
+    multi-currency performance measurement; the supplied resolver determines the
+    conversion policy.
     """
     total = 0.0
     for txn in transactions:
@@ -100,7 +104,9 @@ def external_cash_flows_for_interval(
         amount = external_cash_flow_amount(txn)
         if amount == 0.0:
             continue
-        rate = fx_resolver(txn.currency, base_currency)
+        rate = float(fx_resolver(txn.currency, base_currency))
+        if rate <= 0:
+            raise ValueError(f"Invalid FX rate for {txn.currency}/{base_currency}: {rate}")
         total += amount * rate
     return total
 
@@ -114,31 +120,48 @@ def build_ledger_coverage(
     period_start: Optional[date] = None,
     period_end: Optional[date] = None,
 ) -> TransactionLedgerCoverage:
+    """Build source-period coverage metadata, independent of transaction presence.
+
+    A successful activity-ledger query can be complete even when it contains zero
+    deposits or withdrawals. Completeness is therefore derived from the queried
+    source section and requested period, not from the dates of external-flow rows.
+    """
+    sections = sorted(set(imported_sections))
+    section_set = set(sections)
+    has_activity_ledger = bool(section_set & ACTIVITY_LEDGER_SECTIONS)
     external_rows = [txn for txn in transactions if is_external_cash_flow(txn)]
     execution_rows = [txn for txn in transactions if txn.action in EXECUTION_ACTIONS]
     has_external = bool(external_rows)
-    execution_only = bool(execution_rows) and not has_external
+    execution_only = bool(execution_rows) and not has_activity_ledger
 
-    coverage_start = min((txn.trade_date for txn in external_rows), default=None)
-    coverage_end = max((txn.trade_date for txn in external_rows), default=None)
-    if not coverage_start and transactions:
+    if has_activity_ledger and period_start is not None and period_end is not None:
+        coverage_start = period_start
+        coverage_end = period_end
+    elif transactions:
         coverage_start = min(txn.trade_date for txn in transactions)
         coverage_end = max(txn.trade_date for txn in transactions)
+    else:
+        coverage_start = None
+        coverage_end = None
 
     sources = sorted({txn.source for txn in transactions if txn.source})
-    source = ",".join(sources) if sources else "none"
+    if sources:
+        source = ",".join(sources)
+    elif "flex_cash_ledger" in section_set:
+        source = "ibkr_flex_query"
+    elif "mock_flex_cash_ledger" in section_set:
+        source = "mock_flex_query"
+    else:
+        source = "none"
 
     status: Literal["completed", "partial", "error"] = "partial"
     if flex_error:
         status = "error" if not transactions else "partial"
-    elif has_external and period_start and period_end and coverage_start and coverage_end:
-        if coverage_start <= period_start and coverage_end >= period_end:
-            status = "completed"
-        else:
-            status = "partial"
-    elif has_external:
-        status = "partial"
-    elif execution_only:
+    elif has_activity_ledger and period_start is not None and period_end is not None:
+        status = "completed" if rejected_row_count == 0 else "partial"
+    elif has_activity_ledger:
+        # The activity section was imported, but its requested date window is not
+        # known, so full-period performance cannot be asserted.
         status = "partial"
 
     return TransactionLedgerCoverage(
@@ -146,10 +169,10 @@ def build_ledger_coverage(
         source=source,
         coverage_start=coverage_start,
         coverage_end=coverage_end,
-        imported_sections=imported_sections,
+        imported_sections=sections,
         rejected_row_count=rejected_row_count,
         status=status,
-        last_successful_sync_at=datetime.now(timezone.utc),
+        last_successful_sync_at=None if flex_error else datetime.now(timezone.utc),
         has_external_cash_flows=has_external,
         execution_only=execution_only,
         flex_error=flex_error,
@@ -157,11 +180,7 @@ def build_ledger_coverage(
 
 
 def ledger_covers_period(coverage: Optional[TransactionLedgerCoverage], period_start: date, period_end: date) -> bool:
-    if coverage is None or not coverage.has_external_cash_flows:
-        return False
-    if coverage.execution_only:
-        return False
-    if coverage.status == "error":
+    if coverage is None or coverage.execution_only or coverage.status != "completed":
         return False
     if coverage.coverage_start is None or coverage.coverage_end is None:
         return False

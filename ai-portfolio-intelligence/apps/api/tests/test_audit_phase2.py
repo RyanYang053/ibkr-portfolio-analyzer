@@ -103,12 +103,12 @@ def test_sector_specific_valuation_uses_sector_norms():
     )
     scores = score_fundamentals_for_sector(fundamentals, "Technology")
     assert "valuation" in scores
-    assert get_sector_norms("Financials").model_name == "financials_pb_rotce"
+    assert get_sector_norms("Financials").model_name == "financials_heuristic"
 
 
 def test_scoring_model_routes_by_sector():
     position = _position("JPM", "Financials")
-    assert resolve_scoring_model(position) == "financials_pb_rotce"
+    assert resolve_scoring_model(position) == "financials_heuristic"
 
 
 def test_brinson_attribution_withheld_without_portfolio_sector_returns():
