@@ -461,6 +461,19 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
 
     evidence.append(f"Model coverage: {coverage * 100:.1f}%")
 
+    if final_score is not None:
+        from app.services.scoring.calibration_ingestion import (
+            materialize_calibration_observations,
+            record_score_observation,
+        )
+
+        record_score_observation(
+            symbol=position.symbol,
+            model_name=model_name,
+            score=final_score,
+        )
+        materialize_calibration_observations(model_name, allow_mock=uses_mock or bool(allow_mock))
+
     return StockScore(
         symbol=position.symbol,
         stock_type=position.stock_type,

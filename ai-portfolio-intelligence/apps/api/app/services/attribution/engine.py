@@ -75,6 +75,7 @@ def calculate_brinson_attribution(
     fx_resolver,
     allow_mock: bool,
     portfolio_sector_returns: Optional[dict[str, float]] = None,
+    portfolio_sector_weights: Optional[dict[str, float]] = None,
     period_start: Optional[date] = None,
     period_end: Optional[date] = None,
 ) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], dict[str, dict[str, float]], str]:
@@ -88,7 +89,7 @@ def calculate_brinson_attribution(
             "Brinson attribution withheld: actual beginning-weight portfolio sector returns are unavailable.",
         )
 
-    portfolio_weights = _portfolio_sector_weights(positions, base_currency, fx_resolver)
+    portfolio_weights = portfolio_sector_weights or _portfolio_sector_weights(positions, base_currency, fx_resolver)
     benchmark_weights = _benchmark_sector_weights()
     sectors = sorted(set(portfolio_weights) | set(benchmark_weights))
 
@@ -143,6 +144,8 @@ def calculate_brinson_attribution(
         "Brinson-Fachler attribution uses beginning portfolio sector weights and period-aligned portfolio "
         "sector returns versus benchmark sector ETF total returns."
     )
+    if portfolio_sector_weights is not None:
+        methodology += " Beginning weights are reconstructed from the transaction ledger."
     return (
         round(allocation * 100.0, 2),
         round(selection * 100.0, 2),
@@ -192,6 +195,10 @@ def calculate_performance_attribution(
     from app.services.broker.ibkr_readonly import get_exchange_rate
     from app.services.portfolio.tax_lots import realized_gain_by_symbol
     from app.services.portfolio.transaction_store import get_transactions
+    from app.services.attribution.brinson_ledger import (
+        beginning_sector_weights,
+        sector_returns_from_ledger,
+    )
 
     if fx_resolver is None:
         fx_resolver = get_exchange_rate
@@ -212,6 +219,7 @@ def calculate_performance_attribution(
                 reporting_currency=base_currency,
                 period_start=period_start,
                 period_end=period_end,
+                fx_resolver=fx_resolver,
             )
             if tax_lot_realized:
                 tax_lot_total = round(sum(tax_lot_realized.values()), 2)
@@ -282,17 +290,44 @@ def calculate_performance_attribution(
 
         recon = None
         portfolio_sector_returns = None
+        portfolio_sector_weights = None
+        period_start = None
+        period_end = None
+        ordered_history = sorted(history, key=lambda item: (item.date, item.timestamp))
+        if ordered_history:
+            period_start = date.fromisoformat(ordered_history[0].date)
+            period_end = date.fromisoformat(ordered_history[-1].date)
+        if account_id and period_start and period_end:
+            coverage = load_ledger_coverage(account_id)
+            if coverage and ledger_covers_period(coverage, period_start, period_end):
+                ledger_transactions = get_transactions(account_id)
+                portfolio_sector_weights = beginning_sector_weights(
+                    ledger_transactions,
+                    positions,
+                    period_start,
+                    base_currency,
+                    fx_resolver,
+                    allow_mock=allow_mock,
+                )
+                portfolio_sector_returns = sector_returns_from_ledger(
+                    ledger_transactions,
+                    positions,
+                    period_start,
+                    period_end,
+                    allow_mock=allow_mock,
+                )
         if "pytest" not in sys.modules:
             recon = reconstruct_portfolio_history(positions, summary, allow_mock=allow_mock)
-            if recon is not None:
+            if portfolio_sector_returns is None and recon is not None:
                 portfolio_sector_returns = _portfolio_sector_returns_from_reconstruction(positions, recon)
+
         if recon is not None:
-            port_returns = recon["port_returns"]
-            spy_returns = recon["spy_returns"]
+            port_returns = recon.get("port_returns") or []
+            spy_returns = recon.get("spy_returns") or []
             var_spy = calculate_variance(spy_returns)
-            if var_spy > 0:
+            if var_spy > 0 and port_returns:
                 beta_spy = calculate_covariance(port_returns, spy_returns) / var_spy
-                nav_series = recon["portfolio_nav"]
+                nav_series = recon.get("portfolio_nav") or []
                 if nav_series and spy_returns and nav_series[0] > 0:
                     p_ret = (nav_series[-1] - nav_series[0]) / nav_series[0]
                     spy_compounded = 1.0
@@ -312,6 +347,9 @@ def calculate_performance_attribution(
             fx_resolver,
             allow_mock=allow_mock,
             portfolio_sector_returns=portfolio_sector_returns,
+            portfolio_sector_weights=portfolio_sector_weights,
+            period_start=period_start,
+            period_end=period_end,
         )
         if by_sector:
             allocation_effect = alloc

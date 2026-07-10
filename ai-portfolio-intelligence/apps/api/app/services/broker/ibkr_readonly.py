@@ -95,6 +95,12 @@ def get_exchange_rate(from_curr: str, to_curr: str) -> float:
     raise RuntimeError(f"Live FX rate unavailable for {pair[0]}/{pair[1]}")
 
 
+def get_exchange_rate_at_date(from_curr: str, to_curr: str, as_of: date) -> float:
+    from app.services.market_data.fx_store import get_historical_exchange_rate
+
+    return get_historical_exchange_rate(from_curr, to_curr, as_of)
+
+
 def _get_yahoo_market_price(symbol: str, exchange: str = "", currency: str = "USD") -> float:
     yahoo_symbol = symbol.upper()
     if currency.upper() == "CAD":

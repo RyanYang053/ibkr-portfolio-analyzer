@@ -516,8 +516,21 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
     is_live_market = not is_demo
     is_mock_fallback = is_demo
 
-    # Deterministic Option Chain Generator (using Black-Scholes around current price)
-    chain = generate_mock_options_chain(position.symbol, position.market_price)
+    # Deterministic or live option chain
+    chain = []
+    live_chain_unavailable = False
+    if is_live_market:
+        try:
+            from app.services.options.chain_provider import fetch_live_options_chain
+
+            chain = fetch_live_options_chain(position.symbol, position.market_price)
+            is_mock_fallback = False
+        except Exception:
+            live_chain_unavailable = True
+    if not chain:
+        chain = generate_mock_options_chain(position.symbol, position.market_price)
+        if is_live_market:
+            is_mock_fallback = True
     chain_dict = [c.model_dump() for c in chain]
     
     trend_str = "Neutral"
@@ -635,26 +648,31 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             })
 
         from app.schemas.domain import utc_now
+        from app.services.options.chain_provider import atm_implied_volatility
+
         warnings = []
         if is_demo:
             warnings.append("Simulated data — not suitable for trading decisions.")
-        else:
+        elif live_chain_unavailable:
             warnings.append("Live options chain unavailable; IV percentile and probability of profit are withheld.")
-            
+        else:
+            warnings.append("Live options chain quotes sourced from market data; verify before trading.")
+
+        atm_iv = atm_implied_volatility(chain, position.market_price)
         return {
             "symbol": position.symbol,
             "stock_price": position.market_price,
-            "implied_volatility": 0.30 if is_demo else None,
+            "implied_volatility": 0.30 if is_demo else atm_iv,
             "iv_percentile": 50 if is_demo else None,
-            "implied_move_percent": 5.0 if is_demo else None,
+            "implied_move_percent": round(atm_iv * 100.0, 2) if (not is_demo and atm_iv is not None) else (5.0 if is_demo else None),
             "strategies": validated_strategies,
             "market_sentiment": report.get("market_sentiment", "Educational market analysis active."),
             "human_review_required": True,
             "disclaimer": report.get("disclaimer", "Disclaimer: This options analysis is for educational purposes only."),
             "provider": f"gemini:{gemini.model}",
             "asOf": utc_now().isoformat(),
-            "dataSource": "Mock" if is_demo else "SimulatedChainNoLiveQuotes",
-            "isMock": is_demo,
+            "dataSource": "Mock" if is_demo else ("LiveYahooOptions" if not live_chain_unavailable else "SimulatedChainNoLiveQuotes"),
+            "isMock": is_demo or (is_live_market and live_chain_unavailable),
             "quoteDelaySeconds": 15 if is_demo else 0,
             "warnings": warnings,
             "provenance": {

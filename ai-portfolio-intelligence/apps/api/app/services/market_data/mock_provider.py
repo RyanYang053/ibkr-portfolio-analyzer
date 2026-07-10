@@ -75,14 +75,19 @@ class MockMarketDataProvider:
 
         # Deterministic demo/test data is available only when explicitly enabled.
         from app.services.broker.mock_ibkr import MOCK_LOTS
-        if symbol.upper() not in MOCK_LOTS:
+
+        symbol_upper = symbol.upper()
+        extended_mock_symbols = {"VLUE", "MTUM", "USMV", "JPM", "AAPL", "XLK", "XLF", "XLY", "XLP", "XLC", "XLV", "XLE", "XLI", "XLU", "XLRE", "XLB"}
+        if symbol_upper not in MOCK_LOTS and symbol_upper not in extended_mock_symbols:
             raise KeyError(f"No mock history for {symbol}")
 
+        lot = MOCK_LOTS.get(symbol_upper)
+        base_close = lot[2] if lot else 100.0 + (sum(ord(char) for char in symbol_upper) % 40)
         days = max((end_date - start_date).days, 220)
-        base = MOCK_LOTS[symbol.upper()][2] * 0.72
+        base = base_close * 0.72
         prices = []
         for index in range(days):
-            close = base + index * (MOCK_LOTS[symbol.upper()][2] - base) / max(days - 1, 1)
+            close = base + index * (base_close - base) / max(days - 1, 1)
             prices.append(
                 {
                     "date": (start_date + timedelta(days=index)).isoformat(),

@@ -7,6 +7,7 @@ from datetime import date
 from typing import Callable, Deque, Literal, Optional
 
 from app.schemas.domain import RealizedLotAttribution, TaxLot, TaxLotAttributionReport, Transaction
+from app.services.portfolio.corporate_actions import apply_corporate_action_to_lots, parse_corporate_action
 
 EXECUTION_ACTIONS = frozenset({"buy", "sell"})
 CORPORATE_ACTIONS = frozenset({"corporate_action"})
@@ -31,11 +32,14 @@ def _convert_amount(
     reporting_currency: str,
     trade_date: date,
     fx_resolver: Optional[Callable[..., float]],
+    txn_fx_rate: Optional[float] = None,
 ) -> tuple[Optional[float], Optional[str]]:
     reporting = reporting_currency.upper()
     native = (currency or reporting).upper()
     if native == reporting:
         return amount, None
+    if txn_fx_rate is not None and math.isfinite(float(txn_fx_rate)) and float(txn_fx_rate) > 0:
+        return amount * float(txn_fx_rate), "transaction_reported_fx"
     if fx_resolver is None:
         return None, "withheld_mixed_currency"
     try:
@@ -69,9 +73,21 @@ def build_tax_lot_attribution(
 
     for txn in ordered:
         key = _lot_key(txn)
+        if txn.action == "corporate_action":
+            action = parse_corporate_action(txn)
+            if action and open_lots[key]:
+                apply_corporate_action_to_lots(open_lots[key], action, txn)
+            continue
         if txn.action == "buy":
             notional = txn.price + (txn.commission / abs(txn.quantity) if txn.quantity else 0.0)
-            converted, status = _convert_amount(notional, txn.currency, reporting_currency, txn.trade_date, fx_resolver)
+            converted, status = _convert_amount(
+                notional,
+                txn.currency,
+                reporting_currency,
+                txn.trade_date,
+                fx_resolver,
+                txn.fx_rate,
+            )
             if converted is None:
                 fx_status = status
                 continue
@@ -104,6 +120,7 @@ def build_tax_lot_attribution(
             reporting_currency,
             txn.trade_date,
             fx_resolver,
+            txn.fx_rate,
         )
         if proceeds_per_share is None:
             fx_status = status
@@ -183,21 +200,22 @@ def build_tax_lot_attribution(
     txn_currencies = {txn.currency.upper() for txn in execution_rows if txn.currency}
     mixed_currency = any(currency != reporting_currency.upper() for currency in txn_currencies)
 
-    if corporate_rows:
+    unparsed_corporate_actions = [txn for txn in corporate_rows if parse_corporate_action(txn) is None]
+    corp_note = None
+
+    if fx_status == "withheld_mixed_currency" or (mixed_currency and fx_resolver is None):
         status = "incomplete"
-        corp_note = "corporate_actions_unsupported"
-    elif fx_status == "withheld_mixed_currency" or (mixed_currency and fx_resolver is None):
+    elif unparsed_corporate_actions:
         status = "incomplete"
-        corp_note = None
+        corp_note = "corporate_actions_partial"
     elif incomplete_opening_lots or has_unmatched:
         status = "incomplete"
-        corp_note = None
     elif realized_rows or open_rows:
         status = "sufficient"
-        corp_note = None
+        if corporate_rows:
+            corp_note = "corporate_actions_applied"
     else:
         status = "missing"
-        corp_note = None
 
     total_realized = round(sum(row.realized_gain_loss for row in realized_rows), 2) if status == "sufficient" else 0.0
     total_short = round(sum(row.short_term_gain_loss or 0.0 for row in realized_rows), 2) if status == "sufficient" else 0.0
@@ -215,8 +233,10 @@ def build_tax_lot_attribution(
             f" Mixed-currency execution history requires transaction-date FX conversion into "
             f"{reporting_currency.upper()}; totals are withheld until conversion is available."
         )
-    if corporate_rows:
-        methodology += " Corporate actions are not yet applied to tax lots; output is withheld."
+    if corporate_rows and unparsed_corporate_actions:
+        methodology += " Some corporate actions could not be parsed; output is withheld."
+    elif corporate_rows:
+        methodology += " Supported corporate actions (stock splits) are applied to FIFO tax lots."
 
     data_quality = {
         "tax_lot_method": "fifo",

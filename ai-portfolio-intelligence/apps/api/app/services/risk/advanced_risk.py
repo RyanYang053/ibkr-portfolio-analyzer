@@ -349,11 +349,24 @@ def calculate_advanced_risk_metrics(
     except Exception:
         reconstruction = None
 
-    factor_exposures, factor_excluded = _factor_exposures(positions, summary)
-    stress_tests, stress_excluded = _stress_tests(positions, summary, total_value)
-
     enough_history = len(account_returns) >= MIN_RISK_RETURNS
     benchmark_sufficient = enough_history and len(spy_returns) == len(account_returns)
+
+    factor_exposures, factor_excluded = _factor_exposures(positions, summary)
+    measured_exposures: dict[str, float] = {}
+    factor_quality = "heuristic_current_exposure"
+    if enough_history:
+        from app.services.risk.factor_model import compute_measured_factor_exposures
+
+        measured_exposures, factor_quality = compute_measured_factor_exposures(
+            account_returns,
+            allow_mock=allow_mock,
+        )
+    if measured_exposures:
+        factor_exposures = measured_exposures
+        factor_quality = "measured_regression"
+    stress_tests, stress_excluded = _stress_tests(positions, summary, total_value)
+
     current_holdings_quality = (
         "sufficient_modeled_current_holdings"
         if correlation_matrix and modeled_coverage >= 95.0
@@ -373,6 +386,7 @@ def calculate_advanced_risk_metrics(
         "current_holdings_excluded_symbols": ",".join(sorted(set(modeled_excluded))) or "none",
         "stress_fx_excluded_symbols": ",".join(sorted(set(stress_excluded))) or "none",
         "factor_fx_excluded_symbols": ",".join(sorted(set(factor_excluded))) or "none",
+        "factor_model": factor_quality,
     }
 
     methodology = {
@@ -388,7 +402,10 @@ def calculate_advanced_risk_metrics(
             "Portfolio beta uses actual cash-flow-adjusted account returns aligned as-of to benchmark total returns. "
             "The security correlation matrix is a separate ex-ante current-holdings model and is not account history."
         ),
-        "factor_exposures": "Heuristic current-exposure classification; not a fitted multi-factor regression.",
+        "factor_exposures": (
+            "Measured via OLS regression of account returns on ETF factor proxies when sufficient history exists; "
+            "otherwise heuristic current-exposure classification."
+        ),
         "stress_tests": "Current base-currency market values under transparent assumption-based shocks; not forecasts.",
         "risk_free_rate": f"Configured annual risk-free rate: {risk_free_rate * 100.0:.4f}%.",
         "sharpe_ratio": "Geometrically annualized mean return minus configured risk-free rate, divided by annualized volatility.",
