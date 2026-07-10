@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 
 from app.schemas.domain import (
@@ -42,74 +43,97 @@ def generate_rebalance_proposal(
 ) -> RebalanceProposal:
     """Generate a bounded, deterministic rebalance review proposal.
 
-    The solver does not invent market prices, does not sell more than a current long
-    position, and does not count the same sale twice when satisfying concentration
-    and cash-floor constraints. It remains a review proposal rather than an optimizer
-    because tax lots, spreads, commissions, settlement, and expected returns are not
-    available.
+    All values are converted to the account reporting currency before constraints
+    and trade notionals are calculated. The output remains a review proposal, not
+    an optimizer: tax lots, spreads, commissions, settlement, expected returns,
+    and approved replacement instruments are unavailable.
     """
-
     _validate_policy(policy)
-    if summary.net_liquidation <= 0:
-        raise ValueError("Net liquidation must be positive before rebalancing")
+    if not math.isfinite(summary.net_liquidation) or summary.net_liquidation <= 0:
+        raise ValueError("Net liquidation must be finite and positive before rebalancing")
 
-    total_value = summary.net_liquidation
-    current_cash = summary.cash
+    from app.services.broker.ibkr_readonly import get_exchange_rate
+
+    total_value = float(summary.net_liquidation)
+    current_cash = float(summary.cash)
     cash_floor = max(policy.minimum_cash, total_value * policy.target_cash_percent / 100.0)
-    drift = analyze_policy_drift(positions, current_cash, total_value, policy)
 
-    long_positions = [position for position in positions if position.quantity > 0 and position.market_value > 0]
-    by_symbol = {position.symbol: position for position in long_positions}
+    converted: dict[str, tuple[Position, float, float]] = {}
+    for position in positions:
+        rate = float(get_exchange_rate(position.currency, summary.base_currency))
+        if not math.isfinite(rate) or rate <= 0:
+            raise ValueError(f"Invalid FX rate for {position.currency}/{summary.base_currency}: {rate}")
+        market_value_base = float(position.market_value) * rate
+        market_price_base = float(position.market_price) * rate
+        converted[position.symbol] = (position, market_value_base, market_price_base)
+
+    drift = analyze_policy_drift(
+        positions,
+        current_cash,
+        total_value,
+        policy,
+        base_currency=summary.base_currency,
+        fx_resolver=get_exchange_rate,
+    )
+
+    long_positions = [
+        item
+        for item in converted.values()
+        if item[0].quantity > 0 and item[1] > 0 and item[2] > 0
+    ]
+    long_symbols = [item[0].symbol for item in long_positions]
+    if len(long_symbols) != len(set(long_symbols)):
+        raise ValueError(
+            "Duplicate symbols require a conId-aware rebalance proposal schema; refusing to merge distinct contracts."
+        )
+    by_symbol = {item[0].symbol: item for item in long_positions}
     planned_sales: dict[str, float] = defaultdict(float)
     sale_reasons: dict[str, list[str]] = defaultdict(list)
 
-    def plan_sale(position: Position, requested_value: float, reason: str) -> None:
-        if requested_value <= 0:
+    def plan_sale(item: tuple[Position, float, float], requested_value_base: float, reason: str) -> None:
+        position, market_value_base, _ = item
+        if requested_value_base <= 0:
             return
-        remaining_value = max(0.0, position.market_value - planned_sales[position.symbol])
-        sale_value = min(requested_value, remaining_value)
+        remaining_value = max(0.0, market_value_base - planned_sales[position.symbol])
+        sale_value = min(requested_value_base, remaining_value)
         if sale_value < MINIMUM_TRADE_VALUE:
             return
         planned_sales[position.symbol] += sale_value
         sale_reasons[position.symbol].append(reason)
 
-    # 1. Enforce single-name limits.
-    for position in long_positions:
+    for item in long_positions:
+        position, market_value_base, _ = item
         if position.is_etf or position.asset_class in {"OPT", "FOP"}:
             continue
-        current_weight = position.market_value / total_value * 100.0
+        current_weight = market_value_base / total_value * 100.0
         if current_weight > policy.max_single_stock_weight:
             target_value = total_value * policy.max_single_stock_weight / 100.0
             plan_sale(
-                position,
-                position.market_value - target_value,
+                item,
+                market_value_base - target_value,
                 f"Reduce single-name exposure to the {policy.max_single_stock_weight:.2f}% policy limit.",
             )
 
-    # 2. Enforce the speculative basket after accounting for single-name sales.
-    speculative = [position for position in long_positions if position.is_speculative]
-    speculative_value_after_planned_sales = sum(
-        max(0.0, position.market_value - planned_sales[position.symbol]) for position in speculative
+    speculative = [item for item in long_positions if item[0].is_speculative]
+    speculative_value_after_sales = sum(
+        max(0.0, market_value_base - planned_sales[position.symbol])
+        for position, market_value_base, _ in speculative
     )
     speculative_limit_value = total_value * policy.max_speculative_weight / 100.0
-    speculative_excess = max(0.0, speculative_value_after_planned_sales - speculative_limit_value)
-    if speculative_excess > 0 and speculative_value_after_planned_sales > 0:
-        for position in speculative:
-            remaining = max(0.0, position.market_value - planned_sales[position.symbol])
-            share = remaining / speculative_value_after_planned_sales
+    speculative_excess = max(0.0, speculative_value_after_sales - speculative_limit_value)
+    if speculative_excess > 0 and speculative_value_after_sales > 0:
+        for item in speculative:
+            position, market_value_base, _ = item
+            remaining = max(0.0, market_value_base - planned_sales[position.symbol])
             plan_sale(
-                position,
-                speculative_excess * share,
+                item,
+                speculative_excess * remaining / speculative_value_after_sales,
                 f"Reduce the speculative basket to the {policy.max_speculative_weight:.2f}% policy limit.",
             )
 
-    # 3. Satisfy the cash floor without double-counting sales already planned.
     required_cash_raise = max(0.0, cash_floor - current_cash)
     cash_from_planned_sales = sum(planned_sales.values())
     additional_cash_needed = max(0.0, required_cash_raise - cash_from_planned_sales)
-
-    # If equity is materially overweight, the equity drift itself may require more
-    # selling than the cash floor. Use the larger requirement.
     equity_drift = float(drift["drifts"]["equity"]["drift"])
     equity_reduction_needed = (
         total_value * equity_drift / 100.0
@@ -119,70 +143,62 @@ def generate_rebalance_proposal(
     additional_sale_target = max(additional_cash_needed, equity_reduction_needed - cash_from_planned_sales)
 
     if additional_sale_target > 0:
-        # Prefer broad ETFs, then largest non-speculative core positions. Positions
-        # already partially sold remain eligible up to their unsold market value.
         candidates = sorted(
             long_positions,
-            key=lambda position: (
-                0 if position.is_etf else 1 if not position.is_speculative else 2,
-                -position.market_value,
+            key=lambda item: (
+                0 if item[0].is_etf else 1 if not item[0].is_speculative else 2,
+                -item[1],
             ),
         )
         remaining_target = additional_sale_target
-        for position in candidates:
+        for item in candidates:
+            position, market_value_base, _ = item
             if remaining_target < MINIMUM_TRADE_VALUE:
                 break
-            available = max(0.0, position.market_value - planned_sales[position.symbol])
+            available = max(0.0, market_value_base - planned_sales[position.symbol])
             if available < MINIMUM_TRADE_VALUE:
                 continue
-            sale_value = min(available, remaining_target)
             before = planned_sales[position.symbol]
-            plan_sale(position, sale_value, "Raise the required cash buffer or reduce equity drift.")
+            plan_sale(item, min(available, remaining_target), "Raise the required cash buffer or reduce equity drift.")
             remaining_target -= planned_sales[position.symbol] - before
 
     proposed_trades: list[RebalanceProposalItem] = []
-    for symbol, sale_value in sorted(planned_sales.items()):
-        position = by_symbol[symbol]
-        if position.market_price <= 0:
+    for symbol, sale_value_base in sorted(planned_sales.items()):
+        position, market_value_base, market_price_base = by_symbol[symbol]
+        quantity = min(position.quantity, sale_value_base / market_price_base)
+        actual_value_base = quantity * market_price_base
+        if actual_value_base < MINIMUM_TRADE_VALUE:
             continue
-        quantity = min(position.quantity, sale_value / position.market_price)
-        actual_value = quantity * position.market_price
-        if actual_value < MINIMUM_TRADE_VALUE:
-            continue
-        target_weight = max(0.0, (position.market_value - actual_value) / total_value * 100.0)
+        target_weight = max(0.0, (market_value_base - actual_value_base) / total_value * 100.0)
         proposed_trades.append(
             RebalanceProposalItem(
                 symbol=symbol,
-                current_weight=round(position.market_value / total_value * 100.0, 2),
+                current_weight=round(market_value_base / total_value * 100.0, 2),
                 target_weight=round(target_weight, 2),
-                current_value=round(position.market_value, 2),
-                proposed_trade_value=round(-actual_value, 2),
+                current_value=round(market_value_base, 2),
+                proposed_trade_value=round(-actual_value_base, 2),
                 proposed_trade_qty=round(-quantity, 6),
                 action="Sell",
                 reason=" ".join(dict.fromkeys(sale_reasons[symbol])),
             )
         )
 
-    # 4. Use excess cash to correct a material equity underweight only when a real,
-    # currently observed benchmark price exists. Never use a fabricated fallback.
     if equity_drift < -policy.rebalancing_drift_threshold and current_cash > cash_floor:
         benchmark = policy.benchmark.upper()
         restricted = {item.upper() for item in profile.restrictions}
-        benchmark_position = next((position for position in long_positions if position.symbol.upper() == benchmark), None)
-        if benchmark_position and benchmark_position.market_price > 0 and benchmark not in restricted:
+        benchmark_item = next((item for item in long_positions if item[0].symbol.upper() == benchmark), None)
+        if benchmark_item and benchmark not in restricted:
+            position, market_value_base, market_price_base = benchmark_item
             available_cash = current_cash - cash_floor
             desired_purchase = min(available_cash, total_value * abs(equity_drift) / 100.0)
             if desired_purchase >= MINIMUM_TRADE_VALUE:
-                quantity = desired_purchase / benchmark_position.market_price
+                quantity = desired_purchase / market_price_base
                 proposed_trades.append(
                     RebalanceProposalItem(
                         symbol=benchmark,
-                        current_weight=round(benchmark_position.market_value / total_value * 100.0, 2),
-                        target_weight=round(
-                            (benchmark_position.market_value + desired_purchase) / total_value * 100.0,
-                            2,
-                        ),
-                        current_value=round(benchmark_position.market_value, 2),
+                        current_weight=round(market_value_base / total_value * 100.0, 2),
+                        target_weight=round((market_value_base + desired_purchase) / total_value * 100.0, 2),
+                        current_value=round(market_value_base, 2),
                         proposed_trade_value=round(desired_purchase, 2),
                         proposed_trade_qty=round(quantity, 6),
                         action="Buy",
@@ -191,22 +207,19 @@ def generate_rebalance_proposal(
                 )
 
     cash_impact = -sum(item.proposed_trade_value for item in proposed_trades)
-
     if profile.account_type in {"Taxable", "Margin"}:
         sold_symbols = [item.symbol for item in proposed_trades if item.action == "Sell"]
-        if sold_symbols:
-            tax_warning = (
-                f"Account type is {profile.account_type}. Sales of {', '.join(sold_symbols)} may realize gains or losses. "
-                "Tax lots, superficial-loss/wash-sale rules, commissions, and settlement are not modeled."
-            )
-        else:
-            tax_warning = "The account is taxable, but this proposal contains no sales. Tax lots are not modeled."
+        tax_warning = (
+            f"Account type is {profile.account_type}. Sales of {', '.join(sold_symbols)} may realize gains or losses. "
+            "Tax lots, FX cost basis, superficial-loss/wash-sale rules, commissions, and settlement are not modeled."
+            if sold_symbols
+            else "The account is taxable, but this proposal contains no sales. Tax lots and FX cost basis are not modeled."
+        )
     else:
         tax_warning = (
-            f"Account type is {profile.account_type}. Immediate capital-gains tax is generally not modeled here; "
-            "account-specific contribution, withdrawal, and trading rules still require human review."
+            f"Account type is {profile.account_type}. Immediate capital-gains tax is not modeled; account-specific "
+            "contribution, withdrawal, and trading rules still require human review."
         )
-
     if policy.target_bond_percent > 0:
         tax_warning += " Bond purchases are not proposed because no approved bond instrument or live price is configured."
 

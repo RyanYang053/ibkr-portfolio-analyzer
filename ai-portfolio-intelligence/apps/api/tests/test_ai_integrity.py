@@ -230,8 +230,17 @@ def test_advanced_risk_does_not_fill_missing_history_with_plausible_defaults():
     assert metrics.portfolio_beta_qqq is None
     assert metrics.value_at_risk_95 is None
     assert metrics.conditional_var_95 is None
-    assert metrics.correlation_matrix == {}
     assert metrics.data_quality["historical_metrics"] == "insufficient"
+    assert metrics.data_quality["cash_flow_ledger"] == "insufficient_history"
+    assert metrics.data_quality["security_return_series"] in {
+        "sufficient_modeled_current_holdings",
+        "partial_modeled_current_holdings",
+    }
+    if metrics.correlation_matrix:
+        assert all(
+            metrics.correlation_matrix[symbol][symbol] == 1.0
+            for symbol in metrics.correlation_matrix
+        )
 
 
 def test_attribution_does_not_invent_benchmark_return_or_alpha():

@@ -72,8 +72,10 @@ def test_reconstruct_portfolio_history_mock_data():
     assert len(recon["trading_dates"]) >= 220
     assert "portfolio_nav" in recon
     assert len(recon["portfolio_nav"]) == len(recon["trading_dates"])
-    assert "spy_prices" in recon
-    assert len(recon["spy_prices"]) == len(recon["trading_dates"])
-    
+    assert "spy_returns" in recon
+    assert len(recon["spy_returns"]) == len(recon["trading_dates"]) - 1
+    assert "methodology" in recon
+    assert "ex-ante" in recon["methodology"].lower()
+
     # Portfolio NAV on the last day should match the current value
     assert round(recon["portfolio_nav"][-1], 2) == round(summary.cash + positions[0].market_value, 2)

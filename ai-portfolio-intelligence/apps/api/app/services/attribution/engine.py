@@ -263,10 +263,12 @@ def calculate_performance_attribution(
             if var_spy > 0:
                 beta_spy = calculate_covariance(port_returns, spy_returns) / var_spy
                 nav_series = recon["portfolio_nav"]
-                spy_series = recon["spy_prices"]
-                if nav_series and spy_series and nav_series[0] > 0 and spy_series[0] > 0:
+                if nav_series and spy_returns and nav_series[0] > 0:
                     p_ret = (nav_series[-1] - nav_series[0]) / nav_series[0]
-                    spy_ret = (spy_series[-1] - spy_series[0]) / spy_series[0]
+                    spy_compounded = 1.0
+                    for daily_return in spy_returns:
+                        spy_compounded *= 1.0 + daily_return
+                    spy_ret = spy_compounded - 1.0
                     rf = 0.04
                     alpha = p_ret - (rf + beta_spy * (spy_ret - rf))
                     benchmark_relative_alpha = round(alpha * 100.0, 2)

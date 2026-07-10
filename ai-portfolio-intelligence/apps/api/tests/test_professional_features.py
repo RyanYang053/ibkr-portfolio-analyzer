@@ -181,10 +181,12 @@ def test_advanced_risk_and_stress_tests():
     
     risk_metrics = calculate_advanced_risk_metrics(positions, summary, history)
     
-    assert risk_metrics.max_drawdown >= 2.0
+    # Historical metrics fail closed without a complete external-cash-flow ledger.
+    assert risk_metrics.max_drawdown is None
     assert risk_metrics.volatility is None
     assert risk_metrics.portfolio_beta_spy is None
     assert risk_metrics.data_quality["historical_metrics"] == "insufficient"
+    assert risk_metrics.data_quality["cash_flow_ledger"] == "missing"
     assert len(risk_metrics.stress_tests) == 4
     
     rate_shock = next(t for t in risk_metrics.stress_tests if "rate shock" in t.name)

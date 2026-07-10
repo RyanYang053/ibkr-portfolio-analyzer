@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     ai_timeout_seconds: float = 60.0
     allow_mock_options_strategy: bool = False
-
+    # Explicit rather than a stale hard-coded market assumption. Configure from a
+    # trusted source when risk-adjusted return metrics are required.
+    risk_free_rate_annual: float = 0.0
 
 
 settings = Settings()
