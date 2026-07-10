@@ -53,3 +53,4 @@ class ScheduledJob(Base):
     worker_id: Mapped[str | None] = mapped_column(String(64))
     next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fencing_token: Mapped[int] = mapped_column(Integer, default=0)

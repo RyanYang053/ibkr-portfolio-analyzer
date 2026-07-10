@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-# NYSE full-day closures (extend as needed).
+# NYSE full-day closures used when exchange_calendars is unavailable.
 _US_EQUITY_HOLIDAYS: set[date] = {
     date(2024, 1, 1),
     date(2024, 1, 15),
@@ -37,8 +37,29 @@ _US_EQUITY_HOLIDAYS: set[date] = {
     date(2027, 1, 1),
 }
 
+_XNYS_CALENDAR = None
+
+
+def _load_xnys_calendar():
+    global _XNYS_CALENDAR
+    if _XNYS_CALENDAR is not None:
+        return _XNYS_CALENDAR
+    try:
+        import exchange_calendars as xcals
+
+        _XNYS_CALENDAR = xcals.get_calendar("XNYS")
+    except Exception:
+        _XNYS_CALENDAR = False
+    return _XNYS_CALENDAR
+
 
 def is_us_equity_trading_day(day: date) -> bool:
+    calendar = _load_xnys_calendar()
+    if calendar:
+        try:
+            return bool(calendar.is_session(day.strftime("%Y-%m-%d")))
+        except Exception:
+            pass
     return day.weekday() < 5 and day not in _US_EQUITY_HOLIDAYS
 
 
@@ -46,6 +67,16 @@ def trading_sessions_between(start_exclusive: date, end_inclusive: date) -> int:
     """Count NYSE trading sessions in (start_exclusive, end_inclusive]."""
     if end_inclusive <= start_exclusive:
         return 0
+    calendar = _load_xnys_calendar()
+    if calendar:
+        try:
+            sessions = calendar.sessions_in_range(
+                (start_exclusive + timedelta(days=1)).strftime("%Y-%m-%d"),
+                end_inclusive.strftime("%Y-%m-%d"),
+            )
+            return len(sessions)
+        except Exception:
+            pass
     sessions = 0
     current = start_exclusive + timedelta(days=1)
     while current <= end_inclusive:

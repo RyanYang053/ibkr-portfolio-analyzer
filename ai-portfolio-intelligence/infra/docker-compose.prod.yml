@@ -21,8 +21,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://portfolio:${POSTGRES_PASSWORD}@postgres:5432/portfolio
       PERSISTENCE_BACKEND: postgres
-      ENVIRONMENT: ${ENVIRONMENT:-development}
+      ENVIRONMENT: production
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:?BOOTSTRAP_TOKEN is required}
       BROKER_MODE: ${BROKER_MODE:-ibkr_readonly}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
@@ -30,8 +31,7 @@ services:
       IBKR_FLEX_QUERY_ID: ${IBKR_FLEX_QUERY_ID:-}
       IBKR_FLEX_ACTIVITY_QUERY_ID: ${IBKR_FLEX_ACTIVITY_QUERY_ID:-}
       SCHEDULER_RUN_IN_API: "false"
-      DISABLE_AUTH_ENFORCEMENT: ${DISABLE_AUTH_ENFORCEMENT:-false}
-      BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:-}
+      DISABLE_AUTH_ENFORCEMENT: "false"
     ports:
       - "8000:8000"
     depends_on:
@@ -52,7 +52,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://portfolio:${POSTGRES_PASSWORD}@postgres:5432/portfolio
       PERSISTENCE_BACKEND: postgres
-      ENVIRONMENT: ${ENVIRONMENT:-development}
+      ENVIRONMENT: production
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       BROKER_MODE: ${BROKER_MODE:-ibkr_readonly}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -82,7 +82,7 @@ services:
         NEXT_PUBLIC_API_URL: http://api:8000
     environment:
       BACKEND_URL: http://api:8000
-      DISABLE_AUTH_MIDDLEWARE: ${DISABLE_AUTH_MIDDLEWARE:-false}
+      DISABLE_AUTH_MIDDLEWARE: "false"
     ports:
       - "3000:3000"
     depends_on:

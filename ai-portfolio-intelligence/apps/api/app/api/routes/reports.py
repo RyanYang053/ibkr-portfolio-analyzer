@@ -2,7 +2,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.auth_deps import get_current_principal
+from app.api.account_deps import resolve_authorized_account_id
+from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.services.ai.report_generator import generate_daily_portfolio_memo
 from app.services.broker.base import BrokerAdapter
@@ -24,9 +25,9 @@ router = APIRouter(
 )
 
 
-def _data(adapter: BrokerAdapter, account_id: Optional[str] = None):
+def _data(adapter: BrokerAdapter, account_id: Optional[str], principal: Principal):
     try:
-        active_id = resolve_portfolio_account_id(account_id, adapter)
+        active_id = resolve_authorized_account_id(account_id, adapter, principal)
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
         validate_and_gate_snapshot(summary, positions)
@@ -41,8 +42,9 @@ def _data(adapter: BrokerAdapter, account_id: Optional[str] = None):
 def list_reports(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
-    summary, positions = _data(adapter, account_id)
+    summary, positions = _data(adapter, account_id, principal)
     reports = [generate_daily_portfolio_memo(summary, positions)]
 
     # Load cached AI portfolio report if present
@@ -108,8 +110,9 @@ def list_reports(
 def daily(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
-    summary, positions = _data(adapter, account_id)
+    summary, positions = _data(adapter, account_id, principal)
     return generate_daily_portfolio_memo(summary, positions)
 
 
@@ -117,8 +120,9 @@ def daily(
 def weekly(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
-    summary, positions = _data(adapter, account_id)
+    summary, positions = _data(adapter, account_id, principal)
     report = generate_daily_portfolio_memo(summary, positions)
     report.report_type = "weekly"
     report.title = "Weekly Investment Review"
@@ -130,8 +134,9 @@ def stock_report(
     symbol: str,
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
-    _summary, positions = _data(adapter, account_id)
+    _summary, positions = _data(adapter, account_id, principal)
     for position in positions:
         if position.symbol == symbol.upper():
             return {"symbol": symbol.upper(), "recommendation": build_recommendation(position)}
@@ -142,6 +147,7 @@ def stock_report(
 def risk_report(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
-    summary, positions = _data(adapter, account_id)
+    summary, positions = _data(adapter, account_id, principal)
     return {"report_type": "risk", "risk": analyze_portfolio_risk(summary, positions)}

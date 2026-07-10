@@ -73,7 +73,8 @@ def test_valuation_disclosure_reports_exclusions():
     disclosure = build_valuation_disclosure(summary, positions, validation)
     assert disclosure["excluded_con_ids"] == [999]
     assert "BAD" in disclosure["exclusion_reasons"]
-    assert math.isfinite(disclosure["included_gross_value_percent"])
+    assert disclosure["included_gross_value_percent"] is None
+    assert disclosure["coverage_measurable"] is False
 
 
 def test_prepare_professional_response_includes_compliance_fields():

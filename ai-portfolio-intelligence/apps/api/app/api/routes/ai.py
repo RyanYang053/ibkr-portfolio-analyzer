@@ -8,7 +8,8 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.auth_deps import get_current_principal, require_scope
+from app.api.account_deps import resolve_authorized_account_id
+from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.services.ai.client import GeminiClient, configure_runtime_gemini
 from app.services.ai.report_generator import generate_ai_portfolio_memo, generate_stock_research_report
@@ -185,9 +186,11 @@ def analyze_stock(
     account_id: Optional[str] = None,
     con_id: Optional[int] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
+    active_id = resolve_authorized_account_id(account_id, adapter, principal)
     try:
-        position = find_portfolio_position(symbol, adapter, account_id, con_id)
+        position = find_portfolio_position(symbol, adapter, active_id, con_id)
     except HTTPException:
         raise
     except Exception as exc:
@@ -200,7 +203,7 @@ def analyze_stock(
             object_id=symbol.upper(),
             metadata={"provider": res.get("provider")}
         )
-        return gate_professional_response(adapter, position.account_id, res)
+        return gate_professional_response(adapter, principal, active_id, res)
     raise HTTPException(status_code=404, detail="Symbol not found in portfolio")
 
 
@@ -208,11 +211,12 @@ def analyze_stock(
 def analyze_portfolio(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     from app.services.data_quality.validation import validate_and_gate_snapshot
 
     try:
-        active_id = resolve_portfolio_account_id(account_id, adapter)
+        active_id = resolve_authorized_account_id(account_id, adapter, principal)
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
         validate_and_gate_snapshot(summary, positions)
@@ -232,6 +236,7 @@ def trigger_scheduled_analysis(
     payload: ScheduledAnalyzeRequest,
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     """Trigger a mock or real scheduled daily slot analysis (Morning, Midday, Night)."""
     period = payload.period.lower().strip()
@@ -240,7 +245,7 @@ def trigger_scheduled_analysis(
 
     # 1. Gather real-time portfolio details
     try:
-        active_id = resolve_portfolio_account_id(account_id, adapter)
+        active_id = resolve_authorized_account_id(account_id, adapter, principal)
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
         from app.services.data_quality.validation import validate_and_gate_snapshot

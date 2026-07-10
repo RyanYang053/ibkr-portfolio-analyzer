@@ -17,7 +17,8 @@ def isolate_persisted_test_data(tmp_path, monkeypatch):
     monkeypatch.setattr(ai_routes, "RUNS_FILE", str(tmp_path / "schedule_runs.json"))
 
 
-def test_demo_pnl_history_is_explicitly_marked_mock():
+def test_demo_pnl_history_is_explicitly_marked_mock(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.broker_mode", "mock_ibkr_readonly")
     history = pnl_tracker.get_pnl_history()
 
     assert len(history) >= 10

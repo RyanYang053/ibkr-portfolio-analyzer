@@ -3,7 +3,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.auth_deps import get_current_principal
+from app.api.account_deps import resolve_authorized_account_id
+from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import broker_not_configured_error, data_provider_not_configured_error, demo_mode_enabled, get_broker_adapter
 from app.services.broker.base import BrokerAdapter
 from app.services.portfolio.account_scope import find_portfolio_position, is_symbol_held, resolve_portfolio_account_id
@@ -206,11 +207,13 @@ def score(
     account_id: Optional[str] = None,
     con_id: Optional[int] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     position = _position(symbol, adapter, account_id, con_id)
     result = score_stock(position)
     if is_portfolio_position(position):
-        return gate_professional_response(adapter, position.account_id, result)
+        active_id = resolve_authorized_account_id(account_id or position.account_id, adapter, principal)
+        return gate_professional_response(adapter, principal, active_id, result)
     return result
 
 
@@ -220,6 +223,7 @@ def analysis(
     account_id: Optional[str] = None,
     con_id: Optional[int] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     position = _position(symbol, adapter, account_id, con_id)
     from app.services.ai.report_cache import get_cached_report
@@ -238,7 +242,8 @@ def analysis(
         "last_ai_report": cached,
     }
     if is_portfolio_position(position):
-        return gate_professional_response(adapter, position.account_id, payload)
+        active_id = resolve_authorized_account_id(account_id or position.account_id, adapter, principal)
+        return gate_professional_response(adapter, principal, active_id, payload)
     return payload
 
 
@@ -248,6 +253,7 @@ def options_strategy(
     account_id: Optional[str] = None,
     con_id: Optional[int] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     position = _position(symbol, adapter, account_id, con_id)
     is_demo = demo_mode_enabled()
@@ -268,7 +274,7 @@ def options_strategy(
         pass
 
     try:
-        active_id = resolve_portfolio_account_id(account_id, adapter)
+        active_id = resolve_authorized_account_id(account_id, adapter, principal)
         summary_data = adapter.get_account_summary(active_id)
         cash_available = summary_data.cash
         accounts = adapter.get_accounts()
@@ -292,6 +298,6 @@ def options_strategy(
         cash_available=cash_available,
         account_type=account_type,
     )
-    return gate_professional_response(adapter, active_id, result)
+    return gate_professional_response(adapter, principal, active_id, result)
 
 

@@ -13,6 +13,10 @@ async def main() -> None:
     if not settings.scheduler_enabled:
         logger.info("Scheduler worker disabled by configuration")
         return
+    from app.db.broker_config_repo import apply_persisted_broker_config
+
+    if apply_persisted_broker_config():
+        logger.info("Applied persisted broker runtime configuration")
     logger.info("Starting dedicated scheduler worker")
     await run_background_scheduler()
 

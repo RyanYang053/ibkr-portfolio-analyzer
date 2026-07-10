@@ -66,6 +66,18 @@ def configure_readonly(
     )
     if payload.account_id:
         grant_account_access(principal.user_id, payload.account_id)
+    from app.db.broker_config_repo import save_runtime_config
+
+    save_runtime_config(
+        {
+            "mode": payload.mode,
+            "host": payload.host,
+            "port": payload.port,
+            "client_id": payload.client_id,
+            "account_id": payload.account_id,
+            "configured_by": principal.user_id,
+        }
+    )
     config = get_runtime_ibkr_config()
     return {
         "configured": True,

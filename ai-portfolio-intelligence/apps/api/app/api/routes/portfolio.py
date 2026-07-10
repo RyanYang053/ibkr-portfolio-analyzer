@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.auth_deps import Principal, get_current_principal
-from app.api.account_deps import ensure_account_access
+from app.api.auth_deps import Principal, get_current_principal, require_scope
+from app.api.account_deps import ensure_account_access, resolve_authorized_account_ids
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.schemas.domain import AccountSummary, InvestmentPolicyStatement, InvestorProfile, Position, utc_now
 from app.services.broker.base import BrokerAdapter
@@ -39,13 +39,15 @@ def _position_group_key(position: Position) -> tuple[str, ...]:
   )
 
 
-def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[AccountSummary, list[Position]]:
-    accounts = adapter.get_accounts()
-    if not accounts:
+def _get_consolidated_summary_and_positions(
+    adapter: BrokerAdapter,
+    account_ids: list[str],
+) -> tuple[AccountSummary, list[Position]]:
+    if not account_ids:
         raise broker_not_configured_error(Exception("No accounts found"))
 
-    if len(accounts) == 1:
-        account_id = accounts[0].id
+    if len(account_ids) == 1:
+        account_id = account_ids[0]
         summary = adapter.get_account_summary(account_id).model_copy(update={"account_id": "all"})
         positions = [
             position.model_copy(update={"account_id": "all"})
@@ -56,12 +58,12 @@ def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[Acc
     summaries: list[AccountSummary] = []
     all_positions: list[Position] = []
     failures: list[str] = []
-    for account in accounts:
+    for account_id in account_ids:
         try:
-            summaries.append(adapter.get_account_summary(account.id))
-            all_positions.extend(adapter.get_positions(account.id))
+            summaries.append(adapter.get_account_summary(account_id))
+            all_positions.extend(adapter.get_positions(account_id))
         except Exception as exc:
-            failures.append(f"{account.id}: {exc}")
+            failures.append(f"{account_id}: {exc}")
 
     # Accuracy-first behavior: never present a partial consolidated portfolio as
     # complete. The caller can request individual accounts to isolate the failure.
@@ -165,22 +167,18 @@ def _resolve_account_data(
     principal: Principal,
 ) -> tuple[AccountSummary, list[Position]]:
     try:
-        if account_id and account_id not in {"all", "default"}:
-            ensure_account_access(account_id, principal)
-        if not account_id or account_id == "all":
-            accounts = adapter.get_accounts()
-            if not accounts:
-                raise RuntimeError("No accounts found")
-            if len(accounts) == 1:
-                resolved_id = accounts[0].id
-                summary = adapter.get_account_summary(resolved_id)
-                positions = adapter.get_positions(resolved_id)
-                if account_id == "all":
-                    summary = summary.model_copy(update={"account_id": "all"})
-                    positions = [position.model_copy(update={"account_id": "all"}) for position in positions]
-                return summary, positions
-            return _get_consolidated_summary_and_positions(adapter)
-        return adapter.get_account_summary(account_id), adapter.get_positions(account_id)
+        allowed_ids = resolve_authorized_account_ids(adapter, principal, account_id)
+        if len(allowed_ids) == 1:
+            resolved_id = allowed_ids[0]
+            summary = adapter.get_account_summary(resolved_id)
+            positions = adapter.get_positions(resolved_id)
+            if account_id == "all":
+                summary = summary.model_copy(update={"account_id": "all"})
+                positions = [position.model_copy(update={"account_id": "all"}) for position in positions]
+            return summary, positions
+        return _get_consolidated_summary_and_positions(adapter, allowed_ids)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise broker_not_configured_error(exc) from exc
 
@@ -234,17 +232,12 @@ def snapshots(
         account_summary, account_positions = _resolve_account_data(adapter, "all", principal)
         require_analytics_safe(validate_portfolio_snapshot(account_summary, account_positions))
         return [account_summary]
-    if not account_id:
-        summaries = []
-        for account in adapter.get_accounts():
-            summary = adapter.get_account_summary(account.id)
-            positions = adapter.get_positions(account.id)
-            require_analytics_safe(validate_portfolio_snapshot(summary, positions))
-            summaries.append(summary)
-        return summaries
-    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
-    require_analytics_safe(validate_portfolio_snapshot(account_summary, account_positions))
-    return [account_summary]
+    resolved_ids = resolve_authorized_account_ids(adapter, principal, account_id)
+    resolved_id = resolved_ids[0]
+    summary = adapter.get_account_summary(resolved_id)
+    positions = adapter.get_positions(resolved_id)
+    require_analytics_safe(validate_portfolio_snapshot(summary, positions))
+    return [summary]
 
 
 @router.get("/positions", response_model=list[Position])
@@ -377,7 +370,7 @@ def get_profile(
     return get_investor_profile(account_id)
 
 
-@router.post("/profile")
+@router.post("/profile", dependencies=[Depends(require_scope("portfolio:write"))])
 def update_profile(
     profile: InvestorProfile,
     account_id: Optional[str] = "default",
@@ -403,7 +396,7 @@ def get_policy(
     return get_portfolio_policy(account_id)
 
 
-@router.post("/policy")
+@router.post("/policy", dependencies=[Depends(require_scope("portfolio:write"))])
 def update_policy(
     policy: InvestmentPolicyStatement,
     account_id: Optional[str] = "default",

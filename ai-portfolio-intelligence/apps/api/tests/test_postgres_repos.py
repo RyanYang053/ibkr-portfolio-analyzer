@@ -8,7 +8,7 @@ from app.services.fundamentals.providers.yahoo_enrichment import enrich_sector_f
 from app.services.portfolio.ledger_coverage import TransactionLedgerCoverage
 
 
-def test_financials_yahoo_enrichment_maps_book_and_roe():
+def test_financials_yahoo_enrichment_does_not_fabricate_sector_metrics():
     snapshot = FundamentalSnapshot(
         symbol="JPM",
         period="TTM",
@@ -29,12 +29,12 @@ def test_financials_yahoo_enrichment_maps_book_and_roe():
         stats={"priceToBook": {"raw": 1.2}, "returnOnEquity": {"raw": 0.15}},
         financial_data={"operatingMargins": {"raw": 0.035}},
     )
-    assert enriched.price_to_tangible_book == 1.2
-    assert enriched.return_on_equity == 0.15
-    assert enriched.net_interest_margin == 0.035
+    assert enriched.price_to_tangible_book is None
+    assert enriched.return_on_equity is None
+    assert enriched.net_interest_margin is None
 
 
-def test_reit_yahoo_enrichment_maps_ffo_proxy():
+def test_reit_yahoo_enrichment_does_not_fabricate_sector_metrics():
     snapshot = FundamentalSnapshot(
         symbol="O",
         period="TTM",
@@ -55,8 +55,8 @@ def test_reit_yahoo_enrichment_maps_ffo_proxy():
         stats={"trailingEps": {"raw": 2.5}},
         financial_data={"operatingMargins": {"raw": 0.4}},
     )
-    assert enriched.ffo_per_share == 2.5
-    assert enriched.occupancy_rate is not None
+    assert enriched.ffo_per_share is None
+    assert enriched.occupancy_rate is None
 
 
 def test_mock_financials_include_sector_fields_for_financials():

@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.auth_deps import Principal, get_current_principal
 from app.api.invitation_store import accept_invitation, get_invitation
+from app.api.account_access_store import grant_account_access
+from app.api.account_deps import WILDCARD_ACCOUNT
 from app.api.user_store import bump_token_version, get_user, owner_exists, save_user
 from app.core.config import settings
 from app.core.rate_limit import check_login_allowed, clear_login_failures, record_login_failure
@@ -38,7 +40,11 @@ class AcceptInviteRequest(BaseModel):
 
 @router.post("/bootstrap")
 def bootstrap_owner(payload: BootstrapRequest) -> dict[str, str]:
-    if owner_exists():
+    if settings.persistence_backend == "postgres":
+        from app.db.user_repo import assert_bootstrap_owner_available
+
+        assert_bootstrap_owner_available()
+    elif owner_exists():
         raise HTTPException(status_code=409, detail="An owner account already exists")
     if not settings.bootstrap_token:
         raise HTTPException(status_code=503, detail="Bootstrap token is not configured")
@@ -59,6 +65,7 @@ def bootstrap_owner(payload: BootstrapRequest) -> dict[str, str]:
             "token_version": "0",
         },
     )
+    grant_account_access(email, WILDCARD_ACCOUNT)
     return {
         "email": email,
         "name": payload.name,

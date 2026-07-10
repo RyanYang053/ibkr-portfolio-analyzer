@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.api.auth_deps import get_current_principal, require_scope
+from app.api.account_deps import resolve_authorized_account_id, resolve_authorized_account_ids
+from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.services.broker.base import BrokerAdapter
-from app.services.portfolio.account_scope import require_single_account_id
 from app.services.portfolio.pnl_tracker import get_pnl_history, record_pnl_snapshot, PortfolioPnLSnapshot
 
 from app.services.data_quality.validation import validate_and_gate_snapshot
@@ -23,7 +23,11 @@ from app.core.audit import log_audit_action
 
 
 @router.get("", response_model=list[PortfolioPnLSnapshot])
-def read_pnl_history(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def read_pnl_history(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     """Retrieve recorded account PnL snapshots only. Modeled ex-ante history is not returned here."""
     from app.api.deps import demo_mode_enabled
 
@@ -31,7 +35,7 @@ def read_pnl_history(account_id: Optional[str] = None, adapter: BrokerAdapter = 
         return get_pnl_history(account_id)
 
     try:
-        active_id = require_single_account_id(account_id, None, adapter)
+        active_id = resolve_authorized_account_id(account_id, adapter, principal)
     except HTTPException:
         raise
     except Exception as exc:
@@ -60,12 +64,17 @@ def read_pnl_history(account_id: Optional[str] = None, adapter: BrokerAdapter = 
 
 
 @router.post("/record", response_model=PortfolioPnLSnapshot, dependencies=[Depends(require_scope("portfolio:sync"))])
-def create_pnl_snapshot(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def create_pnl_snapshot(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     """Manually record a portfolio performance snapshot."""
     if account_id == "all":
         from app.api.routes.portfolio import _get_consolidated_summary_and_positions
 
-        summary, positions = _get_consolidated_summary_and_positions(adapter)
+        allowed_ids = resolve_authorized_account_ids(adapter, principal, "all")
+        summary, positions = _get_consolidated_summary_and_positions(adapter, allowed_ids)
         validate_and_gate_snapshot(summary, positions)
         res = record_pnl_snapshot(summary, positions, "all")
         log_audit_action(
@@ -77,7 +86,7 @@ def create_pnl_snapshot(account_id: Optional[str] = None, adapter: BrokerAdapter
         return res
 
     try:
-        active_id = require_single_account_id(account_id, None, adapter)
+        active_id = resolve_authorized_account_id(account_id, adapter, principal)
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
         validate_and_gate_snapshot(summary, positions)

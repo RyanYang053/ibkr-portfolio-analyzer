@@ -26,8 +26,9 @@ class PositionPnL(BaseModel):
     market_price: float
     market_value: float
     unrealized_pnl: float
-    daily_pnl: float
-    daily_pnl_percent: float
+    daily_pnl: float | None = None
+    daily_pnl_percent: float | None = None
+    pnl_status: str = "calculated"
     quantity_changed: bool = False
 
 
@@ -56,11 +57,9 @@ def _history_path(account_id: Optional[str], is_demo: bool) -> str:
 
 
 def _is_demo_mode() -> bool:
-    import sys
-
     from app.core.config import settings
 
-    return settings.broker_mode == "mock_ibkr_readonly" or "pytest" in sys.modules
+    return settings.broker_mode == "mock_ibkr_readonly"
 
 
 def _atomic_write(path: str, payload: list[dict]) -> None:
@@ -195,8 +194,9 @@ def record_pnl_snapshot(
         if position.quantity == 0:
             continue
 
-        position_change = 0.0
-        position_change_percent = 0.0
+        position_change = None
+        position_change_percent = None
+        pnl_status = "missing_prior_position"
         quantity_changed = False
         if last_entry and not is_transition:
             previous = next(
@@ -209,14 +209,16 @@ def record_pnl_snapshot(
             )
             if previous and previous.market_price > 0:
                 quantity_changed = abs(previous.quantity - position.quantity) > 1e-9
-                if position.asset_class in {"OPT", "FOP"} or position.currency != summary.base_currency:
-                    position_change = 0.0
-                    position_change_percent = 0.0
+                if position.asset_class in {"OPT", "FOP"}:
+                    pnl_status = "withheld_derivative"
+                elif position.currency != summary.base_currency:
+                    pnl_status = "withheld_fx"
                 else:
                     position_change = previous.quantity * (position.market_price - previous.market_price)
                     position_change_percent = (
                         (position.market_price / previous.market_price - 1.0) * 100.0
                     )
+                    pnl_status = "calculated"
 
         positions_pnl.append(
             PositionPnL(
@@ -228,8 +230,9 @@ def record_pnl_snapshot(
                 market_price=position.market_price,
                 market_value=position.market_value,
                 unrealized_pnl=position.unrealized_pnl,
-                daily_pnl=round(position_change, 2),
-                daily_pnl_percent=round(position_change_percent, 4),
+                daily_pnl=round(position_change, 2) if position_change is not None else None,
+                daily_pnl_percent=round(position_change_percent, 4) if position_change_percent is not None else None,
+                pnl_status=pnl_status,
                 quantity_changed=quantity_changed,
             )
         )
@@ -260,14 +263,15 @@ def record_pnl_snapshot(
     from app.db.legacy_bridge import write_json_state
 
     snapshot_payload = snapshot.model_dump()
-    write_json_state("pnl_history", store_key, [item.model_dump() for item in history])
     if settings.persistence_backend == "postgres" and not is_demo:
         from app.db.pnl_snapshot_repo import upsert_pnl_snapshot
 
         upsert_pnl_snapshot(active_account_id, date.fromisoformat(snapshot.date), snapshot_payload)
-    elif not is_demo:
-        history_file = _history_path(None if is_demo else active_account_id, is_demo)
-        _atomic_write(history_file, [item.model_dump() for item in history])
+    else:
+        write_json_state("pnl_history", store_key, [item.model_dump() for item in history])
+        if not is_demo:
+            history_file = _history_path(None if is_demo else active_account_id, is_demo)
+            _atomic_write(history_file, [item.model_dump() for item in history])
     return snapshot
 
 

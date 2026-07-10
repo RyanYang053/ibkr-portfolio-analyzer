@@ -11,6 +11,9 @@ from app.services.scheduler import run_background_scheduler
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_production_settings()
+    from app.db.broker_config_repo import apply_persisted_broker_config
+
+    apply_persisted_broker_config()
     scheduler_task = None
     if settings.scheduler_enabled and settings.scheduler_run_in_api:
         scheduler_task = asyncio.create_task(run_background_scheduler())

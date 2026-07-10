@@ -9,13 +9,12 @@ import type {
   Position,
   RebalanceProposal,
   Recommendation,
+  RecommendationResponse,
   OptionsStrategyReport,
 } from "./types";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const CLIENT_API_BASE = "/api/backend";
-
-const AUTH_FAILURE_STATUSES = new Set([401, 422, 503]);
 
 async function resolveApiBase(): Promise<string> {
   return typeof window === "undefined" ? BACKEND_URL : CLIENT_API_BASE;
@@ -72,26 +71,6 @@ export function formatApiError(error: unknown): string {
   }
   return "Request failed.";
 }
-
-async function getJson<T>(path: string, fallback: T): Promise<T> {
-  try {
-    const response = await apiFetch(path);
-    if (!response.ok) {
-      if (AUTH_FAILURE_STATUSES.has(response.status)) {
-        const detail = await response.json().catch(() => null);
-        throw new ApiError(response.status, detail);
-      }
-      return fallback;
-    }
-    return response.json();
-  } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
-    }
-    return fallback;
-  }
-}
-
 const fallbackPositions: Position[] = [];
 
 export async function getPortfolioSummary(accountId?: string): Promise<PortfolioSummary> {
@@ -114,13 +93,13 @@ export async function getAlerts(accountId?: string): Promise<Alert[]> {
   return requireJson<Alert[]>(`/alerts${query}`);
 }
 
-export async function getRecommendations(accountId?: string): Promise<Recommendation[]> {
+export async function getRecommendations(accountId?: string): Promise<RecommendationResponse> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  return requireJson<Recommendation[]>(`/recommendations${query}`);
+  return requireJson<RecommendationResponse>(`/recommendations${query}`);
 }
 
 export async function getAccounts(): Promise<any[]> {
-  return getJson("/broker/accounts", []);
+  return requireJson("/broker/accounts");
 }
 
 function buildHoldingQuery(accountId?: string, conId?: number | null): string {
@@ -146,21 +125,15 @@ export async function getReports(accountId?: string) {
 }
 
 export async function getWatchlist() {
-  return getJson("/watchlist", []);
+  return requireJson("/watchlist");
 }
 
 export async function getAuditLogs() {
-  return getJson("/admin/audit-logs", []);
+  return requireJson("/admin/audit-logs");
 }
 
 export async function getAIStatus(): Promise<AIStatus> {
-  return getJson<AIStatus>("/ai/status", {
-    provider: "gemini",
-    model: "gemini-2.5-flash",
-    configured: false,
-    mode: "deterministic_fallback",
-    schedule: { enabled: false, interval_hours: 24, last_run_at: null }
-  });
+  return requireJson<AIStatus>("/ai/status");
 }
 
 export async function refreshAIStockReport(symbol: string): Promise<AIStockReport> {
@@ -176,14 +149,7 @@ export async function configureAI(apiKey: string, model: string): Promise<AIStat
 }
 
 export async function getBrokerStatus(): Promise<BrokerStatus> {
-  return getJson<BrokerStatus>("/broker/status", {
-    status: "not_connected",
-    mode: "ibkr_readonly",
-    host: "127.0.0.1",
-    port: "4002",
-    client_id: "10",
-    trading: "disabled"
-  });
+  return requireJson<BrokerStatus>("/broker/status");
 }
 
 export async function configureBrokerReadonly(payload: { mode: string; host: string; port: number; client_id: number; account_id?: string }): Promise<BrokerStatus> {
@@ -215,7 +181,7 @@ export async function getNews(symbol: string): Promise<Array<{
   providerPublishTime: number;
   source: string;
 }>> {
-  return getJson(`/stocks/${symbol}/news`, []);
+  return requireJson(`/stocks/${symbol}/news`);
 }
 
 export async function getFundamentals(symbol: string): Promise<{
@@ -296,10 +262,7 @@ export async function recordSnapshot(accountId?: string): Promise<any> {
 }
 
 export async function getScheduleSettings(): Promise<{ settings: any; runs: any[] }> {
-  return getJson("/ai/schedule", {
-    settings: { enabled: false, morning_time: "09:30", midday_time: "12:30", night_time: "20:00" },
-    runs: []
-  });
+  return requireJson("/ai/schedule");
 }
 
 export async function updateScheduleSettings(payload: { enabled: boolean; morning_time: string; midday_time: string; night_time: string }): Promise<any> {
@@ -320,17 +283,7 @@ export async function triggerScheduledAnalyze(period: string): Promise<any> {
 
 export async function getInvestorProfile(accountId?: string): Promise<any> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  return getJson(`/portfolio/profile${query}`, {
-    objective: "Growth",
-    time_horizon_years: 10,
-    risk_tolerance: "High",
-    risk_capacity: "Medium",
-    liquidity_needs: 10000.0,
-    net_worth_range: "100k-500k",
-    tax_residency: "Canada",
-    account_type: "Tax-Free",
-    restrictions: []
-  });
+  return requireJson(`/portfolio/profile${query}`);
 }
 
 export async function updateInvestorProfile(profile: any, accountId?: string): Promise<any> {
@@ -344,18 +297,7 @@ export async function updateInvestorProfile(profile: any, accountId?: string): P
 
 export async function getPortfolioPolicy(accountId?: string): Promise<any> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  return getJson(`/portfolio/policy${query}`, {
-    target_equity_percent: 85.0,
-    target_cash_percent: 15.0,
-    target_bond_percent: 0.0,
-    max_single_stock_weight: 12.0,
-    max_speculative_weight: 5.0,
-    max_sector_weight: 35.0,
-    max_options_exposure: 3.0,
-    minimum_cash: 10000.0,
-    benchmark: "SPY",
-    rebalancing_drift_threshold: 5.0
-  });
+  return requireJson(`/portfolio/policy${query}`);
 }
 
 export async function updatePortfolioPolicy(policy: any, accountId?: string): Promise<any> {

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.api.auth_deps import get_current_principal
+from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import get_broker_adapter, demo_mode_enabled
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.securities import classify_security
@@ -15,6 +15,7 @@ from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.technicals.indicators import calculate_technical_indicators
 from app.services.ai.client import GeminiClient
 from app.services.portfolio.account_scope import find_portfolio_position, resolve_portfolio_account_id
+from app.api.account_deps import resolve_authorized_account_id
 from app.schemas.domain import Position, utc_now, InvestorProfile, InvestmentPolicyStatement
 
 router = APIRouter(
@@ -156,6 +157,7 @@ def chat(
     payload: ChatRequest,
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     # 1. Gather contexts for tagged stocks
     tagged_contexts = []
@@ -175,7 +177,7 @@ def chat(
         "reason": "Broker portfolio data was not available.",
     }
     try:
-        active_id = resolve_portfolio_account_id(account_id, adapter)
+        active_id = resolve_authorized_account_id(account_id, adapter, principal)
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
         from app.services.data_quality.validation import validate_and_gate_snapshot

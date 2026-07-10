@@ -22,7 +22,7 @@ export default async function DashboardPage(props: PageProps) {
   const accountId = searchParams.account_id || undefined;
 
   let data;
-  let recommendations: Awaited<ReturnType<typeof getRecommendations>> = [];
+  let recommendationResponse: Awaited<ReturnType<typeof getRecommendations>> | null = null;
   let pnlHistory: Awaited<ReturnType<typeof getPnlHistory>> = [];
   let scheduleData: Awaited<ReturnType<typeof getScheduleSettings>> = {
     settings: { enabled: false, morning_time: "09:30", midday_time: "12:30", night_time: "20:00" },
@@ -31,7 +31,7 @@ export default async function DashboardPage(props: PageProps) {
   let loadError: string | null = null;
 
   try {
-    [data, recommendations, pnlHistory, scheduleData] = await Promise.all([
+    [data, recommendationResponse, pnlHistory, scheduleData] = await Promise.all([
       getPortfolioSummary(accountId),
       getRecommendations(accountId),
       getPnlHistory(accountId),
@@ -55,7 +55,7 @@ export default async function DashboardPage(props: PageProps) {
     );
   }
 
-  const topIdeas = recommendations.slice(0, 4);
+  const topIdeas = (recommendationResponse?.recommendations ?? []).slice(0, 4);
 
   const sparklineValues = pnlHistory && pnlHistory.length >= 2
     ? pnlHistory.map((h: any) => h.net_liquidation)

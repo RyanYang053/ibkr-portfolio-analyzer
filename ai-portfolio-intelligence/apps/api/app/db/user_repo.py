@@ -6,6 +6,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.config import settings
+from app.db.postgres_guard import require_postgres_persistence
 from app.db.state_store import postgres_available
 
 
@@ -72,7 +74,9 @@ def get_user(email: str) -> dict[str, str] | None:
 
 
 def upsert_user(email: str, user: dict[str, str]) -> None:
-    if not _table_available():
+    if settings.persistence_backend == "postgres":
+        require_postgres_persistence("user persistence", table_available=_table_available())
+    elif not _table_available():
         return
 
     from app.db.session import SessionLocal
@@ -129,3 +133,17 @@ def upsert_user(email: str, user: dict[str, str]) -> None:
                 },
             )
         session.commit()
+
+
+def assert_bootstrap_owner_available() -> None:
+    if not _table_available():
+        return
+
+    from fastapi import HTTPException
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as session:
+        session.execute(text("SELECT pg_advisory_xact_lock(90210)"))
+        existing = session.execute(text("SELECT 1 FROM users WHERE role = 'owner' LIMIT 1")).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="An owner account already exists")

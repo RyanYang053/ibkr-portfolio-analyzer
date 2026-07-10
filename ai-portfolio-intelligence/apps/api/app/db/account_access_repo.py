@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.config import settings
+from app.db.postgres_guard import require_postgres_persistence
 from app.db.state_store import postgres_available
 
 
@@ -83,7 +85,9 @@ def list_accessible_accounts(user_email: str) -> list[str] | None:
 
 
 def grant_account_access(user_email: str, account_id: str, *, granted_by_user_id: int | None = None) -> None:
-    if not _table_available():
+    if settings.persistence_backend == "postgres":
+        require_postgres_persistence("account access grant", table_available=_table_available())
+    elif not _table_available():
         return
 
     from app.db.session import SessionLocal

@@ -82,6 +82,29 @@ export type Recommendation = {
   disclaimer: string;
 };
 
+export type SnapshotValidation = {
+  status?: string;
+  issues?: Array<Record<string, unknown>>;
+  metrics?: Record<string, unknown>;
+};
+
+export type ValuationDisclosure = {
+  included_gross_value_percent: number | null;
+  coverage_measurable?: boolean;
+  excluded_con_ids?: number[];
+  exclusion_reasons?: Record<string, string>;
+  oldest_source_timestamp?: string;
+  valuation_sources?: Record<string, string>;
+  validation_status?: string;
+  missing_price_count?: number;
+};
+
+export type RecommendationResponse = {
+  recommendations: Recommendation[];
+  snapshot_validation: SnapshotValidation;
+  valuation_disclosure: ValuationDisclosure;
+};
+
 export type AIStatus = {
   provider: string;
   model: string;

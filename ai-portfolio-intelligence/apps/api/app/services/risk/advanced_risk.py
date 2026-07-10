@@ -152,6 +152,7 @@ def _benchmark_returns_for_dates(
     if len(dates) < 2:
         return [], "missing"
 
+    from app.services.market_data.exchange_calendar import normalize_period_return, trading_sessions_between
     from app.services.market_data.mock_provider import MockMarketDataProvider
 
     start = date.fromisoformat(dates[0]) - timedelta(days=MAX_BENCHMARK_STALENESS_DAYS)
@@ -179,7 +180,24 @@ def _benchmark_returns_for_dates(
         if staleness > MAX_BENCHMARK_STALENESS_DAYS:
             return [], source
         aligned.append(prices[market_day])
-    returns = [current / previous - 1.0 for previous, current in zip(aligned, aligned[1:]) if previous > 0]
+
+    returns: list[float] = []
+    for previous_day, current_day, previous_price, current_price in zip(
+        dates, dates[1:], aligned, aligned[1:]
+    ):
+        sessions = trading_sessions_between(
+            date.fromisoformat(previous_day),
+            date.fromisoformat(current_day),
+        )
+        if sessions != 1:
+            return [], "irregular_snapshot_spacing"
+        if previous_price <= 0:
+            return [], source
+        raw_return = current_price / previous_price - 1.0
+        normalized = normalize_period_return(raw_return, sessions)
+        if normalized is None or normalized <= -1.0:
+            return [], source
+        returns.append(normalized)
     return returns, source
 
 

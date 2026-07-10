@@ -12,9 +12,19 @@ from app.core.config import settings
 from app.db.state_store import get_state_store
 
 
+from app.api.account_deps import SCHEDULER_ALL_ACCOUNTS
+
+
+def _job_account_id(account_id: str | None) -> str:
+    return account_id or SCHEDULER_ALL_ACCOUNTS
+
+
 def _json_idempotency_key(job_name: str, account_id: str | None, business_date: date, slot: str) -> str:
-    account = account_id or "__all__"
+    account = _job_account_id(account_id)
     return f"{job_name}:{account}:{business_date.isoformat()}:{slot}"
+
+
+_active_claims: dict[str, tuple[str, int]] = {}
 
 
 def _utc_now() -> datetime:
@@ -73,12 +83,13 @@ def try_acquire_job(
         key = _json_idempotency_key(job_name, account_id, business_date, slot)
         existing = store.read_json("scheduled_jobs", key, default=None)
         if existing is None:
+            normalized_account = _job_account_id(account_id)
             store.write_json(
                 "scheduled_jobs",
                 key,
                 {
                     "job_name": job_name,
-                    "account_id": account_id,
+                    "account_id": normalized_account,
                     "business_date": business_date.isoformat(),
                     "slot": slot,
                     "status": "running",
@@ -89,8 +100,10 @@ def try_acquire_job(
                     "next_retry_at": None,
                     "heartbeat_at": now.isoformat(),
                     "created_at": now.isoformat(),
+                    "fencing_token": 1,
                 },
             )
+            _active_claims[key] = (_worker_id(), 1)
             return True
         if not _can_acquire_existing(existing, now):
             return False
@@ -107,22 +120,29 @@ def try_acquire_job(
                 "worker_id": _worker_id(),
                 "heartbeat_at": now.isoformat(),
                 "error_message": None,
+                "fencing_token": int(existing.get("fencing_token", 0)) + 1,
             },
         )
+        _active_claims[key] = (_worker_id(), int(existing.get("fencing_token", 0)) + 1)
         return True
 
     from app.db.session import SessionLocal
     from app.models.professional_state import ScheduledJob
+
+    normalized_account = _job_account_id(account_id)
+    worker = _worker_id()
+    claim_key = _json_idempotency_key(job_name, account_id, business_date, slot)
 
     with SessionLocal() as session:
         row = (
             session.query(ScheduledJob)
             .filter(
                 ScheduledJob.job_name == job_name,
-                ScheduledJob.account_id == account_id,
+                ScheduledJob.account_id == normalized_account,
                 ScheduledJob.business_date == business_date,
                 ScheduledJob.slot == slot,
             )
+            .with_for_update(skip_locked=True)
             .one_or_none()
         )
         if row is None:
@@ -130,19 +150,21 @@ def try_acquire_job(
                 session.add(
                     ScheduledJob(
                         job_name=job_name,
-                        account_id=account_id,
+                        account_id=normalized_account,
                         business_date=business_date,
                         slot=slot,
                         status="running",
                         attempt_count=1,
                         max_attempts=settings.scheduler_max_attempts,
                         leased_until=_lease_expiry(now),
-                        worker_id=_worker_id(),
+                        worker_id=worker,
                         heartbeat_at=now,
                         created_at=now,
+                        fencing_token=1,
                     )
                 )
                 session.commit()
+                _active_claims[claim_key] = (worker, 1)
                 return True
             except IntegrityError:
                 session.rollback()
@@ -150,34 +172,41 @@ def try_acquire_job(
                     session.query(ScheduledJob)
                     .filter(
                         ScheduledJob.job_name == job_name,
-                        ScheduledJob.account_id == account_id,
+                        ScheduledJob.account_id == normalized_account,
                         ScheduledJob.business_date == business_date,
                         ScheduledJob.slot == slot,
                     )
+                    .with_for_update()
                     .one_or_none()
                 )
                 if row is None:
                     return False
 
         if row.status == "completed":
+            session.rollback()
             return False
         if row.status == "running" and row.leased_until and row.leased_until > now:
+            session.rollback()
             return False
         if row.status == "failed":
             if row.attempt_count >= row.max_attempts:
+                session.rollback()
                 return False
             if row.next_retry_at and row.next_retry_at > now:
+                session.rollback()
                 return False
 
         row.status = "running"
         row.attempt_count = (row.attempt_count or 0) + 1
         row.max_attempts = settings.scheduler_max_attempts
         row.leased_until = _lease_expiry(now)
-        row.worker_id = _worker_id()
+        row.worker_id = worker
         row.heartbeat_at = now
         row.error_message = None
         row.completed_at = None
+        row.fencing_token = (row.fencing_token or 0) + 1
         session.commit()
+        _active_claims[claim_key] = (worker, row.fencing_token)
         return True
 
 
@@ -192,10 +221,18 @@ def complete_job(
     error_message: str | None = None,
 ) -> None:
     now = _utc_now()
+    normalized_account = _job_account_id(account_id)
+    claim_key = _json_idempotency_key(job_name, account_id, business_date, slot)
+    worker = _worker_id()
+    expected_claim = _active_claims.get(claim_key)
     if settings.persistence_backend != "postgres":
         store = get_state_store()
-        key = _json_idempotency_key(job_name, account_id, business_date, slot)
+        key = claim_key
         existing = store.read_json("scheduled_jobs", key, default={}) or {}
+        if existing.get("worker_id") and existing.get("worker_id") != worker:
+            return
+        if expected_claim and int(existing.get("fencing_token", 0)) != expected_claim[1]:
+            return
         next_retry_at = None
         if status == "failed":
             attempt_count = int(existing.get("attempt_count", 1))
@@ -208,7 +245,7 @@ def complete_job(
             {
                 **existing,
                 "job_name": job_name,
-                "account_id": account_id,
+                "account_id": normalized_account,
                 "business_date": business_date.isoformat(),
                 "slot": slot,
                 "status": status,
@@ -219,6 +256,7 @@ def complete_job(
                 "next_retry_at": next_retry_at,
             },
         )
+        _active_claims.pop(claim_key, None)
         return
 
     from app.db.session import SessionLocal
@@ -229,13 +267,17 @@ def complete_job(
             session.query(ScheduledJob)
             .filter(
                 ScheduledJob.job_name == job_name,
-                ScheduledJob.account_id == account_id,
+                ScheduledJob.account_id == normalized_account,
                 ScheduledJob.business_date == business_date,
                 ScheduledJob.slot == slot,
             )
             .one_or_none()
         )
         if row is None:
+            return
+        if row.worker_id and row.worker_id != worker:
+            return
+        if expected_claim and (row.fencing_token or 0) != expected_claim[1]:
             return
         row.status = status
         row.payload_json = json.dumps(payload) if payload is not None else None
@@ -247,6 +289,7 @@ def complete_job(
         else:
             row.next_retry_at = None
         session.commit()
+        _active_claims.pop(claim_key, None)
 
 
 def job_already_completed(
@@ -255,6 +298,7 @@ def job_already_completed(
     business_date: date,
     slot: str,
 ) -> bool:
+    normalized_account = _job_account_id(account_id)
     if settings.persistence_backend != "postgres":
         store = get_state_store()
         key = _json_idempotency_key(job_name, account_id, business_date, slot)
@@ -269,7 +313,7 @@ def job_already_completed(
             session.query(ScheduledJob)
             .filter(
                 ScheduledJob.job_name == job_name,
-                ScheduledJob.account_id == account_id,
+                ScheduledJob.account_id == normalized_account,
                 ScheduledJob.business_date == business_date,
                 ScheduledJob.slot == slot,
                 ScheduledJob.status == "completed",

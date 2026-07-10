@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from fastapi import HTTPException
+
+from app.api.account_deps import resolve_authorized_account_ids
+from app.api.auth_deps import Principal
 from app.schemas.domain import AccountSummary, Position
 from app.services.broker.base import BrokerAdapter
 from app.services.data_quality.validation import (
     prepare_professional_response,
     validate_and_gate_snapshot,
 )
-from app.services.portfolio.account_scope import resolve_portfolio_account_id
 
 NON_PORTFOLIO_ACCOUNT_IDS = frozenset({"WATCHLIST_ONLY", "SYNTHETIC_RESEARCH"})
 
@@ -19,9 +22,11 @@ def is_portfolio_position(position: Position) -> bool:
 
 def load_portfolio_snapshot(
     adapter: BrokerAdapter,
+    principal: Principal,
     account_id: Optional[str] = None,
 ) -> tuple[str, AccountSummary, list[Position]]:
-    active_id = resolve_portfolio_account_id(account_id, adapter)
+    allowed_ids = resolve_authorized_account_ids(adapter, principal, account_id)
+    active_id = allowed_ids[0]
     summary = adapter.get_account_summary(active_id)
     positions = adapter.get_positions(active_id)
     return active_id, summary, positions
@@ -29,9 +34,10 @@ def load_portfolio_snapshot(
 
 def gate_professional_response(
     adapter: BrokerAdapter,
+    principal: Principal,
     account_id: Optional[str],
     result: Any,
 ) -> dict[str, Any]:
-    _, summary, positions = load_portfolio_snapshot(adapter, account_id)
+    _, summary, positions = load_portfolio_snapshot(adapter, principal, account_id)
     validation = validate_and_gate_snapshot(summary, positions)
     return prepare_professional_response(result, summary, positions, validation)

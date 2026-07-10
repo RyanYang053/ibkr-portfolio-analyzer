@@ -652,12 +652,26 @@
             "type": "string"
           },
           "daily_pnl": {
-            "title": "Daily Pnl",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Pnl"
           },
           "daily_pnl_percent": {
-            "title": "Daily Pnl Percent",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Pnl Percent"
           },
           "market_price": {
             "title": "Market Price",
@@ -666,6 +680,11 @@
           "market_value": {
             "title": "Market Value",
             "type": "number"
+          },
+          "pnl_status": {
+            "default": "calculated",
+            "title": "Pnl Status",
+            "type": "string"
           },
           "quantity": {
             "title": "Quantity",
@@ -690,9 +709,7 @@
           "quantity",
           "market_price",
           "market_value",
-          "unrealized_pnl",
-          "daily_pnl",
-          "daily_pnl_percent"
+          "unrealized_pnl"
         ],
         "title": "PositionPnL",
         "type": "object"

@@ -330,10 +330,14 @@ def build_valuation_disclosure(
     base_currency = summary.base_currency.upper().strip()
     total_gross_base = 0.0
     included_gross_base = 0.0
+    excluded_gross_base = 0.0
     excluded_con_ids: list[int] = []
     exclusion_reasons: dict[str, str] = {}
     valuation_sources: dict[str, str] = {}
+    unmeasurable_exclusion = False
     oldest_timestamp = summary.data_timestamp
+    if oldest_timestamp.tzinfo is None:
+        oldest_timestamp = oldest_timestamp.replace(tzinfo=timezone.utc)
 
     for position in positions:
         if position.quantity == 0:
@@ -345,6 +349,17 @@ def build_valuation_disclosure(
             if position.con_id is not None:
                 excluded_con_ids.append(position.con_id)
             exclusion_reasons[symbol] = "MISSING_MARKET_PRICE"
+            if position.market_value and position.market_value > 0:
+                try:
+                    rate = float(get_exchange_rate(position.currency, base_currency))
+                    if math.isfinite(rate) and rate > 0:
+                        excluded_gross_base += abs(position.market_value * rate)
+                    else:
+                        unmeasurable_exclusion = True
+                except Exception:
+                    unmeasurable_exclusion = True
+            else:
+                unmeasurable_exclusion = True
             continue
 
         try:
@@ -354,23 +369,32 @@ def build_valuation_disclosure(
             value_base = abs(position.market_value * rate)
             total_gross_base += value_base
             included_gross_base += value_base
-            valuation_sources[identity] = "broker"
+            valuation_sources[identity] = position.price_source or "broker"
             position_timestamp = position.updated_at
             if position_timestamp.tzinfo is None:
                 position_timestamp = position_timestamp.replace(tzinfo=timezone.utc)
-            if position_timestamp < oldest_timestamp.replace(tzinfo=timezone.utc) if oldest_timestamp.tzinfo is None else oldest_timestamp:
+            if position_timestamp < oldest_timestamp:
                 oldest_timestamp = position_timestamp
         except Exception:
             if position.con_id is not None:
                 excluded_con_ids.append(position.con_id)
             exclusion_reasons[symbol] = "FX_CONVERSION_FAILED"
+            try:
+                excluded_gross_base += abs(position.market_value)
+            except Exception:
+                pass
 
-    included_percent = (included_gross_base / total_gross_base * 100.0) if total_gross_base > 0 else 0.0
-    if oldest_timestamp.tzinfo is None:
-        oldest_timestamp = oldest_timestamp.replace(tzinfo=timezone.utc)
+    measurable_denominator = total_gross_base + excluded_gross_base
+    if unmeasurable_exclusion:
+        included_percent = None
+    elif measurable_denominator > 0:
+        included_percent = included_gross_base / measurable_denominator * 100.0
+    else:
+        included_percent = None
 
     return {
-        "included_gross_value_percent": round(included_percent, 4),
+        "included_gross_value_percent": round(included_percent, 4) if included_percent is not None else None,
+        "coverage_measurable": included_percent is not None,
         "excluded_con_ids": sorted(set(excluded_con_ids)),
         "exclusion_reasons": exclusion_reasons,
         "oldest_source_timestamp": oldest_timestamp.isoformat(),
