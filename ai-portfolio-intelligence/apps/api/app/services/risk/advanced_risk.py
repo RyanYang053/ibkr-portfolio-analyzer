@@ -328,6 +328,30 @@ def _factor_exposures(positions: list[Position], summary: Any) -> tuple[dict[str
     return {key: round(value / total * 100.0, 2) for key, value in sorted(buckets.items())}, excluded
 
 
+def _option_stress_loss(position: Position, spot_shock_pct: float) -> float | None:
+    """Reprice listed options with Black-Scholes when contract metadata is available."""
+    if position.asset_class not in {"OPT", "FOP"}:
+        return None
+    from app.services.options.engine import calculate_bs_price
+
+    local_symbol = (position.local_symbol or position.symbol or "").replace(" ", "")
+    if len(local_symbol) < 15:
+        return None
+    try:
+        right = local_symbol[-9]
+        strike = int(local_symbol[-8:]) / 1000.0
+        expiry_code = local_symbol[-15:-9]
+        expiration = date.fromisoformat(f"20{expiry_code[:2]}-{expiry_code[2:4]}-{expiry_code[4:6]}")
+    except (TypeError, ValueError):
+        return None
+    days = max((expiration - date.today()).days, 1)
+    spot = max(float(position.avg_cost or position.market_price), 1.0)
+    shocked_spot = spot * (1.0 + spot_shock_pct / 100.0)
+    current = float(position.market_price)
+    repriced = calculate_bs_price(shocked_spot, strike, days / 365.0, 0.045, 0.30, right)
+    return float(position.quantity) * position.multiplier * (repriced - current)
+
+
 def _stress_tests(positions: list[Position], summary: Any, total_value: float) -> tuple[list[StressScenario], list[str]]:
     from app.services.broker.ibkr_readonly import get_exchange_rate
 
@@ -348,6 +372,10 @@ def _stress_tests(positions: list[Position], summary: Any, total_value: float) -
                 excluded.append(position.symbol)
                 continue
             if position.asset_class in {"OPT", "FOP"}:
+                repriced_loss = _option_stress_loss(position, market_shock)
+                if repriced_loss is not None:
+                    shock_value += repriced_loss * get_exchange_rate(position.currency, summary.base_currency)
+                    continue
                 shock = option_shock
             elif position.is_speculative:
                 shock = speculative_shock
@@ -478,8 +506,12 @@ def _filtered_historical_simulation(returns: list[float], total_value: float, de
         if cumulative >= 0.95:
             var_loss = loss
             break
-    tail = [loss for loss, weight in weighted_losses if loss >= var_loss]
-    es_loss = sum(tail) / len(tail) if tail else var_loss
+    tail = [(loss, weight) for loss, weight in weighted_losses if loss >= var_loss]
+    tail_weight_sum = sum(weight for _, weight in tail)
+    if tail_weight_sum > 0:
+        es_loss = sum(loss * weight for loss, weight in tail) / tail_weight_sum
+    else:
+        es_loss = var_loss
     return total_value * max(var_loss, 0.0), total_value * max(es_loss, 0.0)
 
 
@@ -559,6 +591,7 @@ def calculate_advanced_risk_metrics(
     drawdown_stats = _drawdown_analytics(account_returns) if enough_history else {}
     risk_contribution: dict[str, float] = {}
     marginal_volatility: dict[str, float] = {}
+    risk_contribution_pct: dict[str, float] = {}
     if reconstruction is not None:
         symbols = list(reconstruction.get("modeled_symbols", []))
         asset_returns = reconstruction.get("asset_returns", {})
@@ -582,6 +615,12 @@ def calculate_advanced_risk_metrics(
                 if modeled_value > 0:
                     normalized = {symbol: weights.get(symbol, 0.0) / modeled_value for symbol in symbols}
                     marginal_volatility, risk_contribution = _risk_contribution(normalized, covariance, symbols)
+                    component_sum = sum(risk_contribution.values())
+                    if component_sum > 0:
+                        risk_contribution_pct = {
+                            symbol: round((value / component_sum) * 100.0, 2)
+                            for symbol, value in risk_contribution.items()
+                        }
 
     from app.services.analytics.calculation_run import create_calculation_run
 
@@ -616,6 +655,13 @@ def calculate_advanced_risk_metrics(
         "stress_fx_excluded_symbols": ",".join(sorted(set(stress_excluded))) or "none",
         "factor_fx_excluded_symbols": ",".join(sorted(set(factor_excluded))) or "none",
         "factor_model": factor_quality,
+        "risk_contribution_reconciled": (
+            "yes"
+            if risk_contribution_pct and abs(sum(risk_contribution_pct.values()) - 100.0) <= 0.05
+            else "no"
+            if risk_contribution_pct
+            else "not_computed"
+        ),
         **{
             f"factor_{key}": str(value)
             for key, value in factor_metadata.items()
@@ -683,6 +729,7 @@ def calculate_advanced_risk_metrics(
         max_drawdown_duration_days=drawdown_stats.get("max_drawdown_duration_days"),
         recovery_duration_days=drawdown_stats.get("recovery_duration_days"),
         risk_contribution={key: round(value * 100.0, 2) for key, value in risk_contribution.items()},
+        risk_contribution_pct=risk_contribution_pct,
         marginal_volatility={key: round(value * 100.0, 4) for key, value in marginal_volatility.items()},
         correlation_matrix=correlation_matrix,
         factor_exposures=factor_exposures,

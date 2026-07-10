@@ -84,11 +84,18 @@ def beginning_sector_weights(
 ) -> dict[str, float]:
     holdings = reconstruct_holdings_at_date(transactions, period_start - timedelta(days=1))
     sector_values: dict[str, float] = defaultdict(float)
-    for (symbol, _), quantity in holdings.items():
+    for (symbol, con_id), quantity in holdings.items():
         price = _price_on_or_before(symbol, period_start, allow_mock=allow_mock)
         if price is None or quantity <= 0:
             continue
-        currency = next((position.currency for position in positions if position.symbol.upper() == symbol), "USD")
+        currency = next(
+            (
+                position.currency
+                for position in positions
+                if position.symbol.upper() == symbol and (position.con_id == con_id or con_id is None)
+            ),
+            "USD",
+        )
         try:
             rate = float(fx_resolver(currency, base_currency, period_start))
         except (TypeError, ValueError) as exc:

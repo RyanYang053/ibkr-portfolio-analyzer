@@ -289,6 +289,7 @@ def generate_portfolio_optimization(
     if profile.account_type == "Taxable":
         turnover_budget = min(turnover_budget, 0.15)
     solver_metadata: dict[str, object] = {}
+    used_cvxpy_solver = False
 
     if objective == "risk_parity":
         raw_weights = _risk_parity_weights(covariance)
@@ -320,6 +321,7 @@ def generate_portfolio_optimization(
         if raw_weights is None:
             raise ValueError("Black-Litterman optimization failed")
         solver_metadata["method"] = "black_litterman"
+        used_cvxpy_solver = True
     elif objective == "cvar":
         from app.services.portfolio_construction.advanced_optimizer import solve_cvar_weights
 
@@ -333,10 +335,12 @@ def generate_portfolio_optimization(
         if raw_weights is None:
             raise ValueError("CVaR optimization failed")
         solver_metadata["method"] = "cvar"
+        used_cvxpy_solver = True
     else:
         cvxpy_weights = _solve_cvxpy_min_variance(covariance, sleeve_budget=1.0)
         if cvxpy_weights is not None:
             raw_weights = cvxpy_weights
+            used_cvxpy_solver = True
         else:
             inverse = _invert_matrix(covariance)
             if inverse is None:
@@ -370,7 +374,10 @@ def generate_portfolio_optimization(
     if sleeve_budget <= 0:
         raise ValueError("No optimizable sleeve remains after reserving cash and fixed holdings")
 
-    sleeve_weights = _project_weights(covariance_symbols, raw_weights, policy, sectors, etf_symbols)
+    if used_cvxpy_solver:
+        sleeve_weights = [max(0.0, weight) for weight in raw_weights]
+    else:
+        sleeve_weights = _project_weights(covariance_symbols, raw_weights, policy, sectors, etf_symbols)
     sleeve_sum = sum(sleeve_weights)
     if sleeve_sum <= 0:
         raise ValueError("Optimized sleeve weights collapsed to zero")

@@ -23,6 +23,21 @@ from app.services.technicals.indicators import calculate_technical_indicators
 from app.core.config import settings
 
 
+def _derive_provenance(positions: list[Position], *, web_grounded: bool = False) -> Provenance:
+    price_sources = {getattr(position, "price_source", None) for position in positions}
+    has_broker_positions = bool(positions) and ("broker" in price_sources or "broker_snapshot" in price_sources)
+    has_mock_positions = any(source in {"mock", "mock_fundamentals"} for source in price_sources if source)
+    live_portfolio = settings.broker_mode == "ibkr_readonly" and has_broker_positions
+    mock_fallback = settings.broker_mode == "mock_ibkr_readonly" or has_mock_positions
+    return Provenance(
+        live_portfolio_data=live_portfolio,
+        live_market_data=live_portfolio and not mock_fallback,
+        cached_data=False,
+        mock_fallback_data=mock_fallback,
+        web_grounded_context=web_grounded,
+    )
+
+
 def generate_daily_portfolio_memo(
     summary: AccountSummary,
     positions: list[Position],
@@ -31,31 +46,36 @@ def generate_daily_portfolio_memo(
     calculation_run_ids: list[str] | None = None,
 ) -> AIReport:
     risk = analyze_portfolio_risk(summary, positions)
-    contributors = sorted(positions, key=lambda position: position.unrealized_pnl, reverse=True)[:3]
-    detractors = sorted(positions, key=lambda position: position.unrealized_pnl)[:3]
+    from app.services.portfolio.pnl_tracker import get_pnl_history
+    from app.services.portfolio.period_contributors import period_position_contributors
+
+    history = get_pnl_history(summary.account_id or "default")
+    contributors, detractors = period_position_contributors(history)
+    if not contributors:
+        contributors = [position.symbol for position in sorted(positions, key=lambda p: p.unrealized_pnl, reverse=True)[:3]]
+    if not detractors:
+        detractors = [position.symbol for position in sorted(positions, key=lambda p: p.unrealized_pnl)[:3]]
     recommendations = [build_recommendation(position) for position in positions[:5]]
 
-    is_demo = settings.broker_mode == "mock_ibkr_readonly"
-    is_live_portfolio = not is_demo and summary.account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY", "all")
-    is_live_market = not is_demo
-    is_mock_fallback = is_demo
-
-    provenance = Provenance(
-        live_portfolio_data=is_live_portfolio,
-        live_market_data=is_live_market,
-        cached_data=False,
-        mock_fallback_data=is_mock_fallback,
-        web_grounded_context=False
-    )
+    provenance = _derive_provenance(positions)
 
     from app.services.suitability.engine import get_investor_profile, check_position_suitability
     from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
     from app.services.guardrails.engine import append_compliance_disclaimer
 
+    from app.services.broker.ibkr_readonly import get_exchange_rate
+
     active_id = summary.account_id or "default"
     profile = get_investor_profile(active_id, user_id=user_id)
     policy = get_portfolio_policy(active_id, user_id=user_id)
-    drift = analyze_policy_drift(positions, summary.cash, summary.net_liquidation, policy)
+    drift = analyze_policy_drift(
+        positions,
+        summary.cash,
+        summary.net_liquidation,
+        policy,
+        base_currency=summary.base_currency,
+        fx_resolver=get_exchange_rate,
+    )
 
     suitability_warnings = []
     for pos in positions:
@@ -78,8 +98,9 @@ def generate_daily_portfolio_memo(
         "sector_dynamics": "Sector dynamics and trends are analyzed in real-time when the AI provider is active.",
         "rebalancing_analysis": rebalancing_text,
         "suitability_and_compliance": suitability_text,
-        "largest_contributors": [position.symbol for position in contributors],
-        "largest_detractors": [position.symbol for position in detractors],
+        "largest_contributors": contributors,
+        "largest_detractors": detractors,
+        "contributor_basis": "period_unrealized_pnl_change" if len(history) >= 2 else "current_unrealized_pnl_snapshot",
         "risk_alerts": [alert.model_dump() for alert in risk.alerts],
         "holdings_to_watch": [item.symbol for item in recommendations if item.action in {"Watch", "Trim Review", "Exit Review"}],
         "possible_add_zones": [item.add_zone for item in recommendations if item.action in {"Strong Add", "Add"} and item.add_zone],
@@ -641,15 +662,56 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
     if technicals and isinstance(technicals, dict) and technicals.get("trend_classification"):
         trend_str = str(technicals["trend_classification"])
 
-    # If Gemini is not configured, we handle mock/fallback restrictions
+    # Deterministic economics are always available when a chain exists.
     if not gemini.configured:
-        if not settings.allow_mock_options_strategy and not is_demo:
-            from fastapi import HTTPException
-            raise HTTPException(
-                status_code=503, 
-                detail="Options strategy generation is unavailable: Gemini API key is not configured and mock fallback is disabled."
+        from app.services.options.deterministic_report import build_deterministic_options_report
+
+        deterministic = build_deterministic_options_report(
+            position,
+            chain,
+            cash_available=cash_available,
+            account_type=account_type,
+            chain_source=chain_source,
+        )
+        if not is_demo:
+            from app.db.iv_observation_repo import append_iv_history_json, iv_percentile
+            from app.services.options.quantlib_benchmark import compare_with_internal_bs
+
+            atm = min(chain, key=lambda item: abs(item.strike - position.market_price))
+            days = max((atm.expiration - date.today()).days, 1)
+            append_iv_history_json(
+                position.symbol,
+                atm.implied_volatility,
+                source=chain_source,
+                option_right=atm.right,
+                days_to_expiry=days,
+                delta=atm.delta,
+                moneyness=round(position.market_price / atm.strike, 4) if atm.strike else None,
             )
-        return _fallback_options_report(position.symbol, position.market_price, "Gemini API key is not configured.", is_live_portfolio, is_live_market, is_mock_fallback)
+            deterministic["iv_percentile"] = iv_percentile(
+                position.symbol,
+                atm.implied_volatility,
+                option_right=atm.right,
+                days_to_expiry=days,
+            )
+            deterministic["provenance"]["quantlib_benchmark"] = compare_with_internal_bs(
+                spot=position.market_price,
+                strike=atm.strike,
+                days_to_expiry=days,
+                risk_free_rate=0.045,
+                volatility=atm.implied_volatility,
+                right=atm.right,
+            )
+        if not settings.allow_mock_options_strategy and is_demo:
+            return _fallback_options_report(
+                position.symbol,
+                position.market_price,
+                "Gemini API key is not configured.",
+                is_live_portfolio,
+                is_live_market,
+                is_mock_fallback,
+            )
+        return deterministic
 
     # 2. Build the LLM prompt using our options chain
     prompt = build_options_strategy_prompt(

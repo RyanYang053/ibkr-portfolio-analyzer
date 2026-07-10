@@ -123,7 +123,7 @@ def _get_stock_context(symbol: str, adapter: BrokerAdapter, account_id: Optional
         "is_speculative": position.is_speculative,
         "fundamentals": {
             "revenue_growth_yoy": f"{fundamentals.revenue_growth_yoy*100:.1f}%" if fundamentals else "N/A",
-            "gross_margin": f"{fundamentals.gross_margin*100:.1f}%" if fundamentals else "N/A",
+            "gross_margin": f"{fundamentals.gross_margin * 100:.1f}%" if fundamentals and fundamentals.gross_margin is not None else "N/A",
             "pe_forward": fundamentals.pe_forward if fundamentals else "N/A",
             "fcf_yield": f"{fundamentals.fcf_yield*100:.2f}%" if fundamentals and fundamentals.fcf_yield else "N/A",
         } if fundamentals else "N/A",

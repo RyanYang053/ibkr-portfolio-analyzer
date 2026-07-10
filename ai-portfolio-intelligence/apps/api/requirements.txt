@@ -17,3 +17,5 @@ numpy==2.2.1
 scipy==1.15.1
 cvxpy==1.6.0
 playwright==1.49.1
+# Optional institutional benchmark dependency (install when wheels are available for your platform).
+QuantLib

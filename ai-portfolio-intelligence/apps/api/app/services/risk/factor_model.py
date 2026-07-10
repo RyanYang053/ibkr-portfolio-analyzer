@@ -11,7 +11,7 @@ FACTOR_PROXIES = {
     "Momentum": "MTUM",
     "Low Volatility": "USMV",
 }
-MIN_FACTOR_OBSERVATIONS = 20
+MIN_FACTOR_OBSERVATIONS = 126
 
 
 def _daily_returns_from_closes(closes: dict[str, float]) -> dict[str, float]:
@@ -45,8 +45,11 @@ def _fetch_factor_return_series(
 def _matrix_ols(
     y: list[float],
     factors: list[list[float]],
+    *,
+    min_observations: int | None = None,
 ) -> tuple[list[float], float | None, float | None, dict[str, Any]]:
-    if len(y) < MIN_FACTOR_OBSERVATIONS or not factors or len(factors[0]) != len(y):
+    required = min_observations if min_observations is not None else MIN_FACTOR_OBSERVATIONS
+    if len(y) < required or not factors or len(factors[0]) != len(y):
         return [], None, None, {}
 
     count = len(factors)
@@ -134,7 +137,7 @@ def _matrix_ols(
         others = [[row[col] for row in design] for col in range(size) if col != factor_index]
         if not others:
             continue
-        _, helper_r2, _, _ = _matrix_ols(target, others)
+        _, helper_r2, _, _ = _matrix_ols(target, others, min_observations=5)
         if helper_r2 is not None and helper_r2 < 1.0:
             vif_values.append(1.0 / max(1.0 - helper_r2, 1e-6))
     if vif_values:

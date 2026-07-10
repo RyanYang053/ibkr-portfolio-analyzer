@@ -21,6 +21,16 @@ class OptionContract(BaseModel):
     rho: Optional[float] = None
     open_interest: Optional[int] = None
     volume: Optional[int] = None
+    con_id: Optional[int] = None
+    underlying_con_id: Optional[int] = None
+    local_symbol: Optional[str] = None
+    exchange: Optional[str] = None
+    currency: Optional[str] = None
+    multiplier: Optional[float] = None
+    quote_timestamp: Optional[str] = None
+    quote_age_seconds: Optional[float] = None
+    exercise_style: Optional[str] = None
+    settlement_type: Optional[str] = None
 
 
 def norm_cdf(x: float) -> float:

@@ -185,8 +185,8 @@ def test_pnl_decomposition_reports_known_cash_flows(monkeypatch, tmp_path):
 
 
 def test_factor_regression_returns_diagnostics():
-    y = [0.01, -0.005, 0.02, 0.003, -0.01] * 5
-    factors = [[0.008, -0.004, 0.015, 0.001, -0.008] * 5]
+    y = [0.01, -0.005, 0.02, 0.003, -0.01] * 26
+    factors = [[0.008, -0.004, 0.015, 0.001, -0.008] * 26]
     _, r_squared, _, diagnostics = _matrix_ols(y, factors)
     assert r_squared is not None
     assert diagnostics.get("model_label") == "ETF-proxy exposure model"

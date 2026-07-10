@@ -255,22 +255,33 @@ def _stock_fundamental_scores(fundamentals) -> dict[str, float]:
     scores: dict[str, float] = {}
 
     quality_parts = [
-        _linear(fundamentals.gross_margin, 0.15, 0.75),
-        _linear(fundamentals.operating_margin, -0.10, 0.35),
+        part
+        for part in (
+            _linear(fundamentals.gross_margin, 0.15, 0.75) if fundamentals.gross_margin is not None else None,
+            _linear(fundamentals.operating_margin, -0.10, 0.35) if fundamentals.operating_margin is not None else None,
+        )
+        if part is not None
     ]
-    scores["business_quality"] = fmean(quality_parts)
-    scores["growth"] = _linear(fundamentals.revenue_growth_yoy, -0.10, 0.35)
+    if quality_parts:
+        scores["business_quality"] = fmean(quality_parts)
+    if fundamentals.revenue_growth_yoy is not None:
+        scores["growth"] = _linear(fundamentals.revenue_growth_yoy, -0.10, 0.35)
 
-    profitability_parts = [_linear(fundamentals.operating_margin, -0.15, 0.35)]
+    profitability_parts = []
+    if fundamentals.operating_margin is not None:
+        profitability_parts.append(_linear(fundamentals.operating_margin, -0.15, 0.35))
     if fundamentals.fcf_yield is not None:
         profitability_parts.append(_linear(fundamentals.fcf_yield, -0.03, 0.08))
-    elif fundamentals.free_cash_flow != 0:
+    elif fundamentals.free_cash_flow is not None and fundamentals.free_cash_flow != 0:
         profitability_parts.append(75.0 if fundamentals.free_cash_flow > 0 else 15.0)
-    scores["profitability"] = fmean(profitability_parts)
+    if profitability_parts:
+        scores["profitability"] = fmean(profitability_parts)
 
-    capital = abs(fundamentals.cash) + abs(fundamentals.total_debt)
+    cash = fundamentals.cash or 0.0
+    debt = fundamentals.total_debt or 0.0
+    capital = abs(cash) + abs(debt)
     if capital > 0:
-        net_cash_ratio = (fundamentals.cash - fundamentals.total_debt) / capital
+        net_cash_ratio = (cash - debt) / capital
         scores["balance_sheet"] = _clamp(50.0 + 50.0 * net_cash_ratio)
 
     valuation_parts: list[float] = []

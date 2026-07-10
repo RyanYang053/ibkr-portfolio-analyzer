@@ -50,21 +50,24 @@ def fetch_ibkr_options_chain(symbol: str, current_price: float, *, max_contracts
                 qualified = ib.qualifyContracts(option)
                 if not qualified:
                     continue
-                ticker = ib.reqMktData(qualified[0], "", False, False)
+                contract = qualified[0]
+                ticker = ib.reqMktData(contract, "", False, False)
                 ib.sleep(1.0)
                 bid = float(ticker.bid or 0.0)
                 ask = float(ticker.ask or 0.0)
                 if bid <= 0 or ask <= 0 or ask < bid:
-                    ib.cancelMktData(qualified[0])
+                    ib.cancelMktData(contract)
                     continue
                 mid = (bid + ask) / 2.0
                 sigma = 0.30
                 if ticker.modelGreeks and ticker.modelGreeks.impliedVol:
                     sigma = float(ticker.modelGreeks.impliedVol)
                 greeks = calculate_bs_greeks(current_price, strike, time_to_expiry, risk_free, sigma, right)
+                quote_time = getattr(ticker, "time", None)
+                quote_timestamp = quote_time.isoformat() if hasattr(quote_time, "isoformat") else None
                 contracts.append(
                     OptionContract(
-                        symbol=f"{symbol.upper()}{expiration.strftime('%y%m%d')}{right}{int(strike * 1000):08d}",
+                        symbol=getattr(contract, "localSymbol", None) or f"{symbol.upper()}{expiration.strftime('%y%m%d')}{right}{int(strike * 1000):08d}",
                         strike=strike,
                         right=right,
                         expiration=expiration,
@@ -79,9 +82,19 @@ def fetch_ibkr_options_chain(symbol: str, current_price: float, *, max_contracts
                         rho=greeks["rho"],
                         open_interest=int(ticker.openInterest or 0) or None,
                         volume=int(ticker.volume or 0) or None,
+                        con_id=getattr(contract, "conId", None),
+                        underlying_con_id=underlying.conId,
+                        local_symbol=getattr(contract, "localSymbol", None),
+                        exchange=getattr(contract, "exchange", exchange),
+                        currency=getattr(contract, "currency", "USD"),
+                        multiplier=float(getattr(contract, "multiplier", 100) or 100),
+                        quote_timestamp=quote_timestamp,
+                        quote_age_seconds=None,
+                        exercise_style=getattr(contract, "right", None),
+                        settlement_type="physical",
                     )
                 )
-                ib.cancelMktData(qualified[0])
+                ib.cancelMktData(contract)
         if not contracts:
             raise RuntimeError(f"No IBKR option quotes returned for {symbol.upper()}")
         return contracts

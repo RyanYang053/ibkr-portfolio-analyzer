@@ -216,12 +216,12 @@ class FundamentalSnapshot(BaseModel):
     symbol: str
     period: str
     report_date: date
-    revenue_growth_yoy: float
-    gross_margin: float
-    operating_margin: float
-    free_cash_flow: float
-    cash: float
-    total_debt: float
+    revenue_growth_yoy: Optional[float] = None
+    gross_margin: Optional[float] = None
+    operating_margin: Optional[float] = None
+    free_cash_flow: Optional[float] = None
+    cash: Optional[float] = None
+    total_debt: Optional[float] = None
     pe_forward: Optional[float]
     ev_sales: Optional[float]
     fcf_yield: Optional[float]
@@ -354,6 +354,7 @@ class AdvancedRiskMetrics(BaseModel):
     max_drawdown_duration_days: Optional[int] = None
     recovery_duration_days: Optional[int] = None
     risk_contribution: dict[str, float] = Field(default_factory=dict)
+    risk_contribution_pct: dict[str, float] = Field(default_factory=dict)
     marginal_volatility: dict[str, float] = Field(default_factory=dict)
     correlation_matrix: dict[str, dict[str, float]]
     factor_exposures: dict[str, float]

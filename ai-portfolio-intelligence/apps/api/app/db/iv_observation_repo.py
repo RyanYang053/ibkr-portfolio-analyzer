@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
-from app.db.postgres_guard import require_postgres_persistence
+from app.db.postgres_guard import require_postgres_persistence, require_postgres_read
 from app.db.state_store import get_state_store, postgres_available
 
 
@@ -28,11 +28,32 @@ def _table_available() -> bool:
         return False
 
 
-def record_iv_observation(symbol: str, implied_volatility: float, *, source: str, observation_date: date | None = None) -> None:
+def record_iv_observation(
+    symbol: str,
+    implied_volatility: float,
+    *,
+    source: str,
+    observation_date: date | None = None,
+    option_right: str = "C",
+    days_to_expiry: int | None = None,
+    delta: float | None = None,
+    moneyness: float | None = None,
+    quote_timestamp: datetime | None = None,
+) -> None:
     if implied_volatility <= 0:
         return
     active_date = observation_date or date.today()
-    payload = {"symbol": symbol.upper(), "iv": implied_volatility, "source": source, "date": active_date.isoformat()}
+    payload = {
+        "symbol": symbol.upper(),
+        "iv": implied_volatility,
+        "source": source,
+        "date": active_date.isoformat(),
+        "option_right": option_right,
+        "days_to_expiry": days_to_expiry,
+        "delta": delta,
+        "moneyness": moneyness,
+        "quote_timestamp": quote_timestamp.isoformat() if quote_timestamp else None,
+    }
 
     if settings.persistence_backend == "postgres":
         require_postgres_persistence("iv observation write", table_available=_table_available())
@@ -43,15 +64,20 @@ def record_iv_observation(symbol: str, implied_volatility: float, *, source: str
                 text(
                     """
                     INSERT INTO iv_observations (
-                        symbol, observation_date, implied_volatility, source, payload_json, created_at
+                        symbol, observation_date, implied_volatility, source, payload_json, created_at,
+                        option_right, days_to_expiry, delta, moneyness, quote_timestamp
                     ) VALUES (
-                        :symbol, :observation_date, :implied_volatility, :source, :payload_json, :created_at
+                        :symbol, :observation_date, :implied_volatility, :source, :payload_json, :created_at,
+                        :option_right, :days_to_expiry, :delta, :moneyness, :quote_timestamp
                     )
                     ON CONFLICT ON CONSTRAINT uq_iv_observations_symbol_date_source
                     DO UPDATE SET
                         implied_volatility = EXCLUDED.implied_volatility,
                         payload_json = EXCLUDED.payload_json,
-                        created_at = EXCLUDED.created_at
+                        created_at = EXCLUDED.created_at,
+                        delta = EXCLUDED.delta,
+                        moneyness = EXCLUDED.moneyness,
+                        quote_timestamp = EXCLUDED.quote_timestamp
                     """
                 ),
                 {
@@ -61,50 +87,85 @@ def record_iv_observation(symbol: str, implied_volatility: float, *, source: str
                     "source": source,
                     "payload_json": json.dumps(payload),
                     "created_at": _utc_now(),
+                    "option_right": option_right,
+                    "days_to_expiry": days_to_expiry,
+                    "delta": delta,
+                    "moneyness": moneyness,
+                    "quote_timestamp": quote_timestamp,
                 },
             )
             session.commit()
         return
 
     store = get_state_store()
-    key = f"{symbol.upper()}:{active_date.isoformat()}:{source}"
+    key = f"{symbol.upper()}:{active_date.isoformat()}:{source}:{option_right}:{days_to_expiry}"
     store.write_json("iv_observations", key, payload)
 
 
-def read_iv_history(symbol: str, *, limit: int = 252) -> list[float]:
+def read_iv_history(
+    symbol: str,
+    *,
+    limit: int = 252,
+    option_right: str | None = None,
+    days_to_expiry: int | None = None,
+) -> list[float]:
     if settings.persistence_backend == "postgres":
-        from app.db.postgres_guard import require_postgres_read
-
         require_postgres_read("iv observation read", table_available=_table_available())
         from app.db.session import SessionLocal
 
+        filters = ["symbol = :symbol"]
+        params: dict[str, object] = {"symbol": symbol.upper(), "limit": limit}
+        if option_right is not None:
+            filters.append("option_right = :option_right")
+            params["option_right"] = option_right
+        if days_to_expiry is not None:
+            filters.append("days_to_expiry = :days_to_expiry")
+            params["days_to_expiry"] = days_to_expiry
+        where_clause = " AND ".join(filters)
         with SessionLocal() as session:
             rows = session.execute(
                 text(
-                    """
+                    f"""
                     SELECT implied_volatility
                     FROM iv_observations
-                    WHERE symbol = :symbol
+                    WHERE {where_clause}
                     ORDER BY observation_date DESC
                     LIMIT :limit
                     """
                 ),
-                {"symbol": symbol.upper(), "limit": limit},
+                params,
             ).fetchall()
         return [float(row.implied_volatility) for row in reversed(rows)]
 
     store = get_state_store()
-    prefix = f"{symbol.upper()}:"
-    # Json store has no prefix listing; use aggregate per symbol key.
     aggregate = store.read_json("iv_observations", symbol.upper(), default=[])
     if isinstance(aggregate, list):
         return [float(item["iv"]) for item in aggregate[-limit:] if isinstance(item, dict) and item.get("iv")]
     return []
 
 
-def append_iv_history_json(symbol: str, implied_volatility: float, *, source: str) -> None:
+def append_iv_history_json(
+    symbol: str,
+    implied_volatility: float,
+    *,
+    source: str,
+    option_right: str = "C",
+    days_to_expiry: int | None = None,
+    delta: float | None = None,
+    moneyness: float | None = None,
+    quote_timestamp: datetime | None = None,
+) -> None:
     if settings.persistence_backend == "postgres":
-        record_iv_observation(symbol, implied_volatility, source=source)
+        record_iv_observation(
+            symbol,
+            implied_volatility,
+            source=source,
+            option_right=option_right,
+            days_to_expiry=days_to_expiry,
+            delta=delta,
+            moneyness=moneyness,
+            quote_timestamp=quote_timestamp,
+        )
         return
 
     store = get_state_store()
@@ -117,13 +178,23 @@ def append_iv_history_json(symbol: str, implied_volatility: float, *, source: st
             "iv": implied_volatility,
             "source": source,
             "date": date.today().isoformat(),
+            "option_right": option_right,
+            "days_to_expiry": days_to_expiry,
+            "delta": delta,
+            "moneyness": moneyness,
         }
     )
     store.write_json("iv_observations", key, history[-500:])
 
 
-def iv_percentile(symbol: str, current_iv: float) -> float | None:
-    history = read_iv_history(symbol)
+def iv_percentile(
+    symbol: str,
+    current_iv: float,
+    *,
+    option_right: str | None = None,
+    days_to_expiry: int | None = None,
+) -> float | None:
+    history = read_iv_history(symbol, option_right=option_right, days_to_expiry=days_to_expiry)
     if len(history) < 20:
         return None
     below = sum(1 for value in history if value <= current_iv)

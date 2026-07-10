@@ -123,7 +123,14 @@ def test_company_type_valuation_models():
 
 
 def test_quantlib_benchmark_compare_or_skip():
+    import os
+
     from app.services.options.quantlib_benchmark import compare_with_internal_bs, quantlib_available
+
+    if not quantlib_available():
+        if os.getenv("CI"):
+            pytest.fail("QuantLib is required for institutional benchmark validation in CI")
+        pytest.skip("QuantLib not installed on this machine")
 
     result = compare_with_internal_bs(
         spot=100.0,
@@ -133,11 +140,7 @@ def test_quantlib_benchmark_compare_or_skip():
         volatility=0.28,
         right="C",
     )
-    if not quantlib_available():
-        assert result["status"] == "quantlib_unavailable"
-        assert result["internal_price"] > 0
-    else:
-        assert result["status"] in {"within_tolerance", "diverged"}
+    assert result["status"] in {"within_tolerance", "diverged"}
 
 
 def test_extract_xbrl_facts_parses_companyfacts(monkeypatch):

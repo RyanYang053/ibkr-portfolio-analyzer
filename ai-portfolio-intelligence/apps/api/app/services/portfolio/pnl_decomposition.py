@@ -130,6 +130,25 @@ def calculate_pnl_decomposition(
         )
 
     price_effect_total = None
+    trade_quantity_total = None
+    period_exclusions: list[str] = []
+    if covers_period:
+        from app.db.daily_position_repo import read_daily_positions
+        from app.services.portfolio.pnl_period_effects import compute_period_price_and_realized_effects
+
+        opening_positions = read_daily_positions(account_id, period_start)
+        price_effect_total, realized_total, _, period_exclusions = compute_period_price_and_realized_effects(
+            account_id,
+            period_start,
+            period_end,
+            opening_positions,
+            positions,
+            base_currency,
+            fx_resolver,
+        )
+        if realized_total is not None:
+            trade_quantity_total = realized_total
+
     position_rows = [
         PositionPnLDecomposition(
             symbol=position.symbol,
@@ -161,23 +180,38 @@ def calculate_pnl_decomposition(
 
     investment_pnl = account_value_change - external_total
     explained = dividend_total + interest_total - fee_total + corporate_total
+    if price_effect_total is not None:
+        explained += price_effect_total
+    if trade_quantity_total is not None:
+        explained += trade_quantity_total
     residual_total = investment_pnl - explained
     tolerance_amount = abs(beginning_nav) * (RECONCILIATION_TOLERANCE_BPS / 10_000.0)
     reconciliation_status = "withheld_incomplete_ledger"
     if covers_period:
-        reconciliation_status = "provisional_cash_flow_inventory"
+        if price_effect_total is not None and trade_quantity_total is not None:
+            reconciliation_status = (
+                "reconciled_within_tolerance"
+                if abs(residual_total) <= max(tolerance_amount, 1.0)
+                else "reconciliation_gap_exceeds_tolerance"
+            )
+        else:
+            reconciliation_status = "provisional_cash_flow_inventory"
 
     exclusions: list[str] = []
     if not covers_period:
         exclusions.append("ledger_incomplete")
+    if price_effect_total is None:
+        exclusions.append("price_effect_withheld")
+    if trade_quantity_total is None:
+        exclusions.append("trade_quantity_effect_withheld")
+    exclusions.extend(period_exclusions)
     exclusions.extend(
         [
-            "price_effect_withheld",
             "fx_translation_withheld",
-            "trade_quantity_effect_withheld",
             "option_greek_effect_withheld",
         ]
     )
+    exclusions = list(dict.fromkeys(exclusions))
 
     snapshot_ids = [f"{row.date}:{row.timestamp}" for row in ordered]
     run = create_calculation_run(
@@ -207,9 +241,9 @@ def calculate_pnl_decomposition(
         period_end=period_end,
         reporting_currency=base_currency,
         account_value_change=round(account_value_change, 2),
-        price_effect_total=None,
+        price_effect_total=price_effect_total,
         fx_translation_total=None,
-        trade_quantity_total=None,
+        trade_quantity_total=trade_quantity_total,
         dividend_income_total=round(dividend_total, 2),
         fee_expense_total=round(fee_total, 2),
         interest_income_total=round(interest_total, 2),
