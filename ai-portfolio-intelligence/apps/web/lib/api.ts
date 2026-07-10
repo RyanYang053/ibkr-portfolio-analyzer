@@ -1,4 +1,16 @@
-import type { AIStatus, AIStockReport, Alert, BrokerStatus, PortfolioRisk, PortfolioSummary, Position, Recommendation, OptionsStrategyReport } from "./types";
+import type {
+  AIStatus,
+  AIStockReport,
+  Alert,
+  BrokerStatus,
+  PortfolioOptimizationProposal,
+  PortfolioRisk,
+  PortfolioSummary,
+  Position,
+  RebalanceProposal,
+  Recommendation,
+  OptionsStrategyReport,
+} from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -468,6 +480,54 @@ export async function getPerformanceAttribution(accountId?: string): Promise<any
     data_quality: { benchmark_data: "missing" },
     methodology: "Unavailable"
   });
+}
+
+const emptyRebalanceProposal: RebalanceProposal = {
+  proposed_trades: [],
+  cash_impact: 0,
+  tax_impact_warning: "Rebalance proposal unavailable. Connect IBKR and configure your investment policy.",
+  compliance_disclaimer: "Review only. This application does not execute trades.",
+  unavailable: true,
+};
+
+const emptyOptimizationProposal: PortfolioOptimizationProposal = {
+  objective: "min_variance",
+  proposed_trades: [],
+  expected_volatility: null,
+  expected_return: null,
+  sharpe_ratio: null,
+  constraints_applied: [],
+  methodology: "Optimization proposal unavailable.",
+  compliance_disclaimer: "Review only. This application does not execute trades.",
+  unavailable: true,
+};
+
+export async function getRebalanceProposal(accountId?: string): Promise<RebalanceProposal> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  try {
+    const response = await fetch(`${API_URL}/portfolio/rebalance-proposal${query}`, { cache: "no-store" });
+    if (!response.ok) {
+      return emptyRebalanceProposal;
+    }
+    const proposal = (await response.json()) as RebalanceProposal;
+    return { ...emptyRebalanceProposal, ...proposal, unavailable: false };
+  } catch {
+    return emptyRebalanceProposal;
+  }
+}
+
+export async function getOptimizationProposal(accountId?: string): Promise<PortfolioOptimizationProposal> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  try {
+    const response = await fetch(`${API_URL}/portfolio/optimization-proposal${query}`, { cache: "no-store" });
+    if (!response.ok) {
+      return emptyOptimizationProposal;
+    }
+    const proposal = (await response.json()) as PortfolioOptimizationProposal;
+    return { ...emptyOptimizationProposal, ...proposal, unavailable: false };
+  } catch {
+    return emptyOptimizationProposal;
+  }
 }
 
 export async function getOptionsStrategy(symbol: string): Promise<OptionsStrategyReport> {

@@ -76,7 +76,7 @@ export function ProfessionalRiskDashboard({
         <section className="rounded-md border border-line bg-white p-4">
           <h3 className="mb-4 text-lg font-semibold inline-flex items-center gap-2">
             <TrendingUp size={18} className="text-accent" />
-            P&amp;L Breakdown &amp; Heuristic Factor Profile
+            P&amp;L Breakdown &amp; Factor Profile
           </h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-md bg-panel p-3">
@@ -96,7 +96,11 @@ export function ProfessionalRiskDashboard({
           </div>
 
           <div className="mt-4">
-            <h4 className="text-xs font-semibold uppercase text-zinc-500 mb-2">Strategic Factor Exposures</h4>
+            <h4 className="text-xs font-semibold uppercase text-zinc-500 mb-2">
+              {advancedRisk.data_quality?.factor_model === "measured_regression"
+                ? "Measured Factor Exposures"
+                : "Strategic Factor Exposures"}
+            </h4>
             <div className="space-y-2">
               {Object.entries(advancedRisk.factor_exposures).map(([factor, value]) => (
                 <div key={factor} className="space-y-1">

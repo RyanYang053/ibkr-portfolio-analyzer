@@ -6,11 +6,14 @@ import {
   getPortfolioSummary,
   getPositions,
   getAdvancedRiskMetrics,
-  getPerformanceAttribution
+  getPerformanceAttribution,
+  getRebalanceProposal,
+  getOptimizationProposal,
 } from "@/lib/api";
 import type { PortfolioRisk, Position } from "@/lib/types";
 import { DonutChart } from "@/components/DonutChart";
 import { ProfessionalRiskDashboard } from "@/components/ProfessionalRiskDashboard";
+import { PortfolioConstructionPanel } from "@/components/PortfolioConstructionPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -88,11 +91,13 @@ export default async function PortfolioPage(props: PageProps) {
   const searchParams = await props.searchParams;
   const accountId = searchParams.account_id || undefined;
 
-  const [summary, positions, advancedRisk, attribution] = await Promise.all([
+  const [summary, positions, advancedRisk, attribution, rebalance, optimization] = await Promise.all([
     getPortfolioSummary(accountId),
     getPositions(accountId),
     getAdvancedRiskMetrics(accountId),
     getPerformanceAttribution(accountId),
+    getRebalanceProposal(accountId),
+    getOptimizationProposal(accountId),
   ]);
   const { risk, derivedFromPositions } = deriveRiskFromPositions(summary.risk, positions);
   const [topCurrency, topCurrencyWeight] = topExposure(risk.currency_exposure);
@@ -124,6 +129,12 @@ export default async function PortfolioPage(props: PageProps) {
       </section>
       
       <HoldingsTable positions={positions} />
+
+      <PortfolioConstructionPanel
+        rebalance={rebalance}
+        optimization={optimization}
+        baseCurrency={summary.summary.base_currency}
+      />
       
       <ProfessionalRiskDashboard
         suitabilityWarnings={suitabilityWarnings}

@@ -177,6 +177,41 @@ export type OptionsStrategyDetails = {
   eligibility_reason: string;
 };
 
+export type TradeProposalItem = {
+  symbol: string;
+  current_weight: number;
+  target_weight: number;
+  current_value: number;
+  proposed_trade_value: number;
+  proposed_trade_qty: number;
+  action: "Buy" | "Sell" | "Hold";
+  reason: string;
+};
+
+export type RebalanceProposal = {
+  proposed_trades: TradeProposalItem[];
+  cash_impact: number;
+  tax_impact_warning: string;
+  compliance_disclaimer: string;
+  unavailable?: boolean;
+};
+
+export type PortfolioOptimizationProposal = {
+  objective: string;
+  proposed_trades: Array<
+    TradeProposalItem & {
+      optimal_weight: number;
+    }
+  >;
+  expected_volatility: number | null;
+  expected_return: number | null;
+  sharpe_ratio: number | null;
+  constraints_applied: string[];
+  methodology: string;
+  compliance_disclaimer: string;
+  unavailable?: boolean;
+};
+
 export type OptionsStrategyReport = {
   symbol: string;
   stock_price: number;
