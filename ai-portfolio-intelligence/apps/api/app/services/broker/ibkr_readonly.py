@@ -428,9 +428,22 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                 contract = trade.contract
                 order = trade.order
                 status = trade.orderStatus
+
+                actual_account = str(
+                    getattr(order, "account", "")
+                    or getattr(status, "account", "")
+                    or ""
+                ).strip()
+
+                if not actual_account:
+                    continue
+
+                if actual_account != account_id:
+                    continue
+
                 orders.append(
                     OpenOrderReadOnly(
-                        account_id=account_id,
+                        account_id=actual_account,
                         symbol=getattr(contract, "symbol", ""),
                         side=str(getattr(order, "action", "")),
                         quantity=float(getattr(order, "totalQuantity", 0) or 0),

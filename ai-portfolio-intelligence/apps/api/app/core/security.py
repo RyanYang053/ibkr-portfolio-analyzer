@@ -52,12 +52,18 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
 
 def token_is_revoked(payload: dict[str, Any]) -> bool:
-    subject = payload.get("sub")
+    subject = str(payload.get("sub") or "").lower()
     if not subject:
         return True
-    user = get_user(str(subject))
-    if not user:
+
+    user = get_user(subject)
+    if user is None:
         return True
-    token_version = int(payload.get("ver", 0))
-    current_version = int(user.get("token_version", "0"))
-    return token_version < current_version
+
+    try:
+        token_version = int(payload["ver"])
+        current_version = int(user["token_version"])
+    except (KeyError, TypeError, ValueError):
+        return True
+
+    return token_version != current_version

@@ -200,6 +200,78 @@ def bootstrap_owner_transactionally(email: str, password_hash: str, name: str) -
     return _row_to_user(dict(user_row))
 
 
+def owner_exists() -> bool:
+    require_postgres_persistence("owner existence check", table_available=_table_available())
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as session:
+        return bool(
+            session.execute(
+                text("SELECT 1 FROM users WHERE role = 'owner' LIMIT 1")
+            ).first()
+        )
+
+
+def update_user_role(email: str, role: str) -> dict[str, str] | None:
+    require_postgres_persistence("user role update", table_available=_table_available())
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as session:
+        row = session.execute(
+            text(
+                """
+                UPDATE users
+                SET role = :role,
+                    token_version = token_version + 1,
+                    updated_at = :updated_at
+                WHERE lower(email) = lower(:email)
+                RETURNING email, name, password_hash, role, token_version
+                """
+            ),
+            {
+                "email": email.lower(),
+                "role": role,
+                "updated_at": _utc_now(),
+            },
+        ).mappings().first()
+
+        if row is None:
+            session.rollback()
+            return None
+
+        session.commit()
+        return _row_to_user(dict(row))
+
+
+def bump_token_version(email: str) -> int:
+    require_postgres_persistence("token revocation", table_available=_table_available())
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as session:
+        row = session.execute(
+            text(
+                """
+                UPDATE users
+                SET token_version = token_version + 1,
+                    updated_at = :updated_at
+                WHERE lower(email) = lower(:email)
+                RETURNING token_version
+                """
+            ),
+            {
+                "email": email.lower(),
+                "updated_at": _utc_now(),
+            },
+        ).first()
+
+        if row is None:
+            session.rollback()
+            raise LookupError("User not found")
+
+        session.commit()
+        return int(row[0])
+
+
 def assert_bootstrap_owner_available() -> None:
     if not _table_available():
         return

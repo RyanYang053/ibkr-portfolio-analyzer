@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,7 +8,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.api.auth_deps import Principal, get_current_principal
-from app.api.deps import get_broker_adapter, demo_mode_enabled
+from app.api.deps import get_broker_adapter
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.securities import classify_security
 from app.services.market_data.mock_provider import MockMarketDataProvider
@@ -16,7 +17,10 @@ from app.services.technicals.indicators import calculate_technical_indicators
 from app.services.ai.client import GeminiClient
 from app.services.tenant_scope import tenant_user_id
 from app.api.account_deps import resolve_authorized_account_id
-from app.schemas.domain import Position, utc_now, InvestorProfile, InvestmentPolicyStatement
+from app.services.portfolio.account_scope import find_portfolio_position
+from app.schemas.domain import Position, utc_now
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/ai/chat",
@@ -36,17 +40,14 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage]
 
 
-def _get_stock_context(symbol: str, adapter: BrokerAdapter, account_id: Optional[str] = None) -> dict[str, Any]:
+def _get_stock_context(
+    symbol: str,
+    adapter: BrokerAdapter,
+    authorized_account_id: str,
+) -> dict[str, Any]:
     sym = symbol.upper().strip()
-    
-    # 1. Fetch or build synthetic position
-    position = None
-    try:
-        position = find_portfolio_position(sym, adapter, account_id)
-    except HTTPException:
-        raise
-    except Exception:
-        pass
+
+    position = find_portfolio_position(sym, adapter, authorized_account_id)
 
     import sys
     allow_mock = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
@@ -122,10 +123,18 @@ def _get_stock_context(symbol: str, adapter: BrokerAdapter, account_id: Optional
         "stock_type": position.stock_type,
         "is_speculative": position.is_speculative,
         "fundamentals": {
-            "revenue_growth_yoy": f"{fundamentals.revenue_growth_yoy*100:.1f}%" if fundamentals else "N/A",
+            "revenue_growth_yoy": (
+                f"{fundamentals.revenue_growth_yoy * 100:.1f}%"
+                if fundamentals and fundamentals.revenue_growth_yoy is not None
+                else "N/A"
+            ),
             "gross_margin": f"{fundamentals.gross_margin * 100:.1f}%" if fundamentals and fundamentals.gross_margin is not None else "N/A",
             "pe_forward": fundamentals.pe_forward if fundamentals else "N/A",
-            "fcf_yield": f"{fundamentals.fcf_yield*100:.2f}%" if fundamentals and fundamentals.fcf_yield else "N/A",
+            "fcf_yield": (
+                f"{fundamentals.fcf_yield * 100:.2f}%"
+                if fundamentals and fundamentals.fcf_yield is not None
+                else "N/A"
+            ),
         } if fundamentals else "N/A",
         "fundamentals_source": fundamentals.source if fundamentals else "missing",
         "technicals": technicals or "N/A",
@@ -159,25 +168,29 @@ def chat(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    # 1. Gather contexts for tagged stocks
-    tagged_contexts = []
+    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+
+    tagged_contexts: list[dict[str, Any]] = []
     for symbol in payload.tagged_symbols:
         try:
-            context = _get_stock_context(symbol, adapter, account_id)
-            tagged_contexts.append(context)
+            tagged_contexts.append(
+                _get_stock_context(
+                    symbol=symbol,
+                    adapter=adapter,
+                    authorized_account_id=active_id,
+                )
+            )
+        except HTTPException:
+            raise
         except Exception as exc:
-            import logging
-            logging.exception(f"Error getting stock context for {symbol}: {exc}")
-            pass
+            logger.exception("Unable to build tagged context for %s", symbol, exc_info=exc)
 
-    # 2. Gather user's real-time portfolio summary and cash situation
     portfolio_summary_text = ""
     portfolio_context: dict[str, Any] = {
         "status": "unavailable",
         "reason": "Broker portfolio data was not available.",
     }
     try:
-        active_id = resolve_authorized_account_id(account_id, adapter, principal)
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
         from app.services.data_quality.validation import validate_and_gate_snapshot
@@ -245,9 +258,18 @@ def chat(
             from app.services.suitability.engine import get_investor_profile, check_position_suitability
             from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
 
+            from app.services.broker.ibkr_readonly import get_exchange_rate
+
             profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
             policy = get_portfolio_policy(active_id, user_id=tenant_user_id(principal))
-            drift = analyze_policy_drift(positions, summary.cash, summary.net_liquidation, policy)
+            drift = analyze_policy_drift(
+                positions,
+                summary.cash,
+                summary.net_liquidation,
+                policy,
+                base_currency=summary.base_currency,
+                fx_resolver=get_exchange_rate,
+            )
 
             suitability_warnings = []
             for pos in positions:

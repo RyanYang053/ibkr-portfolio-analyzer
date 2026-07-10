@@ -49,14 +49,9 @@ def bootstrap_owner(payload: BootstrapRequest) -> dict[str, str]:
     password_hash = hash_password(payload.password)
 
     if settings.persistence_backend == "postgres":
-        from app.api.user_store import _hydrate_users
         from app.db.user_repo import bootstrap_owner_transactionally
 
         user = bootstrap_owner_transactionally(email, password_hash, payload.name)
-        _hydrate_users()
-        from app.api import user_store
-
-        user_store._USERS[email] = user
     else:
         if owner_exists():
             raise HTTPException(status_code=409, detail="An owner account already exists")
@@ -105,6 +100,26 @@ def register(payload: RegisterRequest) -> dict[str, str]:
 
 @router.post("/accept-invite")
 def accept_invite(payload: AcceptInviteRequest) -> dict[str, str]:
+    password_hash = hash_password(payload.password)
+
+    if settings.persistence_backend == "postgres":
+        from app.db.invitation_repo import consume_invitation_and_create_user
+
+        user = consume_invitation_and_create_user(
+            token=payload.token,
+            name=payload.name,
+            password_hash=password_hash,
+        )
+        if user is None:
+            raise HTTPException(status_code=404, detail="Invitation is invalid or expired")
+        return {
+            "email": user["email"],
+            "name": user["name"],
+            "role": user["role"],
+            "access_token": create_access_token(user["email"], role=user["role"]),
+            "token_type": "bearer",
+        }
+
     invitation = get_invitation(payload.token)
     if not invitation:
         raise HTTPException(status_code=404, detail="Invitation is invalid or expired")
@@ -119,7 +134,7 @@ def accept_invite(payload: AcceptInviteRequest) -> dict[str, str]:
         {
             "email": email,
             "name": payload.name,
-            "password_hash": hash_password(payload.password),
+            "password_hash": password_hash,
             "role": invitation["role"],
             "token_version": "0",
         },

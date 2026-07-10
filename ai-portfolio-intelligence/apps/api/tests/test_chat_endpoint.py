@@ -23,7 +23,7 @@ def test_chat_endpoint_fallback_without_gemini_key(monkeypatch):
             ]
         }
 
-        response = client.post("/ai/chat", json=payload)
+        response = client.post("/ai/chat?account_id=MOCK-001", json=payload)
         assert response.status_code == 200
         
         data = response.json()
