@@ -108,6 +108,7 @@ def build_structured_stock_context(
             "valuation": valuation,
             "catalysts": catalysts,
         },
+        user_id="local-dev",
     )
     rule_engine = build_rule_engine_summary(position, score, recommendation, technicals, fundamentals, valuation, data_quality, thesis)
     evidence = [

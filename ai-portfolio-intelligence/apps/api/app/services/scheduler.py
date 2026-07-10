@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from app.api.deps import get_broker_adapter
 from app.api.routes.ai import ScheduledAnalyzeRequest, _load_settings, trigger_scheduled_analysis
 from app.core.config import settings
-from app.db.scheduler_store import complete_job, job_already_completed, try_acquire_job
+from app.db.scheduler_store import complete_job, job_already_completed, renew_job_lease, try_acquire_job
 from app.services.portfolio.pnl_tracker import get_pnl_history, record_pnl_snapshot
 
 logger = logging.getLogger("scheduler")
@@ -73,6 +73,7 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
         logger.info("Triggering scheduled %s analysis", period)
         try:
             adapter = adapter or get_broker_adapter()
+            renew_job_lease("scheduled_analysis", None, business_date, period)
             trigger_scheduled_analysis(
                 ScheduledAnalyzeRequest(period=period),
                 account_id=settings.ibkr_account_id,

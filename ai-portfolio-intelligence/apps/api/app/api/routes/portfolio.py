@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.auth_deps import Principal, get_current_principal, require_scope
-from app.api.account_deps import ensure_account_access, resolve_authorized_account_ids
+from app.api.account_deps import ensure_account_access, resolve_authorized_account_id, resolve_authorized_account_ids
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.schemas.domain import AccountSummary, InvestmentPolicyStatement, InvestorProfile, Position, utc_now
 from app.services.broker.base import BrokerAdapter
@@ -18,6 +18,7 @@ from app.services.data_quality.validation import (
     validate_portfolio_snapshot,
 )
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
+from app.services.tenant_scope import tenant_user_id
 
 router = APIRouter(
     prefix="/portfolio",
@@ -196,8 +197,8 @@ def summary(
 
     from app.services.suitability.engine import check_position_suitability, get_investor_profile
 
-    active_id = account_id or account_summary.account_id or "default"
-    profile = get_investor_profile(active_id)
+    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
     suitability_warnings: list[str] = []
     for position in account_positions:
         suitability_warnings.extend(check_position_suitability(profile, position))
@@ -360,53 +361,53 @@ def _group_percent(positions: list[Position], base_currency: str, field: str) ->
 
 @router.get("/profile", response_model=InvestorProfile)
 def get_profile(
-    account_id: Optional[str] = "default",
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    if account_id and account_id not in {"all", "default"}:
-        ensure_account_access(account_id, principal)
+    active_id = resolve_authorized_account_id(account_id, adapter, principal)
     from app.services.suitability.engine import get_investor_profile
 
-    return get_investor_profile(account_id)
+    return get_investor_profile(active_id, user_id=tenant_user_id(principal))
 
 
 @router.post("/profile", dependencies=[Depends(require_scope("portfolio:write"))])
 def update_profile(
     profile: InvestorProfile,
-    account_id: Optional[str] = "default",
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    if account_id and account_id not in {"all", "default"}:
-        ensure_account_access(account_id, principal)
+    active_id = resolve_authorized_account_id(account_id, adapter, principal)
     from app.services.suitability.engine import save_investor_profile
 
-    save_investor_profile(profile, account_id)
+    save_investor_profile(profile, active_id, user_id=tenant_user_id(principal))
     return {"status": "success", "message": "Investor profile updated successfully"}
 
 
 @router.get("/policy", response_model=InvestmentPolicyStatement)
 def get_policy(
-    account_id: Optional[str] = "default",
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    if account_id and account_id not in {"all", "default"}:
-        ensure_account_access(account_id, principal)
+    active_id = resolve_authorized_account_id(account_id, adapter, principal)
     from app.services.policy.engine import get_portfolio_policy
 
-    return get_portfolio_policy(account_id)
+    return get_portfolio_policy(active_id, user_id=tenant_user_id(principal))
 
 
 @router.post("/policy", dependencies=[Depends(require_scope("portfolio:write"))])
 def update_policy(
     policy: InvestmentPolicyStatement,
-    account_id: Optional[str] = "default",
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    if account_id and account_id not in {"all", "default"}:
-        ensure_account_access(account_id, principal)
+    active_id = resolve_authorized_account_id(account_id, adapter, principal)
     from app.services.policy.engine import save_portfolio_policy
 
-    save_portfolio_policy(policy, account_id)
+    save_portfolio_policy(policy, active_id, user_id=tenant_user_id(principal))
     return {"status": "success", "message": "Investment Policy Statement updated successfully"}
 
 
@@ -504,7 +505,7 @@ def tax_lot_attribution(
     ordered = sorted(history, key=lambda item: (item.date, item.timestamp))
     period_start = date_type.fromisoformat(ordered[0].date) if ordered else None
     period_end = date_type.fromisoformat(ordered[-1].date) if ordered else None
-    profile = get_investor_profile(active_id)
+    profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
     jurisdiction = "US" if profile.tax_residency == "US" else "CA" if profile.tax_residency == "Canada" else "OTHER"
 
     result = build_tax_lot_attribution(
@@ -533,8 +534,8 @@ def rebalance_proposal(
     account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
     validation = validate_and_gate_snapshot(account_summary, account_positions)
     active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
-    policy = get_portfolio_policy(active_id)
-    profile = get_investor_profile(active_id)
+    policy = get_portfolio_policy(active_id, user_id=tenant_user_id(principal))
+    profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
     result = generate_rebalance_proposal(account_positions, account_summary, policy, profile)
     return prepare_professional_response(result, account_summary, account_positions, validation)
 
@@ -553,8 +554,8 @@ def optimize_portfolio(
     account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
     validation = validate_and_gate_snapshot(account_summary, account_positions)
     active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
-    policy = get_portfolio_policy(active_id)
-    profile = get_investor_profile(active_id)
+    policy = get_portfolio_policy(active_id, user_id=tenant_user_id(principal))
+    profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
     result = generate_portfolio_optimization(account_positions, account_summary, policy, profile)
     return prepare_professional_response(result, account_summary, account_positions, validation)
 

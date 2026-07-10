@@ -61,7 +61,9 @@ def load_all_access() -> dict[str, list[str]] | None:
 
 
 def list_accessible_accounts(user_email: str) -> list[str] | None:
-    if not _table_available():
+    if settings.persistence_backend == "postgres":
+        require_postgres_persistence("account access read", table_available=_table_available())
+    elif not _table_available():
         return None
 
     from app.db.session import SessionLocal
@@ -119,7 +121,9 @@ def grant_account_access(user_email: str, account_id: str, *, granted_by_user_id
 
 
 def revoke_account_access(user_email: str, account_id: str) -> None:
-    if not _table_available():
+    if settings.persistence_backend == "postgres":
+        require_postgres_persistence("account access revoke", table_available=_table_available())
+    elif not _table_available():
         return
 
     from app.db.session import SessionLocal

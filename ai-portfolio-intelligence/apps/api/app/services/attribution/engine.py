@@ -376,5 +376,8 @@ def calculate_performance_attribution(
             "brinson_attribution": "experimental_withheld",
             "tax_lot_realized": tax_lot_status,
         },
-        methodology=methodology,
+        methodology=(
+            "Current Unrealized P&L Decomposition. "
+            + methodology
+        ),
     )

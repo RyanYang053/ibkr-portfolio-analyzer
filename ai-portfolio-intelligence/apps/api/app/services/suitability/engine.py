@@ -1,6 +1,7 @@
 import json
 import os
 from app.schemas.domain import InvestorProfile, Position, Recommendation
+from app.services.tenant_scope import auth_scoped_defaults_enabled
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 PROFILE_FILE = os.path.join(DATA_DIR, "investor_profile.json")
@@ -18,19 +19,21 @@ DEFAULT_PROFILE = {
 }
 
 
-def get_investor_profile(account_id: str = "default") -> InvestorProfile:
-    """Load the investor profile, seeding defaults if not present."""
+def get_investor_profile(account_id: str, *, user_id: str) -> InvestorProfile:
+    """Load the investor profile for a tenant/account scope."""
     from app.db.legacy_bridge import read_json_with_legacy, write_json_state
 
-    profile_path = PROFILE_FILE
-    if account_id and account_id != "default":
-        profile_path = os.path.join(DATA_DIR, f"investor_profile_{account_id}.json")
-        if not os.path.exists(profile_path) and os.path.exists(PROFILE_FILE):
-            profile_path = PROFILE_FILE
-
-    record_key = account_id or "default"
-    data = read_json_with_legacy("investor_profile", record_key, profile_path if os.path.exists(profile_path) else None, default=None)
+    record_key = f"{user_id}:{account_id}"
+    profile_path = os.path.join(DATA_DIR, f"investor_profile_{record_key.replace(':', '_')}.json")
+    data = read_json_with_legacy(
+        "investor_profile",
+        record_key,
+        profile_path if os.path.exists(profile_path) else None,
+        default=None,
+    )
     if data is None:
+        if auth_scoped_defaults_enabled():
+            return InvestorProfile(**DEFAULT_PROFILE)
         write_json_state("investor_profile", record_key, DEFAULT_PROFILE)
         return InvestorProfile(**DEFAULT_PROFILE)
 
@@ -40,14 +43,14 @@ def get_investor_profile(account_id: str = "default") -> InvestorProfile:
         return InvestorProfile(**DEFAULT_PROFILE)
 
 
-def save_investor_profile(profile: InvestorProfile, account_id: str = "default") -> None:
-    """Save the investor profile."""
+def save_investor_profile(profile: InvestorProfile, account_id: str, *, user_id: str) -> None:
+    """Save the investor profile for a tenant/account scope."""
     from app.db.legacy_bridge import write_json_state
 
-    record_key = account_id or "default"
+    record_key = f"{user_id}:{account_id}"
     write_json_state("investor_profile", record_key, profile.model_dump())
     os.makedirs(DATA_DIR, exist_ok=True)
-    profile_path = os.path.join(DATA_DIR, f"investor_profile_{account_id}.json") if account_id and account_id != "default" else PROFILE_FILE
+    profile_path = os.path.join(DATA_DIR, f"investor_profile_{record_key.replace(':', '_')}.json")
     with open(profile_path, "w", encoding="utf-8") as f:
         json.dump(profile.model_dump(), f, indent=2)
 

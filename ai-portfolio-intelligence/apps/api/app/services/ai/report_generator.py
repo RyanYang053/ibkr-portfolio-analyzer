@@ -23,7 +23,12 @@ from app.services.technicals.indicators import calculate_technical_indicators
 from app.core.config import settings
 
 
-def generate_daily_portfolio_memo(summary: AccountSummary, positions: list[Position]) -> AIReport:
+def generate_daily_portfolio_memo(
+    summary: AccountSummary,
+    positions: list[Position],
+    *,
+    user_id: str = "local-dev",
+) -> AIReport:
     risk = analyze_portfolio_risk(summary, positions)
     contributors = sorted(positions, key=lambda position: position.unrealized_pnl, reverse=True)[:3]
     detractors = sorted(positions, key=lambda position: position.unrealized_pnl)[:3]
@@ -47,8 +52,8 @@ def generate_daily_portfolio_memo(summary: AccountSummary, positions: list[Posit
     from app.services.guardrails.engine import append_compliance_disclaimer
 
     active_id = summary.account_id or "default"
-    profile = get_investor_profile(active_id)
-    policy = get_portfolio_policy(active_id)
+    profile = get_investor_profile(active_id, user_id=user_id)
+    policy = get_portfolio_policy(active_id, user_id=user_id)
     drift = analyze_policy_drift(positions, summary.cash, summary.net_liquidation, policy)
 
     suitability_warnings = []
@@ -112,7 +117,13 @@ def generate_daily_portfolio_memo(summary: AccountSummary, positions: list[Posit
     )
 
 
-def generate_stock_research_report(position: Position, client: GeminiClient | None = None) -> dict[str, Any]:
+def generate_stock_research_report(
+    position: Position,
+    client: GeminiClient | None = None,
+    *,
+    user_id: str = "local-dev",
+    account_id: str | None = None,
+) -> dict[str, Any]:
     score = score_stock(position)
     recommendation = build_recommendation(position)
     context = _build_context(position, score, recommendation)
@@ -146,7 +157,12 @@ def generate_stock_research_report(position: Position, client: GeminiClient | No
                 "web_grounded_context": gemini.last_grounding_used
             }
             sanitized = _sanitize_ai_report(report, position, score, recommendation, context)
-            set_cached_report(position.symbol, sanitized)
+            set_cached_report(
+                position.symbol,
+                sanitized,
+                user_id=user_id,
+                account_id=account_id or position.account_id,
+            )
             return sanitized
         except Exception as exc:
             fallback = _fallback_stock_report(position, score, recommendation, context)
@@ -158,7 +174,12 @@ def generate_stock_research_report(position: Position, client: GeminiClient | No
                 "mock_fallback_data": is_mock_fallback,
                 "web_grounded_context": False
             }
-            set_cached_report(position.symbol, fallback)
+            set_cached_report(
+                position.symbol,
+                fallback,
+                user_id=user_id,
+                account_id=account_id or position.account_id,
+            )
             return fallback
 
     fallback = _fallback_stock_report(position, score, recommendation, context)
@@ -169,11 +190,22 @@ def generate_stock_research_report(position: Position, client: GeminiClient | No
         "mock_fallback_data": is_mock_fallback,
         "web_grounded_context": False
     }
-    set_cached_report(position.symbol, fallback)
+    set_cached_report(
+        position.symbol,
+        fallback,
+        user_id=user_id,
+        account_id=account_id or position.account_id,
+    )
     return fallback
 
 
-def generate_ai_portfolio_memo(summary: AccountSummary, positions: list[Position], client: GeminiClient | None = None) -> dict[str, Any]:
+def generate_ai_portfolio_memo(
+    summary: AccountSummary,
+    positions: list[Position],
+    client: GeminiClient | None = None,
+    *,
+    user_id: str = "local-dev",
+) -> dict[str, Any]:
     risk = analyze_portfolio_risk(summary, positions)
     recommendations = [build_recommendation(position) for position in positions]
     gemini = client or GeminiClient()
@@ -202,7 +234,13 @@ def generate_ai_portfolio_memo(summary: AccountSummary, positions: list[Position
             }
             from app.services.guardrails.engine import append_compliance_disclaimer
             report = append_compliance_disclaimer(report)
-            set_cached_report("__PORTFOLIO__", report)
+            set_cached_report(
+                "__PORTFOLIO__",
+                report,
+                user_id=user_id,
+                account_id=summary.account_id or "all",
+                report_type="portfolio",
+            )
             return report
         except Exception as exc:
             fallback = generate_daily_portfolio_memo(summary, positions).report_json
@@ -217,7 +255,13 @@ def generate_ai_portfolio_memo(summary: AccountSummary, positions: list[Position
             fallback["provider_error"] = str(exc)
             fallback["disclaimer"] = DISCLAIMER
             fallback["human_review_required"] = True
-            set_cached_report("__PORTFOLIO__", fallback)
+            set_cached_report(
+                "__PORTFOLIO__",
+                fallback,
+                user_id=user_id,
+                account_id=summary.account_id or "all",
+                report_type="portfolio",
+            )
             return fallback
 
     fallback = generate_daily_portfolio_memo(summary, positions).report_json
@@ -231,7 +275,13 @@ def generate_ai_portfolio_memo(summary: AccountSummary, positions: list[Position
     fallback["provider"] = "deterministic_fallback"
     fallback["disclaimer"] = DISCLAIMER
     fallback["human_review_required"] = True
-    set_cached_report("__PORTFOLIO__", fallback)
+    set_cached_report(
+        "__PORTFOLIO__",
+        fallback,
+        user_id=user_id,
+        account_id=summary.account_id or "all",
+        report_type="portfolio",
+    )
     return fallback
 
 
@@ -241,7 +291,7 @@ def _fallback_stock_report(position: Position, score, recommendation, context: d
     
     from app.services.suitability.engine import get_investor_profile, check_position_suitability
     from app.services.guardrails.engine import apply_recommendation_guardrails, append_compliance_disclaimer
-    profile = get_investor_profile(position.account_id)
+    profile = get_investor_profile(position.account_id, user_id="local-dev")
     suitability_warnings = check_position_suitability(profile, position)
     action, override_reason = apply_recommendation_guardrails(action, position.symbol, suitability_warnings)
     
@@ -345,7 +395,7 @@ def _sanitize_ai_report(report: dict[str, Any], position: Position, score, recom
     # Apply suitability override if needed
     from app.services.suitability.engine import get_investor_profile, check_position_suitability
     from app.services.guardrails.engine import apply_recommendation_guardrails, append_compliance_disclaimer
-    profile = get_investor_profile(position.account_id)
+    profile = get_investor_profile(position.account_id, user_id="local-dev")
     suitability_warnings = check_position_suitability(profile, position)
     action, override_reason = apply_recommendation_guardrails(action, position.symbol, suitability_warnings)
     report["action"] = action

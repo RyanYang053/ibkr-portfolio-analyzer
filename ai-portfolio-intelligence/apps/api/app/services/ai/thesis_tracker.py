@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.schemas.domain import Position
+from app.services.tenant_scope import scoped_record_key
 
 
 import json
 import os
 
 THESES_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "theses.json")
+
 
 def _load_theses() -> dict[str, dict[str, Any]]:
     from app.db.legacy_bridge import read_json_with_legacy
@@ -19,6 +21,7 @@ def _load_theses() -> dict[str, dict[str, Any]]:
 
 
 _runtime_theses: dict[str, dict[str, Any]] = _load_theses()
+
 
 def _save_theses() -> None:
     from app.db.legacy_bridge import write_json_state
@@ -31,10 +34,11 @@ def _save_theses() -> None:
         pass
 
 
-def get_thesis(symbol: str) -> dict[str, Any]:
+def get_thesis(symbol: str, *, user_id: str) -> dict[str, Any]:
     normalized = symbol.upper()
+    key = scoped_record_key(user_id, normalized)
     return _runtime_theses.get(
-        normalized,
+        key,
         {
             "symbol": normalized,
             "thesis": "No custom thesis stored.",
@@ -46,10 +50,18 @@ def get_thesis(symbol: str) -> dict[str, Any]:
     )
 
 
-def update_thesis(symbol: str, thesis: str, key_assumptions: list[str], break_triggers: list[str]) -> dict[str, Any]:
+def update_thesis(
+    symbol: str,
+    thesis: str,
+    key_assumptions: list[str],
+    break_triggers: list[str],
+    *,
+    user_id: str,
+) -> dict[str, Any]:
     normalized = symbol.upper()
+    key = scoped_record_key(user_id, normalized)
     now = datetime.now(timezone.utc).isoformat()
-    existing = get_thesis(normalized)
+    existing = get_thesis(normalized, user_id=user_id)
     updated = {
         "symbol": normalized,
         "thesis": thesis,
@@ -58,7 +70,7 @@ def update_thesis(symbol: str, thesis: str, key_assumptions: list[str], break_tr
         "created_at": existing.get("created_at", now),
         "updated_at": now,
     }
-    _runtime_theses[normalized] = updated
+    _runtime_theses[key] = updated
     _save_theses()
     return updated
 
@@ -68,9 +80,11 @@ def evaluate_thesis(
     score: Any,
     data_quality: dict[str, Any],
     current_data: dict[str, Any] | None = None,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     symbol = position.symbol if position else "UNKNOWN"
-    stored = get_thesis(symbol)
+    stored = get_thesis(symbol, user_id=user_id)
     missing_count = data_quality.get("missing_categories_count", 0)
     current_data = current_data or {}
     assumption_checks = [

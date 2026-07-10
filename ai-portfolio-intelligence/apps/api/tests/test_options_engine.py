@@ -118,11 +118,11 @@ def test_options_strategy_route_success(monkeypatch):
     app.dependency_overrides[get_broker_adapter] = lambda: MockIBKRAdapter()
     client = TestClient(app)
     
-    response = client.get("/stocks/AAPL/options-strategy?account_id=MOCK-001")
+    response = client.get("/stocks/MSFT/options-strategy?account_id=MOCK-001")
     assert response.status_code == 200
     
     payload = response.json()
-    assert payload["symbol"] == "AAPL"
+    assert payload["symbol"] == "MSFT"
     assert "strategies" in payload
     assert len(payload["strategies"]) > 0
     assert payload["isMock"] is True
@@ -163,7 +163,7 @@ def test_options_strategy_no_order_language(monkeypatch):
     app.dependency_overrides[get_broker_adapter] = lambda: MockIBKRAdapter()
     client = TestClient(app)
     
-    response = client.get("/stocks/AAPL/options-strategy?account_id=MOCK-001")
+    response = client.get("/stocks/MSFT/options-strategy?account_id=MOCK-001")
     assert response.status_code == 200
     payload = response.json()
     
@@ -193,7 +193,7 @@ def test_options_data_unavailable_returns_safe_error(monkeypatch):
     app.dependency_overrides[get_broker_adapter] = lambda: MockIBKRAdapter()
     client = TestClient(app)
     
-    response = client.get("/stocks/AAPL/options-strategy?account_id=MOCK-001")
+    response = client.get("/stocks/MSFT/options-strategy?account_id=MOCK-001")
     # Should raise 503 because live quotes and Gemini are unavailable in production mode
     assert response.status_code == 503
     detail = response.json()["detail"]

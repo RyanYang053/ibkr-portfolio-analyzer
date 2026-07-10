@@ -6,6 +6,7 @@ import socket
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.core.config import settings
@@ -260,36 +261,141 @@ def complete_job(
         return
 
     from app.db.session import SessionLocal
-    from app.models.professional_state import ScheduledJob
 
+    fencing_token = expected_claim[1] if expected_claim else None
+    payload_text = json.dumps(payload) if payload is not None else None
+    next_retry_sql = None
     with SessionLocal() as session:
-        row = (
-            session.query(ScheduledJob)
-            .filter(
-                ScheduledJob.job_name == job_name,
-                ScheduledJob.account_id == normalized_account,
-                ScheduledJob.business_date == business_date,
-                ScheduledJob.slot == slot,
-            )
-            .one_or_none()
-        )
-        if row is None:
+        if status == "failed":
+            row = session.execute(
+                text(
+                    """
+                    SELECT attempt_count, max_attempts
+                    FROM scheduled_jobs
+                    WHERE job_name = :job_name
+                      AND account_id = :account_id
+                      AND business_date = :business_date
+                      AND slot = :slot
+                    """
+                ),
+                {
+                    "job_name": job_name,
+                    "account_id": normalized_account,
+                    "business_date": business_date,
+                    "slot": slot,
+                },
+            ).mappings().first()
+            if row and row["attempt_count"] < row["max_attempts"]:
+                next_retry_sql = _retry_at(int(row["attempt_count"]), now)
+
+        result = session.execute(
+            text(
+                """
+                UPDATE scheduled_jobs
+                SET status = :status,
+                    payload_json = :payload_json,
+                    error_message = :error_message,
+                    completed_at = :completed_at,
+                    leased_until = NULL,
+                    next_retry_at = :next_retry_at
+                WHERE job_name = :job_name
+                  AND account_id = :account_id
+                  AND business_date = :business_date
+                  AND slot = :slot
+                  AND status = 'running'
+                  AND worker_id = :worker_id
+                  AND fencing_token = :fencing_token
+                RETURNING id
+                """
+            ),
+            {
+                "status": status,
+                "payload_json": payload_text,
+                "error_message": error_message,
+                "completed_at": now,
+                "next_retry_at": next_retry_sql,
+                "job_name": job_name,
+                "account_id": normalized_account,
+                "business_date": business_date,
+                "slot": slot,
+                "worker_id": worker,
+                "fencing_token": fencing_token if fencing_token is not None else -1,
+            },
+        ).first()
+        if result is None:
+            session.rollback()
             return
-        if row.worker_id and row.worker_id != worker:
-            return
-        if expected_claim and (row.fencing_token or 0) != expected_claim[1]:
-            return
-        row.status = status
-        row.payload_json = json.dumps(payload) if payload is not None else None
-        row.error_message = error_message
-        row.completed_at = now
-        row.leased_until = None
-        if status == "failed" and row.attempt_count < row.max_attempts:
-            row.next_retry_at = _retry_at(row.attempt_count, now)
-        else:
-            row.next_retry_at = None
         session.commit()
         _active_claims.pop(claim_key, None)
+
+
+def renew_job_lease(
+    job_name: str,
+    account_id: str | None,
+    business_date: date,
+    slot: str,
+) -> bool:
+    claim_key = _json_idempotency_key(job_name, account_id, business_date, slot)
+    expected_claim = _active_claims.get(claim_key)
+    if expected_claim is None:
+        return False
+    worker, fencing_token = expected_claim
+    now = _utc_now()
+    normalized_account = _job_account_id(account_id)
+
+    if settings.persistence_backend != "postgres":
+        store = get_state_store()
+        existing = store.read_json("scheduled_jobs", claim_key, default={}) or {}
+        if existing.get("worker_id") != worker or int(existing.get("fencing_token", 0)) != fencing_token:
+            return False
+        store.write_json(
+            "scheduled_jobs",
+            claim_key,
+            {
+                **existing,
+                "leased_until": _lease_expiry(now).isoformat(),
+                "heartbeat_at": now.isoformat(),
+            },
+        )
+        return True
+
+    from sqlalchemy import text
+
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as session:
+        result = session.execute(
+            text(
+                """
+                UPDATE scheduled_jobs
+                SET leased_until = :leased_until,
+                    heartbeat_at = :heartbeat_at
+                WHERE job_name = :job_name
+                  AND account_id = :account_id
+                  AND business_date = :business_date
+                  AND slot = :slot
+                  AND status = 'running'
+                  AND worker_id = :worker_id
+                  AND fencing_token = :fencing_token
+                RETURNING id
+                """
+            ),
+            {
+                "leased_until": _lease_expiry(now),
+                "heartbeat_at": now,
+                "job_name": job_name,
+                "account_id": normalized_account,
+                "business_date": business_date,
+                "slot": slot,
+                "worker_id": worker,
+                "fencing_token": fencing_token,
+            },
+        ).first()
+        if result is None:
+            session.rollback()
+            return False
+        session.commit()
+        return True
 
 
 def job_already_completed(

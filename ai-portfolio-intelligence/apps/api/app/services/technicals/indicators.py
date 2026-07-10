@@ -150,6 +150,10 @@ def _normalize_bars(bars: list[dict[str, float | str]]) -> tuple[list[dict[str, 
         if not math.isfinite(high_value) or not math.isfinite(low_value):
             continue
         open_value = float(bar["open"]) if bar.get("open") is not None else close_value
+        if low_value > min(open_value, close_value):
+            continue
+        if low_value > high_value:
+            continue
         if high_value < max(open_value, close_value, low_value):
             continue
         hlc_bars.append(bar)

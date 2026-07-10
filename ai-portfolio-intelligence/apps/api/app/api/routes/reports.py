@@ -6,6 +6,7 @@ from app.api.account_deps import resolve_authorized_account_id
 from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.services.ai.report_generator import generate_daily_portfolio_memo
+from app.services.tenant_scope import tenant_user_id
 from app.services.broker.base import BrokerAdapter
 from app.services.portfolio.account_scope import resolve_portfolio_account_id
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
@@ -45,11 +46,17 @@ def list_reports(
     principal: Principal = Depends(get_current_principal),
 ):
     summary, positions = _data(adapter, account_id, principal)
-    reports = [generate_daily_portfolio_memo(summary, positions)]
+    reports = [generate_daily_portfolio_memo(summary, positions, user_id=tenant_user_id(principal))]
 
-    # Load cached AI portfolio report if present
     from app.services.ai.report_cache import get_cached_report
-    cached = get_cached_report("__PORTFOLIO__")
+
+    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    cached = get_cached_report(
+        "__PORTFOLIO__",
+        user_id=tenant_user_id(principal),
+        account_id=active_id,
+        report_type="portfolio",
+    )
     if cached:
         # Clone cached to modify safely
         cached = dict(cached)

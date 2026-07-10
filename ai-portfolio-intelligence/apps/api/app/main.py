@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncio
 
-from app.api.routes import admin, ai, alerts, analysis, auth, broker, chat, pnl, portfolio, reports, stocks, watchlist
+from app.api.routes import admin, ai, alerts, analysis, auth, broker, chat, health, pnl, portfolio, reports, stocks, watchlist
 from app.core.config import settings, validate_production_settings
 from app.services.scheduler import run_background_scheduler
 
@@ -42,6 +42,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(health.router)
 app.include_router(ai.router)
 app.include_router(broker.router)
 app.include_router(portfolio.router)

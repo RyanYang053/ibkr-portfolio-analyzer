@@ -367,6 +367,7 @@ class PerformanceAttribution(BaseModel):
     brinson_by_sector: dict[str, dict[str, float]] = Field(default_factory=dict)
     tax_lot_realized_by_symbol: dict[str, float] = Field(default_factory=dict)
     tax_lot_total_realized: Optional[float] = None
+    report_title: str = "Current Unrealized P&L Decomposition"
 
 
 class PerformanceReturns(BaseModel):

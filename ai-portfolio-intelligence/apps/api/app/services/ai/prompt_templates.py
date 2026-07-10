@@ -224,8 +224,8 @@ def build_portfolio_memo_prompt(*, summary: Any, positions: list[Position], risk
         from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
 
         active_id = getattr(summary, "account_id", "default")
-        profile = get_investor_profile(active_id)
-        policy = get_portfolio_policy(active_id)
+        profile = get_investor_profile(active_id, user_id="local-dev")
+        policy = get_portfolio_policy(active_id, user_id="local-dev")
         drift = analyze_policy_drift(positions, summary.cash, summary.net_liquidation, policy)
 
         suitability_warnings = []

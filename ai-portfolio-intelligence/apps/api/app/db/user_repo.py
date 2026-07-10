@@ -39,7 +39,9 @@ def _row_to_user(row: dict[str, Any]) -> dict[str, str]:
 
 
 def load_all_users() -> dict[str, dict[str, str]] | None:
-    if not _table_available():
+    if settings.persistence_backend == "postgres":
+        require_postgres_persistence("user read", table_available=_table_available())
+    elif not _table_available():
         return None
 
     from app.db.session import SessionLocal
@@ -52,7 +54,9 @@ def load_all_users() -> dict[str, dict[str, str]] | None:
 
 
 def get_user(email: str) -> dict[str, str] | None:
-    if not _table_available():
+    if settings.persistence_backend == "postgres":
+        require_postgres_persistence("user read", table_available=_table_available())
+    elif not _table_available():
         return None
 
     from app.db.session import SessionLocal
@@ -133,6 +137,67 @@ def upsert_user(email: str, user: dict[str, str]) -> None:
                 },
             )
         session.commit()
+
+
+OWNER_BOOTSTRAP_LOCK = 90210
+
+
+def bootstrap_owner_transactionally(email: str, password_hash: str, name: str) -> dict[str, str]:
+    from fastapi import HTTPException
+
+    if settings.persistence_backend != "postgres":
+        raise HTTPException(status_code=503, detail="Transactional bootstrap requires Postgres persistence")
+    require_postgres_persistence("owner bootstrap", table_available=_table_available())
+
+    from app.db.session import SessionLocal
+
+    normalized = email.lower()
+    now = _utc_now()
+    with SessionLocal.begin() as session:
+        session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": OWNER_BOOTSTRAP_LOCK})
+        existing_owner = session.execute(text("SELECT 1 FROM users WHERE role = 'owner' LIMIT 1")).first()
+        if existing_owner:
+            raise HTTPException(status_code=409, detail="An owner account already exists")
+        existing_user = session.execute(
+            text("SELECT 1 FROM users WHERE lower(email) = lower(:email)"),
+            {"email": normalized},
+        ).first()
+        if existing_user:
+            raise HTTPException(status_code=409, detail="User already exists")
+
+        user_row = session.execute(
+            text(
+                """
+                INSERT INTO users (
+                    email, password_hash, name, role, token_version, created_at, updated_at
+                ) VALUES (
+                    :email, :password_hash, :name, 'owner', 0, :created_at, :updated_at
+                )
+                RETURNING id, email, name, password_hash, role, token_version
+                """
+            ),
+            {
+                "email": normalized,
+                "password_hash": password_hash,
+                "name": name,
+                "created_at": now,
+                "updated_at": now,
+            },
+        ).mappings().one()
+        session.execute(
+            text(
+                """
+                INSERT INTO user_account_access (
+                    user_id, external_account_id, access_level, granted_by_user_id, created_at
+                ) VALUES (
+                    :user_id, '*', 'read', :user_id, :created_at
+                )
+                ON CONFLICT ON CONSTRAINT uq_user_account_access_user_account DO NOTHING
+                """
+            ),
+            {"user_id": user_row["id"], "created_at": now},
+        )
+    return _row_to_user(dict(user_row))
 
 
 def assert_bootstrap_owner_available() -> None:

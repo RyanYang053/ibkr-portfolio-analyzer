@@ -25,19 +25,22 @@ DEFAULT_POLICY = {
 }
 
 
-def get_portfolio_policy(account_id: str = "default") -> InvestmentPolicyStatement:
-    """Load the IPS policy, seeding defaults if not present."""
+def get_portfolio_policy(account_id: str, *, user_id: str) -> InvestmentPolicyStatement:
+    """Load the IPS policy for a tenant/account scope."""
     from app.db.legacy_bridge import read_json_with_legacy, write_json_state
+    from app.services.tenant_scope import auth_scoped_defaults_enabled
 
-    policy_path = POLICY_FILE
-    if account_id and account_id != "default":
-        policy_path = os.path.join(DATA_DIR, f"portfolio_policy_{account_id}.json")
-        if not os.path.exists(policy_path) and os.path.exists(POLICY_FILE):
-            policy_path = POLICY_FILE
-
-    record_key = account_id or "default"
-    data = read_json_with_legacy("portfolio_policy", record_key, policy_path if os.path.exists(policy_path) else None, default=None)
+    record_key = f"{user_id}:{account_id}"
+    policy_path = os.path.join(DATA_DIR, f"portfolio_policy_{record_key.replace(':', '_')}.json")
+    data = read_json_with_legacy(
+        "portfolio_policy",
+        record_key,
+        policy_path if os.path.exists(policy_path) else None,
+        default=None,
+    )
     if data is None:
+        if auth_scoped_defaults_enabled():
+            return InvestmentPolicyStatement(**DEFAULT_POLICY)
         write_json_state("portfolio_policy", record_key, DEFAULT_POLICY)
         return InvestmentPolicyStatement(**DEFAULT_POLICY)
 
@@ -47,18 +50,14 @@ def get_portfolio_policy(account_id: str = "default") -> InvestmentPolicyStateme
         return InvestmentPolicyStatement(**DEFAULT_POLICY)
 
 
-def save_portfolio_policy(policy: InvestmentPolicyStatement, account_id: str = "default") -> None:
-    """Save the IPS policy."""
+def save_portfolio_policy(policy: InvestmentPolicyStatement, account_id: str, *, user_id: str) -> None:
+    """Save the IPS policy for a tenant/account scope."""
     from app.db.legacy_bridge import write_json_state
 
-    record_key = account_id or "default"
+    record_key = f"{user_id}:{account_id}"
     write_json_state("portfolio_policy", record_key, policy.model_dump())
     os.makedirs(DATA_DIR, exist_ok=True)
-    policy_path = (
-        os.path.join(DATA_DIR, f"portfolio_policy_{account_id}.json")
-        if account_id and account_id != "default"
-        else POLICY_FILE
-    )
+    policy_path = os.path.join(DATA_DIR, f"portfolio_policy_{record_key.replace(':', '_')}.json")
     with open(policy_path, "w", encoding="utf-8") as handle:
         json.dump(policy.model_dump(), handle, indent=2)
 

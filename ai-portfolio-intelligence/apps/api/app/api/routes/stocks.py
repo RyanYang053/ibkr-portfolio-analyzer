@@ -1,19 +1,22 @@
+from __future__ import annotations
+
 from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.account_deps import resolve_authorized_account_id
+from app.api.account_deps import resolve_authorized_account_id, resolve_authorized_account_ids
 from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import broker_not_configured_error, data_provider_not_configured_error, demo_mode_enabled, get_broker_adapter
 from app.services.broker.base import BrokerAdapter
-from app.services.portfolio.account_scope import find_portfolio_position, is_symbol_held, resolve_portfolio_account_id
+from app.services.portfolio.account_scope import find_portfolio_position, is_symbol_held
 from app.services.portfolio.snapshot import gate_professional_response, is_portfolio_position
 from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
 from app.services.technicals.indicators import calculate_technical_indicators
+from app.services.tenant_scope import tenant_user_id
 
 
 router = APIRouter(
@@ -23,37 +26,40 @@ router = APIRouter(
 )
 
 
-def _position(
+def _authorized_position(
     symbol: str,
     adapter: BrokerAdapter,
+    principal: Principal,
     account_id: Optional[str] = None,
     con_id: Optional[int] = None,
 ):
-    try:
-        position = find_portfolio_position(symbol, adapter, account_id, con_id)
-        if position is not None:
-            return position
-    except HTTPException:
-        raise
-    except Exception:
-        pass
-        
-    # Fallback: create synthetic position for watchlist / non-held stocks
+    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    position = find_portfolio_position(symbol, adapter, active_id, con_id)
+    if position is None:
+        raise HTTPException(status_code=404, detail="Position not found in accessible account")
+    return position
+
+
+def _research_position(symbol: str, principal: Principal):
+    """Synthetic watchlist/research position. Never reads broker account data."""
+    from app.services.watchlist_store import symbol_on_user_watchlist
     from app.services.broker.securities import classify_security
     from app.schemas.domain import Position, utc_now
     from app.core.config import settings
-    
+
     sym = symbol.upper().strip()
+    if not symbol_on_user_watchlist(sym, tenant_user_id(principal)):
+        raise HTTPException(status_code=404, detail=f"Stock data not found for {sym}")
+
     sec_info = classify_security(sym)
-    
-    allow_mock = (settings.broker_mode == "mock_ibkr_readonly")
+    allow_mock = settings.broker_mode == "mock_ibkr_readonly"
     try:
         price = MockMarketDataProvider(allow_mock=allow_mock).get_latest_price(sym)
     except Exception as exc:
         if not allow_mock:
             raise HTTPException(status_code=404, detail=f"Stock data not found for {sym}") from exc
         price = 0.0
-        
+
     return Position(
         account_id="WATCHLIST_ONLY",
         symbol=sym,
@@ -73,26 +79,54 @@ def _position(
         stock_type=sec_info["stock_type"],
         is_etf=sec_info["is_etf"],
         is_speculative=sec_info["is_speculative"],
-        updated_at=utc_now()
+        updated_at=utc_now(),
     )
 
 
-def _is_held(symbol: str, adapter: BrokerAdapter, account_id: Optional[str] = None) -> bool:
+def _resolve_position(
+    symbol: str,
+    adapter: BrokerAdapter,
+    principal: Principal,
+    account_id: Optional[str] = None,
+    con_id: Optional[int] = None,
+):
+    if account_id is not None or con_id is not None:
+        return _authorized_position(symbol, adapter, principal, account_id, con_id)
     try:
-        if is_symbol_held(symbol, adapter, account_id):
-            return True
+        for active_id in resolve_authorized_account_ids(adapter, principal, "all"):
+            position = find_portfolio_position(symbol, adapter, active_id, con_id)
+            if position is not None:
+                return position
+    except HTTPException as exc:
+        if exc.status_code not in {403, 404, 422, 503}:
+            raise
+    except Exception:
+        pass
+    return _research_position(symbol, principal)
+
+
+def _is_held(
+    symbol: str,
+    adapter: BrokerAdapter,
+    principal: Principal,
+    account_id: Optional[str] = None,
+) -> bool:
+    try:
+        if account_id is not None:
+            active_id = resolve_authorized_account_id(account_id, adapter, principal)
+            if is_symbol_held(symbol, adapter, active_id):
+                return True
+        for active_id in resolve_authorized_account_ids(adapter, principal, "all"):
+            if is_symbol_held(symbol, adapter, active_id):
+                return True
     except HTTPException:
         raise
     except Exception:
         pass
-        
-    # Check watchlist
-    from app.api.routes.watchlist import _load_watchlist
-    if any(item["symbol"].upper() == symbol.upper() for item in _load_watchlist()):
-        return True
-        
-    return False
 
+    from app.services.watchlist_store import symbol_on_user_watchlist
+
+    return symbol_on_user_watchlist(symbol.upper(), tenant_user_id(principal))
 
 
 @router.get("/{symbol}")
@@ -101,26 +135,37 @@ def stock(
     account_id: Optional[str] = None,
     con_id: Optional[int] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
-    return _position(symbol, adapter, account_id, con_id)
+    return _resolve_position(symbol, adapter, principal, account_id, con_id)
 
 
 @router.get("/{symbol}/fundamentals")
-def fundamentals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def fundamentals(
+    symbol: str,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     is_demo = demo_mode_enabled()
-    if not is_demo and not _is_held(symbol, adapter):
+    if not is_demo and not _is_held(symbol, adapter, principal, account_id):
         raise data_provider_not_configured_error("Fundamental")
     allow_mock = is_demo
     try:
         return get_fundamental_provider(allow_mock=allow_mock).get_fundamentals(symbol.upper())
     except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"Fundamental data not found for {symbol.upper()}: {exc}")
+        raise HTTPException(status_code=404, detail=f"Fundamental data not found for {symbol.upper()}: {exc}") from exc
 
 
 @router.get("/{symbol}/technicals")
-def technicals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def technicals(
+    symbol: str,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     is_demo = demo_mode_enabled()
-    if not is_demo and not _is_held(symbol, adapter):
+    if not is_demo and not _is_held(symbol, adapter, principal, account_id):
         raise data_provider_not_configured_error("Technical")
     allow_mock = is_demo
     provider = MockMarketDataProvider(allow_mock=allow_mock)
@@ -142,7 +187,7 @@ def technicals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)
         if is_demo:
             data_quality = "mock_demo"
     except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"Technical data not found for {symbol.upper()}: {exc}")
+        raise HTTPException(status_code=404, detail=f"Technical data not found for {symbol.upper()}: {exc}") from exc
     return {
         "symbol": symbol.upper(),
         "historical_prices": historical_prices,
@@ -155,50 +200,62 @@ def technicals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)
     }
 
 
-
 @router.get("/{symbol}/chart")
-def chart(symbol: str, range: str = "1Y", adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def chart(
+    symbol: str,
+    range: str = "1Y",
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     is_demo = demo_mode_enabled()
-    if not is_demo and not _is_held(symbol, adapter):
+    if not is_demo and not _is_held(symbol, adapter, principal, account_id):
         raise data_provider_not_configured_error("Chart")
     range_map = {"1D": "1d", "1M": "1mo", "3M": "3mo", "1Y": "1y"}
     interval_map = {"1D": "5m", "1M": "1d", "3M": "1d", "1Y": "1d"}
-    
+
     r_val = range_map.get(range.upper(), "1y")
     i_val = interval_map.get(range.upper(), "1d")
     allow_mock = is_demo
     try:
         return MockMarketDataProvider(allow_mock=allow_mock).get_chart_data(symbol, r_val, i_val)
     except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"Chart data not found for {symbol.upper()}: {exc}")
+        raise HTTPException(status_code=404, detail=f"Chart data not found for {symbol.upper()}: {exc}") from exc
 
 
 @router.get("/{symbol}/valuation")
-def valuation(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-
+def valuation(
+    symbol: str,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     is_demo = demo_mode_enabled()
-    if not is_demo and not _is_held(symbol, adapter):
+    if not is_demo and not _is_held(symbol, adapter, principal, account_id):
         raise data_provider_not_configured_error("Valuation")
     allow_mock = is_demo
     try:
         data = get_fundamental_provider(allow_mock=allow_mock).get_fundamentals(symbol.upper())
         return {"symbol": symbol.upper(), "pe_forward": data.pe_forward, "ev_sales": data.ev_sales, "fcf_yield": data.fcf_yield}
     except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"Valuation data not found for {symbol.upper()}: {exc}")
+        raise HTTPException(status_code=404, detail=f"Valuation data not found for {symbol.upper()}: {exc}") from exc
 
 
 @router.get("/{symbol}/news")
-def news(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def news(
+    symbol: str,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     is_demo = demo_mode_enabled()
-    if not is_demo and not _is_held(symbol, adapter):
+    if not is_demo and not _is_held(symbol, adapter, principal, account_id):
         raise data_provider_not_configured_error("News/catalyst")
     allow_mock = is_demo
     try:
         return MockMarketDataProvider(allow_mock=allow_mock).get_recent_news(symbol)
     except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"News data not found for {symbol.upper()}: {exc}")
-        raise HTTPException(status_code=404, detail=f"News data not found for {symbol.upper()}: {exc}")
-
+        raise HTTPException(status_code=404, detail=f"News data not found for {symbol.upper()}: {exc}") from exc
 
 
 @router.get("/{symbol}/score")
@@ -209,7 +266,7 @@ def score(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    position = _position(symbol, adapter, account_id, con_id)
+    position = _resolve_position(symbol, adapter, principal, account_id, con_id)
     result = score_stock(position)
     if is_portfolio_position(position):
         active_id = resolve_authorized_account_id(account_id or position.account_id, adapter, principal)
@@ -225,9 +282,11 @@ def analysis(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    position = _position(symbol, adapter, account_id, con_id)
+    position = _resolve_position(symbol, adapter, principal, account_id, con_id)
     from app.services.ai.report_cache import get_cached_report
-    cached = get_cached_report(position.symbol)
+
+    cache_account = position.account_id if is_portfolio_position(position) else "watchlist"
+    cached = get_cached_report(position.symbol, user_id=tenant_user_id(principal), account_id=cache_account)
     if cached:
         cached = dict(cached)
         if "provenance" in cached:
@@ -255,7 +314,7 @@ def options_strategy(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    position = _position(symbol, adapter, account_id, con_id)
+    position = _authorized_position(symbol, adapter, principal, account_id, con_id)
     is_demo = demo_mode_enabled()
     allow_mock = is_demo
     provider = MockMarketDataProvider(allow_mock=allow_mock)
@@ -299,5 +358,3 @@ def options_strategy(
         account_type=account_type,
     )
     return gate_professional_response(adapter, principal, active_id, result)
-
-

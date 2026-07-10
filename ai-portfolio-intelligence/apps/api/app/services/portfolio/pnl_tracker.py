@@ -98,8 +98,7 @@ def get_pnl_history(account_id: Optional[str] = None) -> list[PortfolioPnLSnapsh
         from app.db.pnl_snapshot_repo import read_pnl_snapshots
 
         raw = read_pnl_snapshots(store_key)
-
-    if raw is None:
+    else:
         legacy = read_json_with_legacy("pnl_history", store_key, history_file if os.path.exists(history_file) else None, default=[])
         raw = legacy if isinstance(legacy, list) else []
     if not raw:

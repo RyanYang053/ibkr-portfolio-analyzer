@@ -2373,6 +2373,75 @@
         "summary": "Health"
       }
     },
+    "/health/dependencies": {
+      "get": {
+        "operationId": "health_dependencies_health_dependencies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Health Dependencies Health Dependencies Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Dependencies",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "health_live_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Live Health Live Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Live",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "health_ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Health Ready Health Ready Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Ready",
+        "tags": [
+          "health"
+        ]
+      }
+    },
     "/portfolio/advanced-risk": {
       "get": {
         "operationId": "get_advanced_portfolio_risk_portfolio_advanced_risk_get",
@@ -2929,7 +2998,6 @@
                   "type": "null"
                 }
               ],
-              "default": "default",
               "title": "Account Id"
             }
           }
@@ -2982,7 +3050,6 @@
                   "type": "null"
                 }
               ],
-              "default": "default",
               "title": "Account Id"
             }
           }
@@ -3103,7 +3170,6 @@
                   "type": "null"
                 }
               ],
-              "default": "default",
               "title": "Account Id"
             }
           }
@@ -3156,7 +3222,6 @@
                   "type": "null"
                 }
               ],
-              "default": "default",
               "title": "Account Id"
             }
           }
@@ -4166,6 +4231,22 @@
               "title": "Range",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
           }
         ],
         "responses": {
@@ -4211,6 +4292,22 @@
               "title": "Symbol",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
           }
         ],
         "responses": {
@@ -4255,6 +4352,22 @@
             "schema": {
               "title": "Symbol",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
             }
           }
         ],
@@ -4455,6 +4568,22 @@
               "title": "Symbol",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
           }
         ],
         "responses": {
@@ -4499,6 +4628,22 @@
             "schema": {
               "title": "Symbol",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
             }
           }
         ],

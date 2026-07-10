@@ -14,7 +14,7 @@ from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.technicals.indicators import calculate_technical_indicators
 from app.services.ai.client import GeminiClient
-from app.services.portfolio.account_scope import find_portfolio_position, resolve_portfolio_account_id
+from app.services.tenant_scope import tenant_user_id
 from app.api.account_deps import resolve_authorized_account_id
 from app.schemas.domain import Position, utc_now, InvestorProfile, InvestmentPolicyStatement
 
@@ -245,8 +245,8 @@ def chat(
             from app.services.suitability.engine import get_investor_profile, check_position_suitability
             from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
 
-            profile = get_investor_profile(active_id)
-            policy = get_portfolio_policy(active_id)
+            profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
+            policy = get_portfolio_policy(active_id, user_id=tenant_user_id(principal))
             drift = analyze_policy_drift(positions, summary.cash, summary.net_liquidation, policy)
 
             suitability_warnings = []

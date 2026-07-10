@@ -18,6 +18,8 @@ services:
   api:
     build:
       context: ../apps/api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       DATABASE_URL: postgresql+psycopg://portfolio:${POSTGRES_PASSWORD}@postgres:5432/portfolio
       PERSISTENCE_BACKEND: postgres
@@ -25,6 +27,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:?BOOTSTRAP_TOKEN is required}
       BROKER_MODE: ${BROKER_MODE:-ibkr_readonly}
+      IBKR_HOST: ${IBKR_HOST:-host.docker.internal}
+      IBKR_PORT: ${IBKR_PORT:-4002}
+      IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-10}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       IBKR_FLEX_TOKEN: ${IBKR_FLEX_TOKEN:-}
@@ -49,12 +54,17 @@ services:
     build:
       context: ../apps/api
     command: ["python", "-m", "app.worker"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       DATABASE_URL: postgresql+psycopg://portfolio:${POSTGRES_PASSWORD}@postgres:5432/portfolio
       PERSISTENCE_BACKEND: postgres
       ENVIRONMENT: production
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       BROKER_MODE: ${BROKER_MODE:-ibkr_readonly}
+      IBKR_HOST: ${IBKR_HOST:-host.docker.internal}
+      IBKR_PORT: ${IBKR_PORT:-4002}
+      IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-10}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       IBKR_FLEX_TOKEN: ${IBKR_FLEX_TOKEN:-}
       IBKR_FLEX_QUERY_ID: ${IBKR_FLEX_QUERY_ID:-}

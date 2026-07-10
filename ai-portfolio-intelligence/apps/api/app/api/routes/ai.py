@@ -165,13 +165,27 @@ def update_schedule(payload: AIScheduleSettings, adapter: BrokerAdapter = Depend
 
 
 @router.get("/thesis/{symbol}")
-def read_thesis(symbol: str) -> dict[str, object]:
-    return get_thesis(symbol)
+def read_thesis(symbol: str, principal: Principal = Depends(get_current_principal)) -> dict[str, object]:
+    from app.services.tenant_scope import tenant_user_id
+
+    return get_thesis(symbol, user_id=tenant_user_id(principal))
 
 
 @router.put("/thesis/{symbol}", dependencies=[Depends(require_scope("portfolio:write"))])
-def write_thesis(symbol: str, payload: ThesisUpdateRequest) -> dict[str, object]:
-    res = update_thesis(symbol, payload.thesis, payload.key_assumptions, payload.break_triggers)
+def write_thesis(
+    symbol: str,
+    payload: ThesisUpdateRequest,
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, object]:
+    from app.services.tenant_scope import tenant_user_id
+
+    res = update_thesis(
+        symbol,
+        payload.thesis,
+        payload.key_assumptions,
+        payload.break_triggers,
+        user_id=tenant_user_id(principal),
+    )
     log_audit_action(
         action="thesis_updated",
         object_type="security",
@@ -196,7 +210,11 @@ def analyze_stock(
     except Exception as exc:
         raise broker_not_configured_error(exc) from exc
     if position is not None:
-        res = generate_stock_research_report(position)
+        res = generate_stock_research_report(
+            position,
+            user_id=principal.user_id,
+            account_id=active_id,
+        )
         log_audit_action(
             action="ai_analysis_triggered",
             object_type="security",
@@ -220,7 +238,7 @@ def analyze_portfolio(
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
         validate_and_gate_snapshot(summary, positions)
-        res = generate_ai_portfolio_memo(summary, positions)
+        res = generate_ai_portfolio_memo(summary, positions, user_id=principal.user_id)
         log_audit_action(
             action="ai_analysis_triggered",
             object_type="portfolio",

@@ -40,32 +40,40 @@ class AcceptInviteRequest(BaseModel):
 
 @router.post("/bootstrap")
 def bootstrap_owner(payload: BootstrapRequest) -> dict[str, str]:
-    if settings.persistence_backend == "postgres":
-        from app.db.user_repo import assert_bootstrap_owner_available
-
-        assert_bootstrap_owner_available()
-    elif owner_exists():
-        raise HTTPException(status_code=409, detail="An owner account already exists")
     if not settings.bootstrap_token:
         raise HTTPException(status_code=503, detail="Bootstrap token is not configured")
     if payload.bootstrap_token != settings.bootstrap_token:
         raise HTTPException(status_code=403, detail="Invalid bootstrap token")
 
     email = str(payload.email).lower()
-    if get_user(email):
-        raise HTTPException(status_code=409, detail="User already exists")
+    password_hash = hash_password(payload.password)
 
-    save_user(
-        email,
-        {
-            "email": email,
-            "name": payload.name,
-            "password_hash": hash_password(payload.password),
-            "role": "owner",
-            "token_version": "0",
-        },
-    )
-    grant_account_access(email, WILDCARD_ACCOUNT)
+    if settings.persistence_backend == "postgres":
+        from app.api.user_store import _hydrate_users
+        from app.db.user_repo import bootstrap_owner_transactionally
+
+        user = bootstrap_owner_transactionally(email, password_hash, payload.name)
+        _hydrate_users()
+        from app.api import user_store
+
+        user_store._USERS[email] = user
+    else:
+        if owner_exists():
+            raise HTTPException(status_code=409, detail="An owner account already exists")
+        if get_user(email):
+            raise HTTPException(status_code=409, detail="User already exists")
+        save_user(
+            email,
+            {
+                "email": email,
+                "name": payload.name,
+                "password_hash": password_hash,
+                "role": "owner",
+                "token_version": "0",
+            },
+        )
+        grant_account_access(email, WILDCARD_ACCOUNT)
+
     return {
         "email": email,
         "name": payload.name,

@@ -7,6 +7,8 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
 
+from app.core.config import settings
+from app.db.postgres_guard import require_postgres_persistence
 from app.db.state_store import postgres_available
 
 
@@ -27,9 +29,11 @@ def _table_available() -> bool:
         return False
 
 
-def read_pnl_snapshots(account_id: str) -> list[dict[str, Any]] | None:
-    if not _table_available():
-        return None
+def read_pnl_snapshots(account_id: str) -> list[dict[str, Any]]:
+    if settings.persistence_backend == "postgres":
+        require_postgres_persistence("pnl snapshot read", table_available=_table_available())
+    elif not _table_available():
+        return []
 
     from app.db.session import SessionLocal
 
@@ -45,19 +49,19 @@ def read_pnl_snapshots(account_id: str) -> list[dict[str, Any]] | None:
             ),
             {"account_id": account_id},
         ).fetchall()
-    if not rows:
-        return None
     history: list[dict[str, Any]] = []
     for row in rows:
         try:
             history.append(json.loads(row.payload_json))
         except json.JSONDecodeError:
             continue
-    return history or None
+    return history
 
 
 def upsert_pnl_snapshot(account_id: str, snapshot_date: date, snapshot: dict[str, Any]) -> None:
-    if not _table_available():
+    if settings.persistence_backend == "postgres":
+        require_postgres_persistence("pnl snapshot write", table_available=_table_available())
+    elif not _table_available():
         return
 
     from app.db.session import SessionLocal

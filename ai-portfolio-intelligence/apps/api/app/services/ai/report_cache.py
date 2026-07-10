@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.db.legacy_bridge import read_json_with_legacy, write_json_state
+from app.services.tenant_scope import scoped_record_key
 
 REPORTS_FILE = __import__("os").path.join(
     __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.dirname(__file__)))),
@@ -29,10 +30,29 @@ def _save_reports() -> None:
         pass
 
 
-def get_cached_report(symbol: str) -> dict[str, Any] | None:
-    return _ai_reports_cache.get(symbol.upper().strip())
+def _scoped_key(user_id: str, account_id: str, symbol: str, *, report_type: str = "stock") -> str:
+    return scoped_record_key(user_id, account_id, symbol.upper(), report_type)
 
 
-def set_cached_report(symbol: str, report: dict[str, Any]) -> None:
-    _ai_reports_cache[symbol.upper().strip()] = report
+def get_cached_report(
+    symbol: str,
+    *,
+    user_id: str,
+    account_id: str,
+    report_type: str = "stock",
+) -> dict[str, Any] | None:
+    key = _scoped_key(user_id, account_id, symbol, report_type=report_type)
+    return _ai_reports_cache.get(key)
+
+
+def set_cached_report(
+    symbol: str,
+    report: dict[str, Any],
+    *,
+    user_id: str,
+    account_id: str,
+    report_type: str = "stock",
+) -> None:
+    key = _scoped_key(user_id, account_id, symbol, report_type=report_type)
+    _ai_reports_cache[key] = report
     _save_reports()

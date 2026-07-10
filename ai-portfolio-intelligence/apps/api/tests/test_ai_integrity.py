@@ -264,7 +264,7 @@ def test_attribution_does_not_invent_benchmark_return_or_alpha():
 def test_thesis_tracker_weakens_when_required_evidence_is_missing(monkeypatch):
     monkeypatch.setattr(
         "app.services.ai.thesis_tracker.get_thesis",
-        lambda symbol: {
+        lambda symbol, **kwargs: {
             "symbol": symbol,
             "thesis": "Growth and margins remain durable.",
             "key_assumptions": ["Revenue growth remains positive", "Margins remain resilient"],
@@ -281,6 +281,7 @@ def test_thesis_tracker_weakens_when_required_evidence_is_missing(monkeypatch):
             "missing_categories": ["fundamentals", "catalysts"],
         },
         current_data={"fundamentals": None, "technicals": None, "catalysts": None},
+        user_id="local-dev",
     )
 
     assert result["status"] == "weakened"
@@ -290,7 +291,7 @@ def test_thesis_tracker_weakens_when_required_evidence_is_missing(monkeypatch):
 def test_thesis_tracker_marks_explicit_growth_trigger_broken(monkeypatch):
     monkeypatch.setattr(
         "app.services.ai.thesis_tracker.get_thesis",
-        lambda symbol: {
+        lambda symbol, **kwargs: {
             "symbol": symbol,
             "thesis": "Growth remains positive.",
             "key_assumptions": ["Revenue growth remains positive"],
@@ -308,6 +309,7 @@ def test_thesis_tracker_marks_explicit_growth_trigger_broken(monkeypatch):
             "technicals": None,
             "catalysts": [],
         },
+        user_id="local-dev",
     )
 
     assert result["status"] == "broken"
