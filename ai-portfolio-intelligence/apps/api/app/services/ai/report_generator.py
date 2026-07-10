@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from datetime import date
 from typing import Any
 
 from app.schemas.domain import AIReport, AccountSummary, Position, DISCLAIMER, utc_now, Provenance
@@ -410,8 +412,18 @@ def _build_context(position: Position, score, recommendation) -> dict[str, Any]:
     technicals = None
     if position.market_price > 0:
         try:
-            history = MockMarketDataProvider(allow_mock=allow_mock).get_historical_prices(position.symbol, utc_now().date(), utc_now().date())
-            technicals = calculate_technical_indicators(position.symbol, [item["close"] for item in history])
+            from datetime import timedelta
+
+            end_date = utc_now().date()
+            start_date = end_date - timedelta(days=500)
+            history = MockMarketDataProvider(allow_mock=allow_mock).get_historical_prices(
+                position.symbol,
+                start_date,
+                end_date,
+            )
+            closes = [float(item["close"]) for item in history if item.get("close") is not None]
+            if len(closes) >= 252:
+                technicals = calculate_technical_indicators(position.symbol, closes)
         except Exception:
             technicals = None
     try:
@@ -527,10 +539,21 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             is_mock_fallback = False
         except Exception:
             live_chain_unavailable = True
-    if not chain:
+    if not chain and is_demo:
         chain = generate_mock_options_chain(position.symbol, position.market_price)
-        if is_live_market:
-            is_mock_fallback = True
+    if is_live_market and live_chain_unavailable:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "LIVE_OPTIONS_CHAIN_UNAVAILABLE",
+                "message": (
+                    f"Live options quotes are unavailable for {position.symbol.upper()}. "
+                    "Strategy economics are withheld instead of simulated."
+                ),
+            },
+        )
     chain_dict = [c.model_dump() for c in chain]
     
     trend_str = "Neutral"
@@ -605,13 +628,15 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
                 if main_contract.right == "C":
                     long_leg = leg1 if leg1.strike < leg2.strike else leg2
                     short_leg = leg2 if leg1.strike < leg2.strike else leg1
-                    net_credit_debit = round(short_leg.mid - long_leg.mid, 2)
-                    metrics = calculate_bull_call_spread_metrics(long_leg.strike, short_leg.strike, abs(net_credit_debit))
+                    net_debit = round(long_leg.mid - short_leg.mid, 2)
+                    net_credit_debit = net_debit
+                    metrics = calculate_bull_call_spread_metrics(long_leg.strike, short_leg.strike, net_debit)
                 else:
                     long_leg = leg1 if leg1.strike > leg2.strike else leg2
                     short_leg = leg2 if leg1.strike > leg2.strike else leg1
-                    net_credit_debit = round(short_leg.mid - long_leg.mid, 2)
-                    metrics = calculate_bear_put_spread_metrics(long_leg.strike, short_leg.strike, abs(net_credit_debit))
+                    net_debit = round(long_leg.mid - short_leg.mid, 2)
+                    net_credit_debit = net_debit
+                    metrics = calculate_bear_put_spread_metrics(long_leg.strike, short_leg.strike, net_debit)
                 
                 max_profit = metrics["max_profit"]
                 max_loss = metrics["max_loss"]
@@ -659,12 +684,18 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             warnings.append("Live options chain quotes sourced from market data; verify before trading.")
 
         atm_iv = atm_implied_volatility(chain, position.market_price)
+        atm_contract = min(chain, key=lambda item: abs(item.strike - position.market_price)) if chain else None
+        implied_move = None
+        if not is_demo and atm_iv is not None and atm_contract is not None:
+            days = max((atm_contract.expiration - date.today()).days, 1)
+            time_to_expiry = days / 365.0
+            implied_move = round(atm_iv * math.sqrt(time_to_expiry) * 100.0, 2)
         return {
             "symbol": position.symbol,
             "stock_price": position.market_price,
             "implied_volatility": 0.30 if is_demo else atm_iv,
             "iv_percentile": 50 if is_demo else None,
-            "implied_move_percent": round(atm_iv * 100.0, 2) if (not is_demo and atm_iv is not None) else (5.0 if is_demo else None),
+            "implied_move_percent": implied_move if implied_move is not None else (5.0 if is_demo else None),
             "strategies": validated_strategies,
             "market_sentiment": report.get("market_sentiment", "Educational market analysis active."),
             "human_review_required": True,

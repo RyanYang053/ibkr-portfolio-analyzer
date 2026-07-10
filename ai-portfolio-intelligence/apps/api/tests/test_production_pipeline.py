@@ -118,8 +118,8 @@ def test_calibration_ingestion_materializes_forward_return(monkeypatch, tmp_path
 def test_measured_factor_model_returns_exposures():
     portfolio_returns = [0.01, -0.005, 0.008, 0.004, -0.002] * 6
     exposures, quality = compute_measured_factor_exposures(portfolio_returns, allow_mock=True)
-    assert quality in {"measured_regression", "insufficient_factor_history", "regression_failed"}
-    if quality == "measured_regression":
+    assert quality in {"experimental", "insufficient_factor_history", "regression_failed", "insufficient_history"}
+    if quality == "experimental":
         assert exposures
 
 

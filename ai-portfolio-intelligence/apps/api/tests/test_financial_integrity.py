@@ -242,11 +242,11 @@ def test_unmatched_tax_lot_sells_marked_incomplete():
             )
         ],
         reporting_currency="USD",
-        tax_labeling_jurisdiction="CA",
+        tax_labeling_jurisdiction="US",
     )
     assert report.data_quality["status"] == "incomplete"
     assert report.unmatched_sell_quantity > 0
-    assert report.realized_by_symbol[0].short_term_gain_loss is None
+    assert report.realized_by_symbol[0].unmatched_sell_quantity == pytest.approx(10.0)
 
 
 def test_live_invalid_symbol_score_withheld():

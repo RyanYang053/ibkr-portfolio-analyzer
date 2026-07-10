@@ -127,28 +127,36 @@ def record_pnl_snapshot(
     external_cash_flow = None
     investment_return_percent = None
     try:
-        from app.services.broker.ibkr_readonly import get_exchange_rate
-        from app.services.portfolio.ledger_coverage import external_cash_flows_for_interval, load_ledger_coverage
+        from app.services.market_data.fx_store import make_transaction_fx_resolver
+        from app.services.portfolio.ledger_coverage import (
+            external_cash_flows_for_interval,
+            ledger_covers_period,
+            load_ledger_coverage,
+        )
         from app.services.portfolio.transaction_store import get_transactions
 
         transactions = get_transactions(active_account_id)
         coverage = load_ledger_coverage(active_account_id)
-        if last_entry and coverage and coverage.has_external_cash_flows:
-            external_cash_flow = round(
-                external_cash_flows_for_interval(
-                    transactions,
-                    date.fromisoformat(last_entry.date),
-                    date.fromisoformat(today),
-                    summary.base_currency,
-                    get_exchange_rate,
-                ),
-                2,
-            )
-            if last_entry.net_liquidation != 0:
-                investment_return_percent = round(
-                    (summary.net_liquidation - external_cash_flow) / last_entry.net_liquidation - 1.0,
-                    6,
-                ) * 100.0
+        fx_resolver = make_transaction_fx_resolver()
+        if last_entry and coverage and coverage.status == "completed":
+            interval_start = date.fromisoformat(last_entry.date)
+            interval_end = date.fromisoformat(today)
+            if ledger_covers_period(coverage, interval_start, interval_end) or coverage.coverage_end:
+                external_cash_flow = round(
+                    external_cash_flows_for_interval(
+                        transactions,
+                        interval_start,
+                        interval_end,
+                        summary.base_currency,
+                        fx_resolver,
+                    ),
+                    2,
+                )
+                if last_entry.net_liquidation != 0:
+                    investment_return_percent = round(
+                        (summary.net_liquidation - external_cash_flow) / last_entry.net_liquidation - 1.0,
+                        6,
+                    ) * 100.0
     except Exception:
         external_cash_flow = None
         investment_return_percent = None

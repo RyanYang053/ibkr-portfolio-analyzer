@@ -56,7 +56,12 @@ def _actual_account_returns(
     if len(ordered) < 2:
         return [], [item.date for item in ordered], "insufficient_history"
 
-    from app.services.broker.ibkr_readonly import get_exchange_rate
+    from app.services.market_data.fx_store import make_transaction_fx_resolver
+
+    fx_resolver = make_transaction_fx_resolver()
+    account_id = str(getattr(summary, "account_id", "") or "default")
+    if account_id == "all":
+        return [], [item.date for item in ordered], "consolidated_scope_unavailable"
     from app.services.portfolio.ledger_coverage import (
         external_cash_flows_for_interval,
         ledger_covers_period,
@@ -64,7 +69,6 @@ def _actual_account_returns(
     )
     from app.services.portfolio.transaction_store import get_transactions
 
-    account_id = str(getattr(summary, "account_id", "") or "default")
     period_start = date.fromisoformat(ordered[0].date)
     period_end = date.fromisoformat(ordered[-1].date)
     coverage = load_ledger_coverage(account_id)
@@ -88,7 +92,7 @@ def _actual_account_returns(
             previous_date,
             current_date,
             summary.base_currency,
-            get_exchange_rate,
+            fx_resolver,
         )
         value = (current.net_liquidation - flow) / previous.net_liquidation - 1.0
         if not math.isfinite(value) or value <= -1.0:
@@ -164,6 +168,7 @@ def _historical_metrics(
         "value_at_risk_95": None,
         "conditional_var_95": None,
         "historical_var_95": None,
+        "historical_es_95": None,
         "sharpe_ratio": None,
         "sortino_ratio": None,
         "portfolio_beta_spy": None,
@@ -189,8 +194,13 @@ def _historical_metrics(
     result["value_at_risk_95"] = total_value * var_loss_fraction
     result["conditional_var_95"] = total_value * es_loss_fraction
     historical_losses = sorted(-value for value in returns)
-    historical_index = max(0, min(len(historical_losses) - 1, int(math.ceil(0.05 * len(historical_losses))) - 1))
-    result["historical_var_95"] = total_value * historical_losses[historical_index]
+    if len(historical_losses) >= MIN_RISK_RETURNS:
+        var_index = max(0, min(len(historical_losses) - 1, math.ceil(0.95 * len(historical_losses)) - 1))
+        var_loss_fraction = max(0.0, historical_losses[var_index])
+        result["historical_var_95"] = total_value * var_loss_fraction
+        tail_losses = historical_losses[var_index:]
+        if tail_losses:
+            result["historical_es_95"] = total_value * (sum(tail_losses) / len(tail_losses))
 
     if annualized_sigma > 0:
         result["sharpe_ratio"] = (annualized_return - risk_free_rate_annual) / annualized_sigma
@@ -362,9 +372,8 @@ def calculate_advanced_risk_metrics(
             account_returns,
             allow_mock=allow_mock,
         )
-    if measured_exposures:
+    if measured_exposures and factor_quality == "experimental":
         factor_exposures = measured_exposures
-        factor_quality = "measured_regression"
     stress_tests, stress_excluded = _stress_tests(positions, summary, total_value)
 
     current_holdings_quality = (
@@ -403,8 +412,8 @@ def calculate_advanced_risk_metrics(
             "The security correlation matrix is a separate ex-ante current-holdings model and is not account history."
         ),
         "factor_exposures": (
-            "Measured via OLS regression of account returns on ETF factor proxies when sufficient history exists; "
-            "otherwise heuristic current-exposure classification."
+            "Experimental OLS regression of account returns on ETF factor proxies when sufficient aligned "
+            "history exists; otherwise heuristic current-exposure classification."
         ),
         "stress_tests": "Current base-currency market values under transparent assumption-based shocks; not forecasts.",
         "risk_free_rate": f"Configured annual risk-free rate: {risk_free_rate * 100.0:.4f}%.",
@@ -427,6 +436,7 @@ def calculate_advanced_risk_metrics(
         value_at_risk_95=rounded("value_at_risk_95"),
         conditional_var_95=rounded("conditional_var_95"),
         historical_var_95=rounded("historical_var_95"),
+        historical_es_95=rounded("historical_es_95"),
         sharpe_ratio=rounded("sharpe_ratio"),
         sortino_ratio=rounded("sortino_ratio"),
         jensens_alpha=rounded("jensens_alpha"),

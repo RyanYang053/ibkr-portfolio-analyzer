@@ -15,6 +15,16 @@ _FILE_LOCK = Lock()
 FORWARD_TRADING_DAYS = 63
 
 
+def _add_trading_days(start: date, trading_days: int) -> date:
+    current = start
+    remaining = trading_days
+    while remaining > 0:
+        current += timedelta(days=1)
+        if current.weekday() < 5:
+            remaining -= 1
+    return current
+
+
 def _load_pending() -> dict[str, list[dict]]:
     if not os.path.exists(PENDING_FILE):
         return {}
@@ -95,7 +105,7 @@ def materialize_calibration_observations(model_name: str, *, allow_mock: bool = 
 
     for item in pending:
         observed_on = date.fromisoformat(str(item["observed_on"]))
-        maturity = observed_on + timedelta(days=FORWARD_TRADING_DAYS)
+        maturity = _add_trading_days(observed_on, FORWARD_TRADING_DAYS)
         if maturity > today:
             remaining.append(item)
             continue

@@ -97,8 +97,8 @@ export function ProfessionalRiskDashboard({
 
           <div className="mt-4">
             <h4 className="text-xs font-semibold uppercase text-zinc-500 mb-2">
-              {advancedRisk.data_quality?.factor_model === "measured_regression"
-                ? "Measured Factor Exposures"
+              {advancedRisk.data_quality?.factor_model === "experimental"
+                ? "Experimental Factor Exposures"
                 : "Strategic Factor Exposures"}
             </h4>
             <div className="space-y-2">

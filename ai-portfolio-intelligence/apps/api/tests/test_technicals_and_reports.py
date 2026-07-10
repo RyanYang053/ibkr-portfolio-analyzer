@@ -5,7 +5,7 @@ from app.services.technicals.indicators import calculate_technical_indicators
 
 
 def test_technical_indicators_calculate_trend_and_momentum():
-    prices = [100 + index for index in range(220)]
+    prices = [100 + index for index in range(260)]
 
     indicators = calculate_technical_indicators("MSFT", prices)
 

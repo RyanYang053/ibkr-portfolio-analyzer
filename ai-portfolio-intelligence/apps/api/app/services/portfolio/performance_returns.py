@@ -180,10 +180,12 @@ def build_xirr_cash_flows(
         amount = external_cash_flow_amount(txn)
         if amount == 0.0:
             continue
-        rate = float(fx_resolver(txn.currency, base_currency))
+        try:
+            rate = float(fx_resolver(txn.currency, base_currency, txn.trade_date))
+        except TypeError:
+            rate = float(fx_resolver(txn.currency, base_currency))
         if rate <= 0:
             raise ValueError(f"Invalid FX rate for {txn.currency}/{base_currency}: {rate}")
-        # Account inflow is an investor contribution (negative investor cash flow).
         flows.append((txn.trade_date, -(amount * rate)))
 
     if terminal_nav > 0:

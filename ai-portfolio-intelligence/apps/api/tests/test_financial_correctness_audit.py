@@ -60,7 +60,7 @@ def _position(
 
 
 def test_flat_price_series_has_neutral_rsi():
-    indicators = calculate_technical_indicators("FLAT", [100.0] * 220)
+    indicators = calculate_technical_indicators("FLAT", [100.0] * 260)
     assert indicators.rsi_14 == 50.0
     assert indicators.macd == pytest.approx(0.0)
     assert indicators.macd_signal == pytest.approx(0.0)
@@ -68,9 +68,9 @@ def test_flat_price_series_has_neutral_rsi():
 
 def test_technical_pipeline_rejects_non_finite_and_non_positive_prices():
     with pytest.raises(ValueError):
-        calculate_technical_indicators("BAD", [100.0] * 219 + [float("nan")])
+        calculate_technical_indicators("BAD", [100.0] * 259 + [float("nan")])
     with pytest.raises(ValueError):
-        calculate_technical_indicators("BAD", [100.0] * 219 + [0.0])
+        calculate_technical_indicators("BAD", [100.0] * 259 + [0.0])
 
 
 def test_data_quality_detects_position_arithmetic_and_reconciliation_errors():

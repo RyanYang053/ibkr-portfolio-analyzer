@@ -120,11 +120,18 @@ def _atr(highs: list[float], lows: list[float], closes: list[float], window: int
 
 
 def calculate_technical_indicators_from_bars(symbol: str, bars: list[dict[str, float | str]]) -> TechnicalIndicators:
-    closes = [float(bar["close"]) for bar in bars if bar.get("close") is not None]
-    highs = [float(bar["high"]) for bar in bars if bar.get("high") is not None]
-    lows = [float(bar["low"]) for bar in bars if bar.get("low") is not None]
+    aligned_bars = [
+        bar
+        for bar in bars
+        if bar.get("close") is not None
+        and bar.get("high") is not None
+        and bar.get("low") is not None
+    ]
+    closes = [float(bar["close"]) for bar in aligned_bars]
     indicators = calculate_technical_indicators(symbol, closes)
-    if len(highs) == len(closes) == len(lows) and len(closes) >= 15:
+    if len(aligned_bars) >= 15:
+        highs = [float(bar["high"]) for bar in aligned_bars]
+        lows = [float(bar["low"]) for bar in aligned_bars]
         atr = _atr(highs, lows, closes)
         if atr is not None:
             return indicators.model_copy(update={"atr_14": round(atr, 4)})
@@ -132,7 +139,7 @@ def calculate_technical_indicators_from_bars(symbol: str, bars: list[dict[str, f
 
 
 def calculate_technical_indicators(symbol: str, prices: list[float]) -> TechnicalIndicators:
-    cleaned = _validated_prices(prices, minimum=200)
+    cleaned = _validated_prices(prices, minimum=252)
 
     sma_20 = _sma(cleaned, 20)
     sma_50 = _sma(cleaned, 50)

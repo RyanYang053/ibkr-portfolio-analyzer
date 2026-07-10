@@ -60,6 +60,29 @@ def build_tax_lot_attribution(
     tax_labeling_jurisdiction: Literal["US", "CA", "OTHER"] = "OTHER",
     fx_resolver: Optional[Callable[..., float]] = None,
 ) -> TaxLotAttributionReport:
+    if tax_labeling_jurisdiction == "CA":
+        return TaxLotAttributionReport(
+            account_id=account_id,
+            lots_open=[],
+            realized_by_symbol=[],
+            total_realized_gain_loss=0.0,
+            total_short_term=0.0,
+            total_long_term=0.0,
+            reporting_currency=reporting_currency,
+            period_start=period_start,
+            period_end=period_end,
+            unmatched_sell_quantity=0.0,
+            data_quality={
+                "status": "unavailable",
+                "tax_lot_method": "acb_withheld",
+                "tax_labeling_jurisdiction": tax_labeling_jurisdiction,
+            },
+            methodology=(
+                "Canadian taxable reporting requires pooled adjusted cost base (ACB) in CAD with superficial-loss "
+                "rules. FIFO tax-lot output is withheld for Canadian residency."
+            ),
+        )
+
     open_lots: dict[tuple[str, int | None], Deque[_OpenLot]] = defaultdict(deque)
     realized_rows: list[RealizedLotAttribution] = []
     execution_rows = [txn for txn in transactions if txn.action in EXECUTION_ACTIONS]
@@ -75,7 +98,9 @@ def build_tax_lot_attribution(
         key = _lot_key(txn)
         if txn.action == "corporate_action":
             action = parse_corporate_action(txn)
-            if action and open_lots[key]:
+            if action is None:
+                continue
+            if open_lots[key]:
                 apply_corporate_action_to_lots(open_lots[key], action, txn)
             continue
         if txn.action == "buy":
@@ -144,7 +169,7 @@ def build_tax_lot_attribution(
             holding_days = (txn.trade_date - lot.acquired_date).days
             max_holding_days = max(max_holding_days, holding_days)
             if tax_labeling_jurisdiction == "US":
-                if holding_days >= 365:
+                if holding_days > 365:
                     long_term += gain
                 else:
                     short_term += gain

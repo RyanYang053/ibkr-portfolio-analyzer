@@ -390,7 +390,7 @@ def calculate_performance_attribution(
         data_quality={
             "benchmark_data": data_quality_benchmark,
             "cash_flow_adjustment": cash_flow_status,
-            "brinson_attribution": "sufficient" if brinson_by_sector else "insufficient",
+            "brinson_attribution": "experimental" if brinson_by_sector else "insufficient",
             "tax_lot_realized": tax_lot_status,
         },
         methodology=methodology,

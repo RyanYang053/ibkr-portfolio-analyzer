@@ -114,6 +114,7 @@ def test_strategy_eligibility_other_rules():
 
 def test_options_strategy_route_success(monkeypatch):
     monkeypatch.setattr(settings, "allow_mock_options_strategy", True)
+    monkeypatch.setattr(settings, "broker_mode", "mock_ibkr_readonly")
     app.dependency_overrides[get_broker_adapter] = lambda: MockIBKRAdapter()
     client = TestClient(app)
     
@@ -158,6 +159,7 @@ def test_options_strategy_mock_mode_flagged(monkeypatch):
 
 def test_options_strategy_no_order_language(monkeypatch):
     monkeypatch.setattr(settings, "allow_mock_options_strategy", True)
+    monkeypatch.setattr(settings, "broker_mode", "mock_ibkr_readonly")
     app.dependency_overrides[get_broker_adapter] = lambda: MockIBKRAdapter()
     client = TestClient(app)
     
@@ -192,9 +194,17 @@ def test_options_data_unavailable_returns_safe_error(monkeypatch):
     client = TestClient(app)
     
     response = client.get("/stocks/AAPL/options-strategy")
-    # Should raise 503 because it's not configured for production use without Gemini and mock is disabled
+    # Should raise 503 because live quotes and Gemini are unavailable in production mode
     assert response.status_code == 503
-    assert "Options strategy generation is unavailable" in response.json()["detail"]
+    detail = response.json()["detail"]
+    if isinstance(detail, dict):
+        message = detail.get("message", "")
+    else:
+        message = str(detail)
+    assert (
+        "Options strategy generation is unavailable" in message
+        or "Live options quotes are unavailable" in message
+    )
     
     app.dependency_overrides.clear()
 

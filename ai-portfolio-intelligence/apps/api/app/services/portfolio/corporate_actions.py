@@ -21,32 +21,29 @@ class CorporateAction:
 
 
 def parse_corporate_action(txn: Transaction) -> Optional[CorporateAction]:
+    """Parse only explicit corporate-action descriptions. Never guess ratios."""
     description = (txn.description or "").strip()
+    if not description:
+        return None
+
     lowered = description.lower()
+    if "split" not in lowered:
+        return None
 
-    if "split" in lowered or (txn.price == 0 and txn.quantity > 0 and not txn.amount):
-        for pattern in SPLIT_PATTERNS:
-            match = pattern.search(description)
-            if match:
-                numerator = float(match.group(1))
-                denominator = float(match.group(2)) if match.lastindex and match.lastindex >= 2 else 1.0
-                if denominator > 0:
-                    return CorporateAction(action_type="split", ratio=numerator / denominator)
+    for pattern in SPLIT_PATTERNS:
+        match = pattern.search(description)
+        if not match:
+            continue
+        numerator = float(match.group(1))
+        denominator = float(match.group(2)) if match.lastindex and match.lastindex >= 2 else 1.0
+        if denominator <= 0 or numerator <= 0:
+            return None
+        ratio = numerator / denominator
         if "reverse" in lowered:
-            return CorporateAction(action_type="split", ratio=0.5)
-        if txn.quantity > 0:
-            # IBKR often records only the incremental shares from a 2-for-1 split.
-            return CorporateAction(action_type="split_bonus", ratio=1.0)
-
-    if "spinoff" in lowered or "spin-off" in lowered:
-        child_symbol = None
-        symbol_match = re.search(r"\b([A-Z]{1,5})\b", description.upper())
-        if symbol_match:
-            child_symbol = symbol_match.group(1)
-        return CorporateAction(action_type="spinoff", ratio=1.0, child_symbol=child_symbol)
-
-    if "merger" in lowered:
-        return CorporateAction(action_type="merger", ratio=1.0)
+            ratio = 1.0 / ratio if ratio > 0 else None
+        if ratio is None or ratio <= 0:
+            return None
+        return CorporateAction(action_type="split", ratio=ratio)
 
     return None
 
@@ -56,23 +53,9 @@ def apply_corporate_action_to_lots(
     action: CorporateAction,
     txn: Transaction,
 ) -> None:
-    if action.action_type == "split":
-        for lot in open_lots:
-            lot.quantity *= action.ratio
-            if action.ratio > 0:
-                lot.cost_basis_per_share /= action.ratio
+    if action.action_type != "split":
         return
-
-    if action.action_type == "split_bonus":
-        # Bonus shares from a split: increase quantity, keep total cost unchanged.
-        for lot in open_lots:
-            lot.quantity += lot.quantity
-        return
-
-    if action.action_type == "spinoff":
-        # Spinoff shares are tracked separately; parent cost basis is unchanged here.
-        return
-
-    if action.action_type == "merger":
-        for lot in open_lots:
-            lot.quantity = 0.0
+    for lot in open_lots:
+        lot.quantity *= action.ratio
+        if action.ratio > 0:
+            lot.cost_basis_per_share /= action.ratio

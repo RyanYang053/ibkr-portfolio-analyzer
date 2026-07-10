@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.services.market_data.http_client import request_with_retry
-from app.services.options.engine import OptionContract, calculate_bs_greeks, calculate_bs_price
+from app.services.options.engine import OptionContract, calculate_bs_greeks
 
 
 def _parse_expiration(value: Any) -> date:
@@ -16,7 +16,7 @@ def _parse_expiration(value: Any) -> date:
 
 def fetch_live_options_chain(symbol: str, current_price: float, *, max_expirations: int = 1) -> list[OptionContract]:
     if current_price <= 0:
-        return []
+        raise RuntimeError(f"Cannot fetch options chain without a positive underlying price for {symbol.upper()}")
 
     url = f"https://query2.finance.yahoo.com/v7/finance/options/{symbol.upper()}"
     response = request_with_retry(url, timeout=6.0, max_attempts=3)
@@ -55,22 +55,27 @@ def fetch_live_options_chain(symbol: str, current_price: float, *, max_expiratio
                 last = float(row.get("lastPrice") or 0.0)
                 mid = (bid + ask) / 2.0 if bid > 0 and ask > 0 else last
                 if mid <= 0:
-                    mid = calculate_bs_price(current_price, strike, time_to_expiry, r, 0.30, right)
+                    continue
                 implied = row.get("impliedVolatility")
-                sigma = float(implied) if implied not in (None, 0) else 0.30
-                if sigma > 3:
-                    sigma /= 100.0
-                delta, theta = calculate_bs_greeks(current_price, strike, time_to_expiry, r, max(sigma, 0.05), right)
+                if implied in (None, 0):
+                    continue
+                sigma = float(implied)
+                if not math.isfinite(sigma) or sigma <= 0:
+                    continue
+                delta, theta = calculate_bs_greeks(current_price, strike, time_to_expiry, r, sigma, right)
                 chain.append(
                     OptionContract(
-                        symbol=str(row.get("contractSymbol") or f"{symbol.upper()}{expiration.strftime('%y%m%d')}{right}{int(strike*1000):08d}"),
+                        symbol=str(
+                            row.get("contractSymbol")
+                            or f"{symbol.upper()}{expiration.strftime('%y%m%d')}{right}{int(strike * 1000):08d}"
+                        ),
                         strike=round(strike, 2),
                         right=right,
                         expiration=expiration,
                         bid=round(bid, 2),
                         ask=round(ask, 2),
                         mid=round(mid, 2),
-                        implied_volatility=round(max(sigma, 0.01), 4),
+                        implied_volatility=round(sigma, 4),
                         delta=delta,
                         theta=theta,
                         open_interest=int(row.get("openInterest") or 0) or None,

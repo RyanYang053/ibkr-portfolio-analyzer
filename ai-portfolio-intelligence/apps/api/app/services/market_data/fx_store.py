@@ -91,7 +91,7 @@ def _lookup_rate(series: dict[str, float], as_of: date) -> Optional[float]:
     prior_dates = [day for day in series if day <= as_of_text]
     if prior_dates:
         return series[sorted(prior_dates)[-1]]
-    return series[sorted(series)[0]]
+    return None
 
 
 def get_historical_exchange_rate(from_curr: str, to_curr: str, as_of: date) -> float:

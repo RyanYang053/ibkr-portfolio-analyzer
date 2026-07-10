@@ -117,6 +117,7 @@ def sync_transactions(
     )
 
     flex_rows: list[Transaction] = []
+    flex_result = None
     rejected_row_count = 0
     flex_error: str | None = None
     imported_sections = ["executions"]
@@ -134,14 +135,25 @@ def sync_transactions(
         imported_sections.append("mock_flex_cash_ledger")
 
     merged = save_transactions(account_id, execution_rows + flex_rows)
+    flex_period_start = None
+    flex_period_end = None
+    if flex_rows:
+        if flex_result is not None:
+            flex_period_start = flex_result.report_period_start
+            flex_period_end = flex_result.report_period_end
+        if flex_period_start is None or flex_period_end is None:
+            flex_dates = [txn.trade_date for txn in flex_rows]
+            flex_period_start = min(flex_dates)
+            flex_period_end = max(flex_dates)
+
     coverage = build_ledger_coverage(
         account_id=account_id,
         transactions=merged,
         imported_sections=imported_sections,
         rejected_row_count=rejected_row_count,
         flex_error=flex_error,
-        period_start=start_date,
-        period_end=end_date,
+        period_start=flex_period_start,
+        period_end=flex_period_end,
     )
     save_ledger_coverage(coverage)
     return merged, coverage

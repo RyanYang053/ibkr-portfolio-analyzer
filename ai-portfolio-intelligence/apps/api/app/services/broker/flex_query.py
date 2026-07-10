@@ -53,6 +53,11 @@ class FlexParseResult:
     transactions: list[Transaction] = field(default_factory=list)
     rejected_rows: list[dict[str, str]] = field(default_factory=list)
     imported_sections: list[str] = field(default_factory=list)
+    report_period_start: Optional[date] = None
+    report_period_end: Optional[date] = None
+    query_id: Optional[str] = None
+    generated_at: Optional[datetime] = None
+    account_id: Optional[str] = None
 
     @property
     def rejected_row_count(self) -> int:
@@ -114,7 +119,103 @@ def _parse_float(value: str | None, default: float = 0.0) -> float:
         return default
 
 
+def _parse_flex_date(value: str | None) -> Optional[date]:
+    if not value:
+        return None
+    text = value.strip()
+    for fmt in ("%Y%m%d", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text[:10] if fmt == "%Y-%m-%d" else text[:8], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_flex_xml(account_id: str, payload: str, query_id: Optional[str] = None) -> FlexParseResult:
+    root = ET.fromstring(payload)
+    statement = root.find(".//FlexStatement") or root.find("FlexStatement")
+    report_start = _parse_flex_date(statement.get("fromDate") if statement is not None else None)
+    report_end = _parse_flex_date(statement.get("toDate") if statement is not None else None)
+    generated_at = None
+    when_generated = statement.get("whenGenerated") if statement is not None else None
+    if when_generated:
+        try:
+            generated_at = datetime.strptime(when_generated[:14], "%Y%m%d;%H%M%S")
+        except ValueError:
+            generated_at = None
+
+    result = FlexParseResult(
+        imported_sections=["flex_xml"],
+        report_period_start=report_start,
+        report_period_end=report_end,
+        query_id=query_id,
+        generated_at=generated_at,
+        account_id=(statement.get("accountId") if statement is not None else None) or account_id,
+    )
+
+    for row in root.findall(".//CashTransaction") + root.findall(".//Trade") + root.findall(".//CorporateAction"):
+        mapped = {
+            "AccountId": row.get("accountId") or account_id,
+            "Date": row.get("date") or row.get("tradeDate") or row.get("reportDate"),
+            "Description": row.get("description"),
+            "ActivityDescription": row.get("description"),
+            "ActivityType": row.get("type") or row.get("activityType"),
+            "Symbol": row.get("symbol") or row.get("underlyingSymbol") or "CASH",
+            "Amount": row.get("amount") or row.get("netCash") or row.get("proceeds"),
+            "Quantity": row.get("quantity") or row.get("tradeQuantity") or "1",
+            "Price": row.get("price") or row.get("tradePrice") or "0",
+            "Commission": row.get("commission") or row.get("comm/fee") or "0",
+            "CurrencyPrimary": row.get("currency") or row.get("currencyPrimary") or "USD",
+            "TransactionID": row.get("transactionID") or row.get("tradeID"),
+        }
+        action = _map_flex_action(mapped)
+        if action is None:
+            result.rejected_rows.append({"reason": "unknown_activity_type", "row": mapped})
+            continue
+        date_text = mapped.get("Date") or ""
+        try:
+            trade_day = datetime.strptime(str(date_text)[:10], "%Y-%m-%d").date()
+        except ValueError:
+            parsed = _parse_flex_date(str(date_text))
+            if parsed is None:
+                result.rejected_rows.append({"reason": "invalid_date", "row": mapped})
+                continue
+            trade_day = parsed
+        quantity = _parse_float(str(mapped.get("Quantity")), default=1.0)
+        price = _parse_float(str(mapped.get("Price")))
+        amount = _parse_float(str(mapped.get("Amount")))
+        commission = _parse_float(str(mapped.get("Commission")))
+        currency = str(mapped.get("CurrencyPrimary") or "USD")
+        symbol = str(mapped.get("Symbol") or "CASH").upper()
+        if action in {"buy", "sell"}:
+            action = "buy" if quantity > 0 else "sell"
+        result.transactions.append(
+            Transaction(
+                account_id=account_id,
+                symbol=symbol,
+                trade_date=trade_day,
+                action=action,  # type: ignore[arg-type]
+                quantity=abs(quantity),
+                price=abs(price) if price else abs(amount / quantity) if quantity else abs(amount),
+                commission=abs(commission),
+                currency=currency,
+                amount=abs(amount) if amount else None,
+                source="ibkr_flex_query",
+                transaction_id=mapped.get("TransactionID"),
+                description=mapped.get("Description"),
+            )
+        )
+
+    if result.transactions and (result.report_period_start is None or result.report_period_end is None):
+        dates = [txn.trade_date for txn in result.transactions]
+        result.report_period_start = min(dates)
+        result.report_period_end = max(dates)
+    return result
+
+
 def _parse_flex_csv(account_id: str, payload: str) -> FlexParseResult:
+    if not payload.strip():
+        return FlexParseResult(imported_sections=["flex_csv"])
     reader = csv.DictReader(io.StringIO(payload))
     result = FlexParseResult(imported_sections=["flex_csv"])
     for row in reader:
@@ -163,10 +264,11 @@ def _parse_flex_csv(account_id: str, payload: str) -> FlexParseResult:
                 description=description,
             )
         )
+    if result.transactions:
+        dates = [txn.trade_date for txn in result.transactions]
+        result.report_period_start = min(dates)
+        result.report_period_end = max(dates)
     return result
-
-
-def _request_flex_statement(token: str, query_id: str, timeout_seconds: float = 30.0) -> str:
     with httpx.Client(timeout=timeout_seconds) as client:
         send = client.get(FLEX_SEND_URL, params={"t": token, "q": query_id, "v": "3"})
         send.raise_for_status()
@@ -202,8 +304,10 @@ def fetch_flex_cash_ledger(account_id: str, query_id: Optional[str] = None) -> F
         )
     payload = _request_flex_statement(token, query)
     if payload.strip().startswith("<?xml"):
-        raise RuntimeError("IBKR Flex activity query returned XML instead of CSV; configure an activity CSV query.")
-    return _parse_flex_csv(account_id, payload)
+        return _parse_flex_xml(account_id, payload, query_id=query)
+    result = _parse_flex_csv(account_id, payload)
+    result.query_id = query
+    return result
 
 
 def fetch_flex_transactions(account_id: str, query_id: Optional[str] = None) -> list[Transaction]:

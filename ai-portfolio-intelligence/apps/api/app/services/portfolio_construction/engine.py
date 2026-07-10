@@ -35,6 +35,12 @@ def _validate_policy(policy: InvestmentPolicyStatement) -> None:
         raise ValueError("Minimum cash cannot be negative")
 
 
+def _position_bucket_key(position: Position) -> str:
+    if position.con_id is not None:
+        return f"{position.symbol.upper()}:{position.con_id}"
+    return position.symbol.upper()
+
+
 def generate_rebalance_proposal(
     positions: list[Position],
     summary: AccountSummary,
@@ -60,12 +66,17 @@ def generate_rebalance_proposal(
 
     converted: dict[str, tuple[Position, float, float]] = {}
     for position in positions:
+        key = _position_bucket_key(position)
+        if key in converted:
+            raise ValueError(
+                "Duplicate position keys require a conId-aware rebalance proposal schema; refusing to merge distinct contracts."
+            )
         rate = float(get_exchange_rate(position.currency, summary.base_currency))
         if not math.isfinite(rate) or rate <= 0:
             raise ValueError(f"Invalid FX rate for {position.currency}/{summary.base_currency}: {rate}")
         market_value_base = float(position.market_value) * rate
         market_price_base = float(position.market_price) * rate
-        converted[position.symbol] = (position, market_value_base, market_price_base)
+        converted[key] = (position, market_value_base, market_price_base)
 
     drift = analyze_policy_drift(
         positions,
@@ -81,10 +92,10 @@ def generate_rebalance_proposal(
         for item in converted.values()
         if item[0].quantity > 0 and item[1] > 0 and item[2] > 0
     ]
-    long_symbols = [item[0].symbol for item in long_positions]
-    if len(long_symbols) != len(set(long_symbols)):
+    position_keys = [_position_bucket_key(item[0]) for item in long_positions]
+    if len(position_keys) != len(set(position_keys)):
         raise ValueError(
-            "Duplicate symbols require a conId-aware rebalance proposal schema; refusing to merge distinct contracts."
+            "Duplicate position keys require a conId-aware rebalance proposal schema; refusing to merge distinct contracts."
         )
     by_symbol = {item[0].symbol: item for item in long_positions}
     planned_sales: dict[str, float] = defaultdict(float)

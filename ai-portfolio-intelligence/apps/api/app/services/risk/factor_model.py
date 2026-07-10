@@ -13,7 +13,7 @@ FACTOR_PROXIES = {
 
 
 def _ols_betas(y: list[float], factors: list[list[float]]) -> list[float]:
-    if len(y) < 5 or not factors or len(factors[0]) != len(y):
+    if len(y) < 20 or not factors or len(factors[0]) != len(y):
         return []
     count = len(factors)
     length = len(y)
@@ -46,27 +46,27 @@ def _ols_betas(y: list[float], factors: list[list[float]]) -> list[float]:
     return [normal[index][size] for index in range(1, size)]
 
 
-def _daily_returns_from_closes(closes: dict[str, float]) -> list[float]:
+def _daily_returns_from_closes(closes: dict[str, float]) -> dict[str, float]:
     dates = sorted(closes)
-    returns: list[float] = []
+    returns: dict[str, float] = {}
     for left, right in zip(dates, dates[1:]):
         prior = closes[left]
         current = closes[right]
         if prior > 0:
-            returns.append((current / prior) - 1.0)
+            returns[right] = (current / prior) - 1.0
     return returns
 
 
-def _fetch_factor_returns(
+def _fetch_factor_return_series(
     symbols: list[str],
     start_date: date,
     end_date: date,
     allow_mock: bool,
-) -> dict[str, list[float]]:
+) -> dict[str, dict[str, float]]:
     from app.services.market_data.mock_provider import MockMarketDataProvider
 
     provider = MockMarketDataProvider(allow_mock=allow_mock)
-    result: dict[str, list[float]] = {}
+    result: dict[str, dict[str, float]] = {}
     for symbol in symbols:
         history = provider.get_historical_prices(symbol, start_date, end_date, total_return=True)
         closes = {str(item["date"]): float(item["close"]) for item in history if item.get("close")}
@@ -83,20 +83,31 @@ def compute_measured_factor_exposures(
         return {}, "insufficient_history"
 
     end_date = date.today()
-    start_date = end_date - timedelta(days=400)
+    start_date = end_date - timedelta(days=500)
     symbols = ["SPY", *FACTOR_PROXIES.values()]
-    series = _fetch_factor_returns(symbols, start_date, end_date, allow_mock=allow_mock)
-    min_length = min(len(values) for values in series.values() if values)
-    if min_length < 20:
+    series = _fetch_factor_return_series(symbols, start_date, end_date, allow_mock=allow_mock)
+
+    common_dates = set(series["SPY"].keys())
+    for symbol in symbols[1:]:
+        common_dates &= set(series[symbol].keys())
+    ordered_dates = sorted(common_dates)
+    if len(ordered_dates) < 20:
         return {}, "insufficient_factor_history"
 
-    aligned_portfolio = portfolio_returns[-min_length:]
-    spy = series["SPY"][-min_length:]
+    aligned_portfolio = portfolio_returns[-len(ordered_dates) :]
+    if len(aligned_portfolio) < 20:
+        return {}, "insufficient_history"
+    if len(aligned_portfolio) > len(ordered_dates):
+        aligned_portfolio = aligned_portfolio[-len(ordered_dates) :]
+    elif len(aligned_portfolio) < len(ordered_dates):
+        ordered_dates = ordered_dates[-len(aligned_portfolio) :]
+
+    spy = [series["SPY"][day] for day in ordered_dates]
     factor_names = list(FACTOR_PROXIES.keys())
     factor_matrix = []
     for name in factor_names:
         proxy = FACTOR_PROXIES[name]
-        proxy_returns = series[proxy][-min_length:]
+        proxy_returns = [series[proxy][day] for day in ordered_dates]
         factor_matrix.append([proxy - benchmark for proxy, benchmark in zip(proxy_returns, spy)])
 
     betas = _ols_betas(aligned_portfolio, factor_matrix)
@@ -110,4 +121,4 @@ def compute_measured_factor_exposures(
     }
     if not exposures:
         return {}, "regression_failed"
-    return exposures, "measured_regression"
+    return exposures, "experimental"

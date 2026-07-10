@@ -153,8 +153,8 @@ def run_score_calibration(
 
     data_quality = {
         "observation_count": str(len(usable)),
-        "minimum_required": "20 for stable IC estimates",
-        "status": "sufficient" if len(usable) >= 20 else "insufficient",
+        "minimum_required": "20 for exploratory IC estimates",
+        "status": "experimental" if len(usable) >= 20 else "insufficient",
     }
     methodology = (
         "Out-of-sample calibration ranks historical scores against realized forward returns. "

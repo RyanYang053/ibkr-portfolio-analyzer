@@ -127,7 +127,7 @@ class MockFundamentalProvider:
                             symbol=snapshot.symbol,
                             as_of_date=as_of_date,
                             snapshot=snapshot,
-                            point_in_time=True,
+                            point_in_time=False,
                             source=snapshot.source,
                             report_period=snapshot.period,
                             filing_date=filing_date,
