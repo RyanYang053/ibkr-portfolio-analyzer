@@ -28,11 +28,18 @@ class Settings(BaseSettings):
     enable_strong_add_recommendations: bool = False
     disable_auth_enforcement: bool = False
     bootstrap_owner_email: str | None = None
+    bootstrap_token: str | None = None
+    allow_public_registration: bool = False
+    access_token_hours: int = 12
+    login_max_attempts: int = 5
+    login_lockout_minutes: int = 15
     allowed_ibkr_hosts: list[str] = ["127.0.0.1", "localhost"]
     api_bind_host: str = "127.0.0.1"
     scheduler_enabled: bool = True
     scheduler_run_in_api: bool = True
     scheduler_timezone: str = "America/New_York"
+    scheduler_max_attempts: int = 3
+    scheduler_lease_minutes: int = 30
 
 
 settings = Settings()
@@ -46,3 +53,5 @@ def validate_production_settings() -> None:
         raise RuntimeError("A strong JWT_SECRET is required outside development")
     if settings.persistence_backend != "postgres":
         raise RuntimeError("PERSISTENCE_BACKEND=postgres is required outside development")
+    if not settings.bootstrap_token:
+        raise RuntimeError("BOOTSTRAP_TOKEN is required outside development when bootstrapping owners")

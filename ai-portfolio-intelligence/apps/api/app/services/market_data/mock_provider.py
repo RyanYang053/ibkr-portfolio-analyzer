@@ -47,9 +47,18 @@ class MockMarketDataProvider:
         total_return: bool = False,
     ) -> list[dict[str, float | str]]:
         if not self.allow_mock:
+            from datetime import datetime, timezone
+
             from app.services.market_data.http_client import filter_rows_by_date, request_with_retry
 
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}?range=1y&interval=1d"
+            period1 = int(datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc).timestamp())
+            period2 = int(
+                datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc).timestamp()
+            )
+            url = (
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}"
+                f"?period1={period1}&period2={period2}&interval=1d"
+            )
             try:
                 response = request_with_retry(url, timeout=5.0)
                 data = response.json()
@@ -62,7 +71,6 @@ class MockMarketDataProvider:
                 label = "live_yahoo_adjclose" if series is adj else "live_yahoo_finance"
 
                 prices = []
-                from datetime import datetime, timezone
                 for ts, close in zip(timestamps, series):
                     if close is not None:
                         date_str = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()

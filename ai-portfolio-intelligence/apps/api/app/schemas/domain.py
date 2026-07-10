@@ -171,6 +171,7 @@ class Provenance(BaseModel):
 
 class Recommendation(BaseModel):
     symbol: str
+    con_id: Optional[int] = None
     action: ActionCategory
     score: Optional[float]
     confidence: ConfidenceLevel

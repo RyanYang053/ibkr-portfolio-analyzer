@@ -224,9 +224,9 @@ def test_advanced_risk_withholds_historical_metrics_without_complete_ledger(monk
         lambda *_args, **_kwargs: None,
     )
     history = [
-        _snapshot(date(2026, 1, 1), 100_000.0, "a"),
-        _snapshot(date(2026, 1, 2), 95_000.0, "b"),
-        _snapshot(date(2026, 1, 3), 105_000.0, "c"),
+        _snapshot(date(2026, 1, 5), 100_000.0, "a"),
+        _snapshot(date(2026, 1, 6), 95_000.0, "b"),
+        _snapshot(date(2026, 1, 7), 105_000.0, "c"),
     ]
     result = calculate_advanced_risk_metrics([_position()], _summary(), history)
     assert result.max_drawdown is None

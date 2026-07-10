@@ -18,6 +18,12 @@ CONSOLIDATED_ANALYTICS_UNAVAILABLE = {
     "status": "unavailable",
 }
 
+ACCOUNT_ID_REQUIRED_FOR_CONID = {
+    "code": "ACCOUNT_ID_REQUIRED_FOR_CONID",
+    "message": "account_id is required when resolving a position by con_id.",
+    "status": "unavailable",
+}
+
 
 def require_single_account_id(
     account_id: Optional[str],
@@ -53,8 +59,20 @@ def find_portfolio_position(
     symbol: str,
     adapter: BrokerAdapter,
     account_id: Optional[str] = None,
+    con_id: Optional[int] = None,
 ) -> Position | None:
-    """Locate a held position without requiring consolidated analytics scope."""
+    """Locate a held position by account + conId, or by symbol within a resolved account scope."""
+    if con_id is not None:
+        if not account_id or account_id in {"all", "default"}:
+            raise HTTPException(status_code=422, detail=ACCOUNT_ID_REQUIRED_FOR_CONID)
+        try:
+            for position in adapter.get_positions(account_id):
+                if position.con_id == con_id:
+                    return position
+        except Exception:
+            return None
+        return None
+
     target = symbol.upper().strip()
     account_ids: list[str] = []
 
@@ -69,12 +87,14 @@ def find_portfolio_position(
         elif settings.ibkr_account_id:
             account_ids = [settings.ibkr_account_id]
         else:
-            account_ids = [account.id for account in accounts]
+            return None
 
     for active_id in account_ids:
         try:
             for position in adapter.get_positions(active_id):
                 if position.symbol.upper() == target:
+                    return position
+                if position.local_symbol and position.local_symbol.upper() == target:
                     return position
         except Exception:
             continue
@@ -85,8 +105,9 @@ def is_symbol_held(
     symbol: str,
     adapter: BrokerAdapter,
     account_id: Optional[str] = None,
+    con_id: Optional[int] = None,
 ) -> bool:
-    return find_portfolio_position(symbol, adapter, account_id) is not None
+    return find_portfolio_position(symbol, adapter, account_id, con_id) is not None
 
 
 def is_consolidated_scope(account_id: Optional[str], summary_account_id: str) -> bool:

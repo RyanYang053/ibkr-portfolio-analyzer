@@ -15,6 +15,7 @@ from app.services.ai.report_generator import generate_ai_portfolio_memo, generat
 from app.services.ai.thesis_tracker import get_thesis, update_thesis
 from app.services.broker.base import BrokerAdapter
 from app.services.portfolio.account_scope import find_portfolio_position, resolve_portfolio_account_id
+from app.services.portfolio.snapshot import gate_professional_response
 from app.core.audit import log_audit_action
 
 router = APIRouter(
@@ -182,10 +183,11 @@ def write_thesis(symbol: str, payload: ThesisUpdateRequest) -> dict[str, object]
 def analyze_stock(
     symbol: str,
     account_id: Optional[str] = None,
+    con_id: Optional[int] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
 ):
     try:
-        position = find_portfolio_position(symbol, adapter, account_id)
+        position = find_portfolio_position(symbol, adapter, account_id, con_id)
     except HTTPException:
         raise
     except Exception as exc:
@@ -198,7 +200,7 @@ def analyze_stock(
             object_id=symbol.upper(),
             metadata={"provider": res.get("provider")}
         )
-        return res
+        return gate_professional_response(adapter, position.account_id, res)
     raise HTTPException(status_code=404, detail="Symbol not found in portfolio")
 
 
@@ -207,9 +209,14 @@ def analyze_portfolio(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
 ):
+    from app.services.data_quality.validation import validate_and_gate_snapshot
+
     try:
         active_id = resolve_portfolio_account_id(account_id, adapter)
-        res = generate_ai_portfolio_memo(adapter.get_account_summary(active_id), adapter.get_positions(active_id))
+        summary = adapter.get_account_summary(active_id)
+        positions = adapter.get_positions(active_id)
+        validate_and_gate_snapshot(summary, positions)
+        res = generate_ai_portfolio_memo(summary, positions)
         log_audit_action(
             action="ai_analysis_triggered",
             object_type="portfolio",
@@ -236,6 +243,9 @@ def trigger_scheduled_analysis(
         active_id = resolve_portfolio_account_id(account_id, adapter)
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
+        from app.services.data_quality.validation import validate_and_gate_snapshot
+
+        validate_and_gate_snapshot(summary, positions)
         net_liq = summary.net_liquidation
         cash = summary.cash
     except HTTPException:
@@ -245,7 +255,7 @@ def trigger_scheduled_analysis(
 
     # 2. Gather PnL history text to inject into the analysis
     from app.services.portfolio.pnl_tracker import get_pnl_history
-    pnl_history = get_pnl_history()[-7:]
+    pnl_history = get_pnl_history(active_id)[-7:]
     # Fetch index prices
     spy_price = 0.0
     qqq_price = 0.0

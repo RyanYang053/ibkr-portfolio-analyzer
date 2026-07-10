@@ -1,8 +1,11 @@
 from pydantic import BaseModel, EmailStr, Field
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.auth_deps import Principal, get_current_principal
-from app.api.user_store import get_user, save_user
+from app.api.invitation_store import accept_invitation, get_invitation
+from app.api.user_store import bump_token_version, get_user, owner_exists, save_user
+from app.core.config import settings
+from app.core.rate_limit import check_login_allowed, clear_login_failures, record_login_failure
 from app.core.security import create_access_token, hash_password, verify_password
 
 
@@ -20,33 +23,124 @@ class LoginRequest(BaseModel):
     password: str
 
 
-@router.post("/register")
-def register(payload: RegisterRequest) -> dict[str, str]:
-    if get_user(payload.email):
+class BootstrapRequest(BaseModel):
+    bootstrap_token: str
+    email: EmailStr
+    password: str = Field(min_length=10)
+    name: str
+
+
+class AcceptInviteRequest(BaseModel):
+    token: str
+    password: str = Field(min_length=10)
+    name: str
+
+
+@router.post("/bootstrap")
+def bootstrap_owner(payload: BootstrapRequest) -> dict[str, str]:
+    if owner_exists():
+        raise HTTPException(status_code=409, detail="An owner account already exists")
+    if not settings.bootstrap_token:
+        raise HTTPException(status_code=503, detail="Bootstrap token is not configured")
+    if payload.bootstrap_token != settings.bootstrap_token:
+        raise HTTPException(status_code=403, detail="Invalid bootstrap token")
+
+    email = str(payload.email).lower()
+    if get_user(email):
         raise HTTPException(status_code=409, detail="User already exists")
+
     save_user(
-        payload.email,
+        email,
         {
-            "email": payload.email,
+            "email": email,
             "name": payload.name,
             "password_hash": hash_password(payload.password),
             "role": "owner",
+            "token_version": "0",
         },
     )
-    return {"email": payload.email, "name": payload.name, "role": "owner"}
+    return {
+        "email": email,
+        "name": payload.name,
+        "role": "owner",
+        "access_token": create_access_token(email, role="owner"),
+        "token_type": "bearer",
+    }
+
+
+@router.post("/register")
+def register(payload: RegisterRequest) -> dict[str, str]:
+    if not settings.allow_public_registration:
+        raise HTTPException(status_code=403, detail="Public registration is disabled")
+    email = str(payload.email).lower()
+    if get_user(email):
+        raise HTTPException(status_code=409, detail="User already exists")
+    save_user(
+        email,
+        {
+            "email": email,
+            "name": payload.name,
+            "password_hash": hash_password(payload.password),
+            "role": "viewer",
+            "token_version": "0",
+        },
+    )
+    return {"email": email, "name": payload.name, "role": "viewer"}
+
+
+@router.post("/accept-invite")
+def accept_invite(payload: AcceptInviteRequest) -> dict[str, str]:
+    invitation = get_invitation(payload.token)
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation is invalid or expired")
+    email = invitation["email"]
+    if get_user(email):
+        raise HTTPException(status_code=409, detail="User already exists")
+    accepted = accept_invitation(payload.token)
+    if not accepted:
+        raise HTTPException(status_code=404, detail="Invitation is invalid or expired")
+    save_user(
+        email,
+        {
+            "email": email,
+            "name": payload.name,
+            "password_hash": hash_password(payload.password),
+            "role": invitation["role"],
+            "token_version": "0",
+        },
+    )
+    return {
+        "email": email,
+        "name": payload.name,
+        "role": invitation["role"],
+        "access_token": create_access_token(email, role=invitation["role"]),
+        "token_type": "bearer",
+    }
 
 
 @router.post("/login")
-def login(payload: LoginRequest) -> dict[str, str]:
-    user = get_user(payload.email)
+def login(payload: LoginRequest, request: Request) -> dict[str, str]:
+    email = str(payload.email).lower()
+    check_login_allowed(request, email)
+    user = get_user(email)
     if not user or not verify_password(payload.password, user["password_hash"]):
+        record_login_failure(request, email)
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {"access_token": create_access_token(payload.email), "token_type": "bearer"}
+    clear_login_failures(request, email)
+    role = user.get("role", "viewer")
+    return {
+        "access_token": create_access_token(email, role=role),
+        "token_type": "bearer",
+        "email": email,
+        "name": user.get("name", email),
+        "role": role,
+    }
 
 
 @router.post("/logout")
-def logout() -> dict[str, str]:
-    return {"status": "session_closed", "note": "JWT tokens are stateless; discard the client token."}
+def logout(principal: Principal = Depends(get_current_principal)) -> dict[str, str]:
+    bump_token_version(principal.user_id)
+    return {"status": "session_closed", "note": "All active sessions for this user have been revoked."}
 
 
 @router.get("/me")

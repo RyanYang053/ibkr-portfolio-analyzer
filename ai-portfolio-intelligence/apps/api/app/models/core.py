@@ -20,8 +20,33 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(32), default="owner")
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class BrokerConnection(Base):
+    __tablename__ = "broker_connections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    broker: Mapped[str] = mapped_column(String(64))
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column(Integer)
+    client_id: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(64), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class UserAccountAccess(Base):
+    __tablename__ = "user_account_access"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    external_account_id: Mapped[str] = mapped_column(String(64), index=True)
+    access_level: Mapped[str] = mapped_column(String(32), default="read")
+    granted_by_user_id: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class BrokerAccount(Base):

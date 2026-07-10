@@ -218,7 +218,7 @@ def score_fundamentals_for_sector(fundamentals: FundamentalSnapshot, sector: str
 
 
 def _has_sector_inputs(fundamentals: FundamentalSnapshot, fields: list[str]) -> bool:
-    return any(getattr(fundamentals, field, None) is not None for field in fields)
+    return all(getattr(fundamentals, field, None) is not None for field in fields)
 
 
 def _score_financials_sector(fundamentals: FundamentalSnapshot) -> dict[str, float]:
@@ -271,6 +271,9 @@ def _score_utilities_sector(fundamentals: FundamentalSnapshot) -> dict[str, floa
     required = ["rate_base_growth", "allowed_roe"]
     if not _has_sector_inputs(fundamentals, required):
         return _score_universal_heuristic(fundamentals, "Utilities")
+
+    scores: dict[str, float] = {}
+    scores["business_quality"] = _linear(float(fundamentals.allowed_roe or 0.0), 0.08, 0.12)
     scores["growth"] = _linear(float(fundamentals.rate_base_growth or 0.0), 0.01, 0.05)
     scores["profitability"] = _linear(fundamentals.operating_margin, 0.12, 0.28)
     scores["balance_sheet"] = _linear((fundamentals.cash - fundamentals.total_debt) / max(abs(fundamentals.total_debt), 1.0), -0.2, 0.2)

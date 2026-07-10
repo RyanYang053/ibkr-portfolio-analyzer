@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app.api.user_store import get_user
 from app.core.config import settings
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, token_is_revoked
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -60,6 +60,9 @@ def get_current_principal(
         payload = decode_access_token(credentials.credentials)
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid access token") from exc
+
+    if token_is_revoked(payload):
+        raise HTTPException(status_code=401, detail="Session has been revoked")
 
     subject = payload.get("sub")
     if not subject:

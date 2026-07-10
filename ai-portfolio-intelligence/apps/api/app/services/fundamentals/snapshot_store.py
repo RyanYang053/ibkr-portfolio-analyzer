@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from threading import Lock
 from typing import Optional
 
+from app.core.config import settings
 from app.schemas.domain import FundamentalSnapshot, FundamentalSnapshotRecord
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
@@ -46,7 +47,22 @@ def _atomic_write(path: str, payload: list[dict]) -> None:
                 os.unlink(temporary_path)
 
 
+def _load_json_records(symbol: str) -> list[FundamentalSnapshotRecord]:
+    path = _store_path(symbol)
+    if not os.path.exists(path):
+        return []
+    with _FILE_LOCK, open(path, "r", encoding="utf-8") as handle:
+        raw = json.load(handle)
+    return [FundamentalSnapshotRecord(**item) for item in raw]
+
+
 def save_snapshot_record(record: FundamentalSnapshotRecord) -> FundamentalSnapshotRecord:
+    if settings.persistence_backend == "postgres":
+        from app.db.fundamental_snapshot_repo import upsert_snapshot_record
+
+        upsert_snapshot_record(record)
+        return record
+
     path = _store_path(record.symbol)
     existing: list[dict] = []
     if os.path.exists(path):
@@ -67,12 +83,14 @@ def save_snapshot_record(record: FundamentalSnapshotRecord) -> FundamentalSnapsh
 
 
 def list_snapshot_records(symbol: str, include_synthetic_demo: bool = False) -> list[FundamentalSnapshotRecord]:
-    path = _store_path(symbol)
-    if not os.path.exists(path):
-        return []
-    with _FILE_LOCK, open(path, "r", encoding="utf-8") as handle:
-        raw = json.load(handle)
-    records = [FundamentalSnapshotRecord(**item) for item in raw]
+    if settings.persistence_backend == "postgres":
+        from app.db.fundamental_snapshot_repo import list_snapshot_records as list_postgres_records
+
+        records = list_postgres_records(symbol, include_synthetic_demo=include_synthetic_demo)
+        if records is not None:
+            return records
+
+    records = _load_json_records(symbol)
     if include_synthetic_demo:
         return records
     return [record for record in records if not record.synthetic_demo and record.point_in_time]

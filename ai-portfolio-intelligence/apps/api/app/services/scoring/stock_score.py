@@ -308,11 +308,11 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
     history_source = "missing"
 
     try:
-        from app.services.fundamentals.mock_provider import MockFundamentalProvider
+        from app.services.fundamentals.providers import get_fundamental_provider
         from app.services.fundamentals.snapshot_store import get_point_in_time_fundamentals
 
         if allow_mock:
-            fundamentals = MockFundamentalProvider(allow_mock=True).get_fundamentals(position.symbol)
+            fundamentals = get_fundamental_provider(allow_mock=True).get_fundamentals(position.symbol)
         else:
             fundamentals = get_point_in_time_fundamentals(
                 position.symbol,
@@ -320,7 +320,7 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
                 allow_synthetic_demo=False,
             )
             if fundamentals is None:
-                fundamentals = MockFundamentalProvider(allow_mock=False).get_fundamentals(position.symbol)
+                fundamentals = get_fundamental_provider(allow_mock=False).get_fundamentals(position.symbol)
     except Exception:
         fundamentals = None
 

@@ -5,12 +5,18 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 
-from app.api.auth_deps import get_current_principal
+from app.api.auth_deps import Principal, get_current_principal
+from app.api.account_deps import ensure_account_access
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.schemas.domain import AccountSummary, InvestmentPolicyStatement, InvestorProfile, Position, utc_now
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.ibkr_readonly import get_exchange_rate
-from app.services.data_quality.validation import require_analytics_safe, validate_portfolio_snapshot
+from app.services.data_quality.validation import (
+    prepare_professional_response,
+    require_analytics_safe,
+    validate_and_gate_snapshot,
+    validate_portfolio_snapshot,
+)
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
 
 router = APIRouter(
@@ -156,8 +162,11 @@ def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[Acc
 def _resolve_account_data(
     adapter: BrokerAdapter,
     account_id: Optional[str],
+    principal: Principal,
 ) -> tuple[AccountSummary, list[Position]]:
     try:
+        if account_id and account_id not in {"all", "default"}:
+            ensure_account_access(account_id, principal)
         if not account_id or account_id == "all":
             accounts = adapter.get_accounts()
             if not accounts:
@@ -177,8 +186,12 @@ def _resolve_account_data(
 
 
 @router.get("/summary")
-def summary(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+def summary(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
     data_quality = validate_portfolio_snapshot(account_summary, account_positions)
     require_analytics_safe(data_quality)
     risk_analysis = analyze_portfolio_risk(account_summary, account_positions)
@@ -202,42 +215,74 @@ def summary(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(g
 
 
 @router.get("/data-quality")
-def data_quality(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+def data_quality(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
     return validate_portfolio_snapshot(account_summary, account_positions)
 
 
 @router.get("/snapshots")
-def snapshots(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def snapshots(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     if account_id == "all":
-        account_summary, _ = _resolve_account_data(adapter, "all")
+        account_summary, account_positions = _resolve_account_data(adapter, "all", principal)
+        require_analytics_safe(validate_portfolio_snapshot(account_summary, account_positions))
         return [account_summary]
     if not account_id:
-        return [adapter.get_account_summary(account.id) for account in adapter.get_accounts()]
-    account_summary, _ = _resolve_account_data(adapter, account_id)
+        summaries = []
+        for account in adapter.get_accounts():
+            summary = adapter.get_account_summary(account.id)
+            positions = adapter.get_positions(account.id)
+            require_analytics_safe(validate_portfolio_snapshot(summary, positions))
+            summaries.append(summary)
+        return summaries
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    require_analytics_safe(validate_portfolio_snapshot(account_summary, account_positions))
     return [account_summary]
 
 
 @router.get("/positions", response_model=list[Position])
-def positions(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    _, account_positions = _resolve_account_data(adapter, account_id)
+def positions(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    require_analytics_safe(validate_portfolio_snapshot(account_summary, account_positions))
     return account_positions
 
 
 @router.get("/allocation")
-def allocation(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    account_summary, account_positions = _resolve_account_data(adapter, account_id)
-    return {
+def allocation(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
+    result = {
         "by_sector": _group_percent(account_positions, account_summary.base_currency, "sector"),
         "by_currency": _group_percent(account_positions, account_summary.base_currency, "currency"),
         "by_asset_class": _group_percent(account_positions, account_summary.base_currency, "asset_class"),
         "methodology": "Gross absolute market-value allocation after base-currency conversion.",
     }
+    return prepare_professional_response(result, account_summary, account_positions, validation)
 
 
 @router.get("/performance")
-def performance(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    account_summary, _ = _resolve_account_data(adapter, account_id)
+def performance(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
 
     from app.core.config import settings
     from app.services.market_data.fx_store import make_transaction_fx_resolver
@@ -258,19 +303,24 @@ def performance(account_id: Optional[str] = None, adapter: BrokerAdapter = Depen
         allow_mock=allow_mock,
     )
 
-    return {
-        "total_unrealized_pnl": account_summary.total_unrealized_pnl,
-        "total_realized_pnl": account_summary.total_realized_pnl,
-        "daily_return": returns.daily_returns[-1]["investment_return_percent"] if returns.daily_returns else None,
-        "time_weighted_return": returns.time_weighted_return,
-        "time_weighted_return_annualized": returns.time_weighted_return_annualized,
-        "xirr": returns.xirr,
-        "benchmark_comparison": returns.benchmark_comparison,
-        "account_value_change": latest.daily_pnl if latest else None,
-        "account_value_change_percent": latest.daily_pnl_percent if latest else None,
-        "data_quality": returns.data_quality,
-        "methodology": returns.methodology,
-    }
+    return prepare_professional_response(
+        {
+            "total_unrealized_pnl": account_summary.total_unrealized_pnl,
+            "total_realized_pnl": account_summary.total_realized_pnl,
+            "daily_return": returns.daily_returns[-1]["investment_return_percent"] if returns.daily_returns else None,
+            "time_weighted_return": returns.time_weighted_return,
+            "time_weighted_return_annualized": returns.time_weighted_return_annualized,
+            "xirr": returns.xirr,
+            "benchmark_comparison": returns.benchmark_comparison,
+            "account_value_change": latest.daily_pnl if latest else None,
+            "account_value_change_percent": latest.daily_pnl_percent if latest else None,
+            "data_quality": returns.data_quality,
+            "methodology": returns.methodology,
+        },
+        account_summary,
+        account_positions,
+        validation,
+    )
 
 
 @router.get("/score-calibration")
@@ -293,8 +343,12 @@ def score_calibration(model_name: str = "universal"):
 
 
 @router.get("/risk")
-def risk(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+def risk(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
     validation = validate_portfolio_snapshot(account_summary, account_positions)
     require_analytics_safe(validation)
     return analyze_portfolio_risk(account_summary, account_positions)
@@ -312,14 +366,25 @@ def _group_percent(positions: list[Position], base_currency: str, field: str) ->
 
 
 @router.get("/profile", response_model=InvestorProfile)
-def get_profile(account_id: Optional[str] = "default"):
+def get_profile(
+    account_id: Optional[str] = "default",
+    principal: Principal = Depends(get_current_principal),
+):
+    if account_id and account_id not in {"all", "default"}:
+        ensure_account_access(account_id, principal)
     from app.services.suitability.engine import get_investor_profile
 
     return get_investor_profile(account_id)
 
 
 @router.post("/profile")
-def update_profile(profile: InvestorProfile, account_id: Optional[str] = "default"):
+def update_profile(
+    profile: InvestorProfile,
+    account_id: Optional[str] = "default",
+    principal: Principal = Depends(get_current_principal),
+):
+    if account_id and account_id not in {"all", "default"}:
+        ensure_account_access(account_id, principal)
     from app.services.suitability.engine import save_investor_profile
 
     save_investor_profile(profile, account_id)
@@ -327,14 +392,25 @@ def update_profile(profile: InvestorProfile, account_id: Optional[str] = "defaul
 
 
 @router.get("/policy", response_model=InvestmentPolicyStatement)
-def get_policy(account_id: Optional[str] = "default"):
+def get_policy(
+    account_id: Optional[str] = "default",
+    principal: Principal = Depends(get_current_principal),
+):
+    if account_id and account_id not in {"all", "default"}:
+        ensure_account_access(account_id, principal)
     from app.services.policy.engine import get_portfolio_policy
 
     return get_portfolio_policy(account_id)
 
 
 @router.post("/policy")
-def update_policy(policy: InvestmentPolicyStatement, account_id: Optional[str] = "default"):
+def update_policy(
+    policy: InvestmentPolicyStatement,
+    account_id: Optional[str] = "default",
+    principal: Principal = Depends(get_current_principal),
+):
+    if account_id and account_id not in {"all", "default"}:
+        ensure_account_access(account_id, principal)
     from app.services.policy.engine import save_portfolio_policy
 
     save_portfolio_policy(policy, account_id)
@@ -345,21 +421,25 @@ def update_policy(policy: InvestmentPolicyStatement, account_id: Optional[str] =
 def get_advanced_portfolio_risk(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     from app.services.portfolio.account_scope import require_single_account_id
     from app.services.portfolio.pnl_tracker import get_pnl_history
     from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
 
-    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
     active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
     history = get_pnl_history(active_id)
-    return calculate_advanced_risk_metrics(account_positions, account_summary, history)
+    result = calculate_advanced_risk_metrics(account_positions, account_summary, history)
+    return prepare_professional_response(result, account_summary, account_positions, validation)
 
 
 @router.get("/attribution")
 def get_portfolio_attribution(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     from app.services.attribution.engine import calculate_performance_attribution
     from app.services.portfolio.pnl_tracker import get_pnl_history
@@ -367,24 +447,31 @@ def get_portfolio_attribution(
     from app.services.market_data.fx_store import make_transaction_fx_resolver
     from app.services.portfolio.account_scope import require_single_account_id
 
-    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
     active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
     history = get_pnl_history(active_id)
-    return calculate_performance_attribution(
+    result = calculate_performance_attribution(
         account_positions,
         history,
         base_currency=account_summary.base_currency,
         fx_resolver=make_transaction_fx_resolver(),
         account_id=active_id,
     )
+    return prepare_professional_response(result, account_summary, account_positions, validation)
 
 
 @router.get("/ledger-coverage")
-def ledger_coverage(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def ledger_coverage(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     from app.services.portfolio.account_scope import require_single_account_id
     from app.services.portfolio.transaction_store import get_ledger_coverage
 
-    account_summary, _ = _resolve_account_data(adapter, account_id)
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    require_analytics_safe(validate_portfolio_snapshot(account_summary, account_positions))
     active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
     coverage = get_ledger_coverage(active_id)
     if coverage is None:
@@ -398,7 +485,11 @@ def ledger_coverage(account_id: Optional[str] = None, adapter: BrokerAdapter = D
 
 
 @router.get("/tax-lots")
-def tax_lot_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def tax_lot_attribution(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
     from datetime import date as date_type
 
     from app.services.market_data.fx_store import make_transaction_fx_resolver
@@ -408,7 +499,8 @@ def tax_lot_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter
     from app.services.portfolio.account_scope import require_single_account_id
     from app.services.suitability.engine import get_investor_profile
 
-    account_summary, _ = _resolve_account_data(adapter, account_id)
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
     active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
     transactions = get_transactions(active_id)
     if not transactions:
@@ -422,7 +514,7 @@ def tax_lot_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter
     profile = get_investor_profile(active_id)
     jurisdiction = "US" if profile.tax_residency == "US" else "CA" if profile.tax_residency == "Canada" else "OTHER"
 
-    return build_tax_lot_attribution(
+    result = build_tax_lot_attribution(
         active_id,
         transactions,
         reporting_currency=account_summary.base_currency,
@@ -431,40 +523,47 @@ def tax_lot_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter
         tax_labeling_jurisdiction=jurisdiction,
         fx_resolver=make_transaction_fx_resolver(),
     )
+    return prepare_professional_response(result, account_summary, account_positions, validation)
 
 
 @router.get("/rebalance-proposal")
 def rebalance_proposal(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     from app.services.policy.engine import get_portfolio_policy
     from app.services.portfolio_construction.engine import generate_rebalance_proposal
     from app.services.portfolio.account_scope import require_single_account_id
     from app.services.suitability.engine import get_investor_profile
 
-    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
     active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
     policy = get_portfolio_policy(active_id)
     profile = get_investor_profile(active_id)
-    return generate_rebalance_proposal(account_positions, account_summary, policy, profile)
+    result = generate_rebalance_proposal(account_positions, account_summary, policy, profile)
+    return prepare_professional_response(result, account_summary, account_positions, validation)
 
 
 @router.get("/optimization-proposal")
 def optimize_portfolio(
     account_id: Optional[str] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
 ):
     from app.services.policy.engine import get_portfolio_policy
     from app.services.portfolio_construction.optimizer import generate_portfolio_optimization
     from app.services.portfolio.account_scope import require_single_account_id
     from app.services.suitability.engine import get_investor_profile
 
-    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
     active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
     policy = get_portfolio_policy(active_id)
     profile = get_investor_profile(active_id)
-    return generate_portfolio_optimization(account_positions, account_summary, policy, profile)
+    result = generate_portfolio_optimization(account_positions, account_summary, policy, profile)
+    return prepare_professional_response(result, account_summary, account_positions, validation)
 
 
 @router.get("/fundamentals/{symbol}/point-in-time")
@@ -474,14 +573,14 @@ def point_in_time_fundamentals(symbol: str, as_of: Optional[str] = None):
     from fastapi import HTTPException
 
     from app.core.config import settings
-    from app.services.fundamentals.mock_provider import MockFundamentalProvider
+    from app.services.fundamentals.providers import get_fundamental_provider
     from app.services.fundamentals.snapshot_store import get_point_in_time_fundamentals, seed_demo_fundamentals_records
 
     as_of_date = date_type.fromisoformat(as_of) if as_of else date_type.today()
     allow_demo = settings.broker_mode == "mock_ibkr_readonly"
     snapshot = get_point_in_time_fundamentals(symbol, as_of_date, allow_synthetic_demo=allow_demo)
     if snapshot is None and allow_demo:
-        base = MockFundamentalProvider(allow_mock=True).get_fundamentals(symbol)
+        base = get_fundamental_provider(allow_mock=True).get_fundamentals(symbol)
         seed_demo_fundamentals_records(symbol, base)
         snapshot = get_point_in_time_fundamentals(symbol, as_of_date, allow_synthetic_demo=True)
     if snapshot is None:

@@ -56,7 +56,7 @@ def test_manual_ai_stock_analysis_endpoint_returns_decision_support_report():
     app.dependency_overrides[get_broker_adapter] = lambda: MockIBKRAdapter()
     client = TestClient(app)
 
-    response = client.post("/ai/analyze-stock/MSFT")
+    response = client.post("/ai/analyze-stock/MSFT?account_id=MOCK-001")
 
     assert response.status_code == 200
     payload = response.json()

@@ -14,6 +14,9 @@ from app.services.scoring.decision_engine import build_recommendation
 from app.schemas.domain import AIReport, DISCLAIMER, utc_now
 
 
+from app.services.data_quality.validation import validate_and_gate_snapshot
+
+
 router = APIRouter(
     prefix="/reports",
     tags=["reports"],
@@ -24,7 +27,10 @@ router = APIRouter(
 def _data(adapter: BrokerAdapter, account_id: Optional[str] = None):
     try:
         active_id = resolve_portfolio_account_id(account_id, adapter)
-        return adapter.get_account_summary(active_id), adapter.get_positions(active_id)
+        summary = adapter.get_account_summary(active_id)
+        positions = adapter.get_positions(active_id)
+        validate_and_gate_snapshot(summary, positions)
+        return summary, positions
     except HTTPException:
         raise
     except Exception as exc:

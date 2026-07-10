@@ -59,6 +59,7 @@ def build_recommendation(position: Position) -> Recommendation:
 
     return Recommendation(
         symbol=position.symbol,
+        con_id=position.con_id,
         action=action,  # type: ignore[arg-type]
         score=score.final_score,
         confidence=score.confidence,

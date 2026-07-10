@@ -11,7 +11,7 @@ from app.api.deps import get_broker_adapter, demo_mode_enabled
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.securities import classify_security
 from app.services.market_data.mock_provider import MockMarketDataProvider
-from app.services.fundamentals.mock_provider import MockFundamentalProvider
+from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.technicals.indicators import calculate_technical_indicators
 from app.services.ai.client import GeminiClient
 from app.services.portfolio.account_scope import find_portfolio_position, resolve_portfolio_account_id
@@ -83,7 +83,7 @@ def _get_stock_context(symbol: str, adapter: BrokerAdapter, account_id: Optional
     # 2. Fetch fundamentals
     fundamentals = None
     try:
-        fundamentals = MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(sym)
+        fundamentals = get_fundamental_provider(allow_mock=allow_mock).get_fundamentals(sym)
     except Exception:
         pass
 
@@ -178,8 +178,12 @@ def chat(
         active_id = resolve_portfolio_account_id(account_id, adapter)
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
+        from app.services.data_quality.validation import validate_and_gate_snapshot
+
+        validation = validate_and_gate_snapshot(summary, positions)
         portfolio_context = {
             "status": "available",
+            "snapshot_validation": validation,
             "summary": {
                 "net_liquidation": summary.net_liquidation,
                 "cash": summary.cash,

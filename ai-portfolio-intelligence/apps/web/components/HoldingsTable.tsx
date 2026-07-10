@@ -6,16 +6,24 @@ function positionRowKey(position: Position): string {
 }
 
 function positionHref(position: Position): string {
+  const params = new URLSearchParams();
+  if (position.account_id && position.account_id !== "all") {
+    params.set("account_id", position.account_id);
+  }
+  if (position.con_id != null) {
+    params.set("con_id", String(position.con_id));
+  }
+  const query = params.toString();
+  const suffix = query ? `?${query}` : "";
   const isDerivative =
     position.asset_class === "OPT" ||
     position.asset_class === "FOP" ||
     position.asset_class === "FUT" ||
     (position.multiplier ?? 1) !== 1;
   if (isDerivative && position.local_symbol) {
-    const query = position.con_id ? `?con_id=${position.con_id}` : "";
-    return `/holdings/${encodeURIComponent(position.local_symbol)}${query}`;
+    return `/holdings/${encodeURIComponent(position.local_symbol)}${suffix}`;
   }
-  return `/holdings/${position.symbol}`;
+  return `/holdings/${position.symbol}${suffix}`;
 }
 
 function formatMoney(value: number, currency: string): string {

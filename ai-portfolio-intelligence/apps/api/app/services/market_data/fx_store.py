@@ -9,6 +9,7 @@ from threading import Lock
 from typing import Optional
 
 from app.services.market_data.http_client import request_with_retry
+from app.core.config import settings
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 FX_STORE_FILE = os.path.join(DATA_DIR, "historical_fx_rates.json")
@@ -75,6 +76,14 @@ def _fetch_yahoo_fx_series(from_curr: str, to_curr: str, start_date: date, end_d
 
 
 def _merge_series_into_store(pair: str, series: dict[str, float]) -> None:
+    from_curr, to_curr = pair.split("_", 1)
+    if settings.persistence_backend == "postgres":
+        from app.db.fx_rate_repo import upsert_rate_series
+
+        upsert_rate_series(from_curr, to_curr, series)
+        _MEMORY_CACHE[pair] = {**_MEMORY_CACHE.get(pair, {}), **series}
+        return
+
     store = _load_store()
     existing = store.get(pair, {})
     existing.update(series)
@@ -112,12 +121,26 @@ def get_historical_exchange_rate(from_curr: str, to_curr: str, as_of: date) -> f
 
     pair = _pair_key(native, reporting)
     if pair not in _MEMORY_CACHE:
-        _MEMORY_CACHE.update(_load_store())
+        if settings.persistence_backend == "postgres":
+            from app.db.fx_rate_repo import load_rate_series
+
+            postgres_series = load_rate_series(native, reporting)
+            if postgres_series:
+                _MEMORY_CACHE[pair] = postgres_series
+        if pair not in _MEMORY_CACHE:
+            _MEMORY_CACHE.update(_load_store())
 
     series = _MEMORY_CACHE.get(pair, {})
     rate = _lookup_rate(series, as_of)
     if rate is not None:
         return rate
+
+    if settings.persistence_backend == "postgres":
+        from app.db.fx_rate_repo import lookup_rate as lookup_postgres_rate
+
+        postgres_rate = lookup_postgres_rate(native, reporting, as_of, max_staleness_days=MAX_FX_STALENESS_DAYS)
+        if postgres_rate is not None:
+            return postgres_rate
 
     inverse_pair = _pair_key(reporting, native)
     inverse_series = _MEMORY_CACHE.get(inverse_pair, _load_store().get(inverse_pair, {}))

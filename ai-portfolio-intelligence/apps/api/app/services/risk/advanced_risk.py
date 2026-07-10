@@ -14,6 +14,7 @@ TRADING_DAYS = 252
 MIN_RISK_RETURNS = 20
 MIN_HISTORICAL_VAR_RETURNS = 100
 MAX_SNAPSHOT_GAP_DAYS = 5
+MAX_TRADING_SESSION_GAP = 5
 Z_95 = 1.6448536269514722
 NORMAL_ES_95 = 2.0627128075074253
 MAX_BENCHMARK_STALENESS_DAYS = 7
@@ -51,11 +52,13 @@ def _max_drawdown_from_returns(returns: list[float]) -> float | None:
 
 
 def _snapshot_spacing_valid(dates: list[str]) -> bool:
+    from app.services.market_data.exchange_calendar import trading_sessions_between
+
     if len(dates) < 2:
         return True
     for previous, current in zip(dates, dates[1:]):
-        gap = (date.fromisoformat(current) - date.fromisoformat(previous)).days
-        if gap > MAX_SNAPSHOT_GAP_DAYS:
+        sessions = trading_sessions_between(date.fromisoformat(previous), date.fromisoformat(current))
+        if sessions == 0 or sessions > MAX_TRADING_SESSION_GAP:
             return False
     return True
 
@@ -117,9 +120,14 @@ def _actual_account_returns(
     transactions = get_transactions(account_id)
     returns: list[float] = []
     returns_by_date: dict[str, float] = {}
+    from app.services.market_data.exchange_calendar import normalize_period_return, trading_sessions_between
+
     for previous, current in zip(ordered, ordered[1:]):
         previous_date = date.fromisoformat(previous.date)
         current_date = date.fromisoformat(current.date)
+        sessions = trading_sessions_between(previous_date, current_date)
+        if sessions == 0 or sessions > MAX_TRADING_SESSION_GAP:
+            return [], dates, "irregular_snapshot_spacing", returns_by_date
         flow = external_cash_flows_for_interval(
             transactions,
             previous_date,
@@ -127,8 +135,9 @@ def _actual_account_returns(
             summary.base_currency,
             fx_resolver,
         )
-        value = (current.net_liquidation - flow) / previous.net_liquidation - 1.0
-        if not math.isfinite(value) or value <= -1.0:
+        period_return = (current.net_liquidation - flow) / previous.net_liquidation - 1.0
+        value = normalize_period_return(period_return, sessions)
+        if value is None or value <= -1.0:
             return [], dates, "invalid_interval", returns_by_date
         returns.append(value)
         returns_by_date[current.date] = value
@@ -257,11 +266,10 @@ def _historical_metrics(
             if alpha_daily is not None:
                 alpha_annual = (1.0 + alpha_daily) ** TRADING_DAYS - 1.0
                 result["jensens_alpha"] = alpha_annual * 100.0
-        if tracking_daily is not None:
+        if tracking_daily is not None and tracking_daily > 0:
             tracking_annual = tracking_daily * math.sqrt(TRADING_DAYS)
             result["tracking_error"] = tracking_annual * 100.0
-            if tracking_annual > 0:
-                result["information_ratio"] = math.sqrt(TRADING_DAYS) * fmean(active_returns) / tracking_annual
+            result["information_ratio"] = math.sqrt(TRADING_DAYS) * fmean(active_returns) / tracking_daily
     return result
 
 

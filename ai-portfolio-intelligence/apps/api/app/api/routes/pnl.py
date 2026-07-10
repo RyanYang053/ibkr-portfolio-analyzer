@@ -9,6 +9,9 @@ from app.services.broker.base import BrokerAdapter
 from app.services.portfolio.account_scope import require_single_account_id
 from app.services.portfolio.pnl_tracker import get_pnl_history, record_pnl_snapshot, PortfolioPnLSnapshot
 
+from app.services.data_quality.validation import validate_and_gate_snapshot
+
+
 router = APIRouter(
     prefix="/portfolio/pnl-history",
     tags=["portfolio-pnl"],
@@ -63,6 +66,7 @@ def create_pnl_snapshot(account_id: Optional[str] = None, adapter: BrokerAdapter
         from app.api.routes.portfolio import _get_consolidated_summary_and_positions
 
         summary, positions = _get_consolidated_summary_and_positions(adapter)
+        validate_and_gate_snapshot(summary, positions)
         res = record_pnl_snapshot(summary, positions, "all")
         log_audit_action(
             action="pnl_snapshot_recorded",
@@ -76,6 +80,7 @@ def create_pnl_snapshot(account_id: Optional[str] = None, adapter: BrokerAdapter
         active_id = require_single_account_id(account_id, None, adapter)
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
+        validate_and_gate_snapshot(summary, positions)
         res = record_pnl_snapshot(summary, positions, active_id)
         log_audit_action(
             action="pnl_snapshot_recorded",

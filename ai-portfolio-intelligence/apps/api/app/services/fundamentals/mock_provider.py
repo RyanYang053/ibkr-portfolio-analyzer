@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
+
 from app.core.config import settings
 from app.schemas.domain import FundamentalSnapshot, recent_mock_date
+from app.services.fundamentals.providers.yahoo_enrichment import enrich_sector_fields, resolve_sector_from_yahoo
 
 
 class MockFundamentalProvider:
@@ -33,12 +35,19 @@ class MockFundamentalProvider:
             crumb_resp = client.get("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=3.0)
             if crumb_resp.status_code == 200:
                 crumb = crumb_resp.text.strip()
-                url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol.upper()}?crumb={crumb}&modules=defaultKeyStatistics,financialData,secFilings"
+                url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol.upper()}?crumb={crumb}&modules=defaultKeyStatistics,financialData,secFilings,assetProfile,summaryProfile"
                 resp = client.get(url, timeout=5.0)
                 if resp.status_code == 200:
                     res = resp.json()["quoteSummary"]["result"][0]
                     findata = res.get("financialData", {}) or {}
                     stats = res.get("defaultKeyStatistics", {}) or {}
+                    asset_profile = res.get("assetProfile", {}) or {}
+                    summary_profile = res.get("summaryProfile", {}) or {}
+                    sector = resolve_sector_from_yahoo(
+                        sec_info.get("sector", "Unknown"),
+                        asset_profile=asset_profile,
+                        summary_profile=summary_profile,
+                    )
 
                     if is_etf:
                         total_assets = stats.get("totalAssets", {}).get("raw", 0.0)
@@ -108,20 +117,25 @@ class MockFundamentalProvider:
                     from app.schemas.domain import FundamentalSnapshotRecord
                     from app.services.fundamentals.snapshot_store import save_snapshot_record
 
-                    snapshot = FundamentalSnapshot(
-                        symbol=symbol.upper(),
-                        period="TTM",
-                        report_date=report_date,
-                        revenue_growth_yoy=float(revenue_growth),
-                        gross_margin=float(gross_margin),
-                        operating_margin=float(operating_margin),
-                        free_cash_flow=float(fcf),
-                        cash=float(cash),
-                        total_debt=float(total_debt),
-                        pe_forward=float(pe_forward) if pe_forward is not None else None,
-                        ev_sales=float(ev_sales) if ev_sales is not None else None,
-                        fcf_yield=float(fcf_yield) if fcf_yield is not None else None,
-                        source="live_yahoo_finance",
+                    snapshot = enrich_sector_fields(
+                        FundamentalSnapshot(
+                            symbol=symbol.upper(),
+                            period="TTM",
+                            report_date=report_date,
+                            revenue_growth_yoy=float(revenue_growth),
+                            gross_margin=float(gross_margin),
+                            operating_margin=float(operating_margin),
+                            free_cash_flow=float(fcf),
+                            cash=float(cash),
+                            total_debt=float(total_debt),
+                            pe_forward=float(pe_forward) if pe_forward is not None else None,
+                            ev_sales=float(ev_sales) if ev_sales is not None else None,
+                            fcf_yield=float(fcf_yield) if fcf_yield is not None else None,
+                            source="live_yahoo_finance",
+                        ),
+                        sector,
+                        stats=stats,
+                        financial_data=findata,
                     )
                     save_snapshot_record(
                         FundamentalSnapshotRecord(
@@ -147,7 +161,10 @@ class MockFundamentalProvider:
         raise RuntimeError(f"Live fundamental data unavailable for {symbol.upper()}")
 
     def _mock_fundamentals(self, symbol: str, is_speculative: bool) -> FundamentalSnapshot:
-        return FundamentalSnapshot(
+        from app.services.broker.securities import classify_security
+
+        sec_info = classify_security(symbol.upper())
+        snapshot = FundamentalSnapshot(
             symbol=symbol.upper(),
             period="TTM",
             report_date=recent_mock_date(42),
@@ -161,3 +178,17 @@ class MockFundamentalProvider:
             ev_sales=9.5 if not is_speculative else 24.0,
             fcf_yield=0.031 if not is_speculative else None,
         )
+        sector = sec_info.get("sector", "Unknown")
+        if sector == "Financials":
+            return snapshot.model_copy(
+                update={
+                    "price_to_tangible_book": 1.3,
+                    "return_on_equity": 0.14,
+                    "net_interest_margin": 0.032,
+                }
+            )
+        if sector == "Real Estate":
+            return snapshot.model_copy(update={"ffo_per_share": 4.2, "occupancy_rate": 0.96})
+        if sector == "Utilities":
+            return snapshot.model_copy(update={"rate_base_growth": 0.03, "allowed_roe": 0.10})
+        return snapshot

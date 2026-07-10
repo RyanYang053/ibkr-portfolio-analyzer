@@ -16,6 +16,7 @@ FATAL_CODES = frozenset(
         "NON_FINITE_SUMMARY_VALUE",
         "NON_POSITIVE_NET_LIQUIDATION",
         "NON_FINITE_POSITION_VALUE",
+        "MISSING_MARKET_PRICE",
         "FX_CONVERSION_FAILED",
         "ACCOUNT_RECONCILIATION_GAP",
     }
@@ -306,3 +307,88 @@ def validate_portfolio_snapshot(
             "IBKR net liquidation can include accrued interest, unsettled balances, and derivative values."
         ),
     }
+
+
+def validate_and_gate_snapshot(
+    summary: AccountSummary,
+    positions: list[Position],
+    *,
+    fx_resolver: FxResolver | None = None,
+) -> dict[str, Any]:
+    validation = validate_portfolio_snapshot(summary, positions, fx_resolver=fx_resolver)
+    require_analytics_safe(validation)
+    return validation
+
+
+def build_valuation_disclosure(
+    summary: AccountSummary,
+    positions: list[Position],
+    validation: dict[str, Any],
+) -> dict[str, Any]:
+    from app.services.broker.ibkr_readonly import get_exchange_rate
+
+    base_currency = summary.base_currency.upper().strip()
+    total_gross_base = 0.0
+    included_gross_base = 0.0
+    excluded_con_ids: list[int] = []
+    exclusion_reasons: dict[str, str] = {}
+    valuation_sources: dict[str, str] = {}
+    oldest_timestamp = summary.data_timestamp
+
+    for position in positions:
+        if position.quantity == 0:
+            continue
+        symbol = position.symbol.upper().strip()
+        identity = str(position.con_id) if position.con_id is not None else symbol
+
+        if position.market_price <= 0:
+            if position.con_id is not None:
+                excluded_con_ids.append(position.con_id)
+            exclusion_reasons[symbol] = "MISSING_MARKET_PRICE"
+            continue
+
+        try:
+            rate = float(get_exchange_rate(position.currency, base_currency))
+            if not math.isfinite(rate) or rate <= 0:
+                raise ValueError("FX rate must be finite and positive")
+            value_base = abs(position.market_value * rate)
+            total_gross_base += value_base
+            included_gross_base += value_base
+            valuation_sources[identity] = "broker"
+            position_timestamp = position.updated_at
+            if position_timestamp.tzinfo is None:
+                position_timestamp = position_timestamp.replace(tzinfo=timezone.utc)
+            if position_timestamp < oldest_timestamp.replace(tzinfo=timezone.utc) if oldest_timestamp.tzinfo is None else oldest_timestamp:
+                oldest_timestamp = position_timestamp
+        except Exception:
+            if position.con_id is not None:
+                excluded_con_ids.append(position.con_id)
+            exclusion_reasons[symbol] = "FX_CONVERSION_FAILED"
+
+    included_percent = (included_gross_base / total_gross_base * 100.0) if total_gross_base > 0 else 0.0
+    if oldest_timestamp.tzinfo is None:
+        oldest_timestamp = oldest_timestamp.replace(tzinfo=timezone.utc)
+
+    return {
+        "included_gross_value_percent": round(included_percent, 4),
+        "excluded_con_ids": sorted(set(excluded_con_ids)),
+        "exclusion_reasons": exclusion_reasons,
+        "oldest_source_timestamp": oldest_timestamp.isoformat(),
+        "valuation_sources": valuation_sources,
+        "validation_status": validation.get("status"),
+        "missing_price_count": validation.get("metrics", {}).get("missing_price_count", 0),
+    }
+
+
+def prepare_professional_response(
+    result: Any,
+    summary: AccountSummary,
+    positions: list[Position],
+    validation: dict[str, Any],
+) -> dict[str, Any]:
+    from app.services.guardrails.engine import append_compliance_disclaimer
+
+    payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
+    payload["snapshot_validation"] = validation
+    payload["valuation_disclosure"] = build_valuation_disclosure(summary, positions, validation)
+    return append_compliance_disclaimer(payload)

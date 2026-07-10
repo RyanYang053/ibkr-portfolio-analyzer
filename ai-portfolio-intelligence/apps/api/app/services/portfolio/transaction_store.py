@@ -7,6 +7,7 @@ from datetime import date, datetime
 from threading import Lock
 from typing import Optional
 
+from app.core.config import settings
 from app.schemas.domain import Transaction
 from app.services.broker.base import BrokerAdapter
 from app.services.portfolio.ledger_coverage import (
@@ -59,6 +60,13 @@ def _transaction_key(txn: Transaction) -> str:
 
 
 def load_transactions(account_id: str) -> list[Transaction]:
+    if settings.persistence_backend == "postgres":
+        from app.db.ledger_transaction_repo import read_transactions
+
+        stored = read_transactions(account_id)
+        if stored is not None:
+            return [Transaction(**item) for item in stored]
+
     path = _transactions_path(account_id)
     if not os.path.exists(path):
         return []
@@ -77,7 +85,13 @@ def save_transactions(account_id: str, transactions: list[Transaction]) -> list[
     for txn in transactions:
         existing[_transaction_key(txn)] = txn
     merged = sorted(existing.values(), key=lambda item: (item.trade_date, item.symbol, item.action))
-    _atomic_write(_transactions_path(account_id), [item.model_dump(mode="json") for item in merged])
+
+    if settings.persistence_backend == "postgres":
+        from app.db.ledger_transaction_repo import replace_transactions
+
+        replace_transactions(account_id, merged)
+    else:
+        _atomic_write(_transactions_path(account_id), [item.model_dump(mode="json") for item in merged])
     return merged
 
 

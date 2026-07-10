@@ -47,6 +47,14 @@ def _coverage_path(account_id: str) -> str:
 
 
 def save_ledger_coverage(coverage: TransactionLedgerCoverage) -> TransactionLedgerCoverage:
+    from app.core.config import settings
+
+    if settings.persistence_backend == "postgres":
+        from app.db.ledger_coverage_repo import upsert_coverage
+
+        upsert_coverage(coverage)
+        return coverage
+
     os.makedirs(DATA_DIR, exist_ok=True)
     with _FILE_LOCK:
         fd, temporary_path = tempfile.mkstemp(prefix="ledger_coverage_", suffix=".tmp", dir=DATA_DIR)
@@ -63,6 +71,15 @@ def save_ledger_coverage(coverage: TransactionLedgerCoverage) -> TransactionLedg
 
 
 def load_ledger_coverage(account_id: str) -> Optional[TransactionLedgerCoverage]:
+    from app.core.config import settings
+
+    if settings.persistence_backend == "postgres":
+        from app.db.ledger_coverage_repo import read_coverage
+
+        stored = read_coverage(account_id)
+        if stored is not None:
+            return TransactionLedgerCoverage(**stored)
+
     path = _coverage_path(account_id)
     if not os.path.exists(path):
         return None

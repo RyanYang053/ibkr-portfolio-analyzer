@@ -113,6 +113,9 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
             try:
                 summary = adapter.get_account_summary(account.id)
                 positions = adapter.get_positions(account.id)
+                from app.services.data_quality.validation import validate_and_gate_snapshot
+
+                validate_and_gate_snapshot(summary, positions)
                 record_pnl_snapshot(summary, positions, account.id)
                 complete_job("pnl_snapshot", account.id, business_date, slot, status="completed")
             except Exception as exc:
@@ -136,6 +139,9 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
                         logger.info("Triggering scheduled daily consolidated snapshot")
                         try:
                             summary, positions = _get_consolidated_summary_and_positions(adapter)
+                            from app.services.data_quality.validation import validate_and_gate_snapshot
+
+                            validate_and_gate_snapshot(summary, positions)
                             record_pnl_snapshot(summary, positions, "all")
                             complete_job("pnl_snapshot", "all", business_date, slot, status="completed")
                         except Exception as exc:

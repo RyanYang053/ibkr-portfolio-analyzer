@@ -249,7 +249,7 @@ def build_portfolio_memo_prompt(*, summary: Any, positions: list[Position], risk
 
     try:
         from app.services.portfolio.pnl_tracker import get_pnl_history
-        pnl_history = get_pnl_history()[-7:]
+        pnl_history = get_pnl_history(active_id)[-7:]
         payload["performance_history"] = [
             {
                 "date": entry.date,

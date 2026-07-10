@@ -12,7 +12,33 @@ import type {
   OptionsStrategyReport,
 } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BACKEND_URL = process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const CLIENT_API_BASE = "/api/backend";
+
+const AUTH_FAILURE_STATUSES = new Set([401, 422, 503]);
+
+async function resolveApiBase(): Promise<string> {
+  return typeof window === "undefined" ? BACKEND_URL : CLIENT_API_BASE;
+}
+
+async function buildRequestHeaders(initHeaders?: HeadersInit): Promise<Headers> {
+  const headers = new Headers(initHeaders);
+  if (typeof window === "undefined") {
+    const { cookies } = await import("next/headers");
+    const cookieStore = await cookies();
+    const token = cookieStore.get("access_token")?.value;
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+  }
+  return headers;
+}
+
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const base = await resolveApiBase();
+  const headers = await buildRequestHeaders(init?.headers);
+  return fetch(`${base}${path}`, { ...init, headers, cache: "no-store" });
+}
 
 export class ApiError extends Error {
   status: number;
@@ -25,8 +51,8 @@ export class ApiError extends Error {
   }
 }
 
-async function requireJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, { cache: "no-store" });
+async function requireJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiFetch(path, init);
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
     throw new ApiError(response.status, detail);
@@ -49,10 +75,19 @@ export function formatApiError(error: unknown): string {
 
 async function getJson<T>(path: string, fallback: T): Promise<T> {
   try {
-    const response = await fetch(`${API_URL}${path}`, { cache: "no-store" });
-    if (!response.ok) return fallback;
+    const response = await apiFetch(path);
+    if (!response.ok) {
+      if (AUTH_FAILURE_STATUSES.has(response.status)) {
+        const detail = await response.json().catch(() => null);
+        throw new ApiError(response.status, detail);
+      }
+      return fallback;
+    }
     return response.json();
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
     return fallback;
   }
 }
@@ -88,8 +123,20 @@ export async function getAccounts(): Promise<any[]> {
   return getJson("/broker/accounts", []);
 }
 
-export async function getHoldingAnalysis(symbol: string, accountId?: string): Promise<{ position: Position; recommendation: Recommendation; score: { final_score: number | null; interpretation: string; sub_scores: Record<string, number> }; last_ai_report?: AIStockReport | null }> {
-  const query = accountId ? `?account_id=${accountId}` : "";
+function buildHoldingQuery(accountId?: string, conId?: number | null): string {
+  const params = new URLSearchParams();
+  if (accountId) params.set("account_id", accountId);
+  if (conId != null) params.set("con_id", String(conId));
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export async function getHoldingAnalysis(
+  symbol: string,
+  accountId?: string,
+  conId?: number | null,
+): Promise<{ position: Position; recommendation: Recommendation; score: { final_score: number | null; interpretation: string; sub_scores: Record<string, number> }; last_ai_report?: AIStockReport | null }> {
+  const query = buildHoldingQuery(accountId, conId);
   return requireJson(`/stocks/${symbol}/analysis${query}`);
 }
 
@@ -117,23 +164,15 @@ export async function getAIStatus(): Promise<AIStatus> {
 }
 
 export async function refreshAIStockReport(symbol: string): Promise<AIStockReport> {
-  const response = await fetch(`${API_URL}/ai/analyze-stock/${symbol}`, { method: "POST" });
-  if (!response.ok) {
-    throw new Error(`AI analysis failed with status ${response.status}`);
-  }
-  return response.json();
+  return requireJson<AIStockReport>(`/ai/analyze-stock/${symbol}`, { method: "POST" });
 }
 
 export async function configureAI(apiKey: string, model: string): Promise<AIStatus & { api_key: string }> {
-  const response = await fetch(`${API_URL}/ai/configure`, {
+  return requireJson<AIStatus & { api_key: string }>("/ai/configure", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ api_key: apiKey, model })
+    body: JSON.stringify({ api_key: apiKey, model }),
   });
-  if (!response.ok) {
-    throw new Error(`AI configuration failed with status ${response.status}`);
-  }
-  return response.json();
 }
 
 export async function getBrokerStatus(): Promise<BrokerStatus> {
@@ -147,16 +186,12 @@ export async function getBrokerStatus(): Promise<BrokerStatus> {
   });
 }
 
-export async function configureBrokerReadonly(payload: { mode: string; host: string; port: number; client_id: number; account_id?: string }) {
-  const response = await fetch(`${API_URL}/broker/configure-readonly`, {
+export async function configureBrokerReadonly(payload: { mode: string; host: string; port: number; client_id: number; account_id?: string }): Promise<BrokerStatus> {
+  return requireJson<BrokerStatus>("/broker/configure-readonly", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    throw new Error(`IBKR configuration failed with status ${response.status}`);
-  }
-  return response.json();
 }
 
 export async function getTechnicals(symbol: string): Promise<{
@@ -201,11 +236,7 @@ export async function getFundamentals(symbol: string): Promise<{
 }
 
 export async function refreshAIPortfolioReport(): Promise<any> {
-  const response = await fetch(`${API_URL}/ai/analyze-portfolio`, { method: "POST" });
-  if (!response.ok) {
-    throw new Error(`AI Portfolio analysis failed with status ${response.status}`);
-  }
-  return response.json();
+  return requireJson("/ai/analyze-portfolio", { method: "POST" });
 }
 
 export async function getChartData(symbol: string, range: string): Promise<Array<{
@@ -224,25 +255,15 @@ export async function addWatchlistItem(payload: {
   target_add_price?: number;
   target_trim_review_price?: number;
 }): Promise<Record<string, any>> {
-  const response = await fetch(`${API_URL}/watchlist`, {
+  return requireJson("/watchlist", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    throw new Error(`Failed to add watchlist item: ${response.statusText}`);
-  }
-  return response.json();
 }
 
 export async function deleteWatchlistItem(id: number): Promise<Record<string, any>> {
-  const response = await fetch(`${API_URL}/watchlist/${id}`, {
-    method: "DELETE"
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to delete watchlist item: ${response.statusText}`);
-  }
-  return response.json();
+  return requireJson(`/watchlist/${id}`, { method: "DELETE" });
 }
 
 export async function sendChatMessage(
@@ -250,15 +271,11 @@ export async function sendChatMessage(
   taggedSymbols: string[],
   history: Array<{ role: string; content: string }>
 ): Promise<{ response: string }> {
-  const response = await fetch(`${API_URL}/ai/chat`, {
+  return requireJson("/ai/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, tagged_symbols: taggedSymbols, history })
+    body: JSON.stringify({ message, tagged_symbols: taggedSymbols, history }),
   });
-  if (!response.ok) {
-    throw new Error(`Chat request failed: ${response.statusText}`);
-  }
-  return response.json();
 }
 
 export async function getPnlHistory(accountId?: string): Promise<any[]> {
@@ -275,11 +292,7 @@ export async function getPnlHistory(accountId?: string): Promise<any[]> {
 
 export async function recordSnapshot(accountId?: string): Promise<any> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  const response = await fetch(`${API_URL}/portfolio/pnl-history/record${query}`, { method: "POST" });
-  if (!response.ok) {
-    throw new Error(`Failed to record snapshot: ${response.statusText}`);
-  }
-  return response.json();
+  return requireJson(`/portfolio/pnl-history/record${query}`, { method: "POST" });
 }
 
 export async function getScheduleSettings(): Promise<{ settings: any; runs: any[] }> {
@@ -290,27 +303,19 @@ export async function getScheduleSettings(): Promise<{ settings: any; runs: any[
 }
 
 export async function updateScheduleSettings(payload: { enabled: boolean; morning_time: string; midday_time: string; night_time: string }): Promise<any> {
-  const response = await fetch(`${API_URL}/ai/schedule`, {
+  return requireJson("/ai/schedule", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    throw new Error(`Failed to update schedule settings: ${response.statusText}`);
-  }
-  return response.json();
 }
 
 export async function triggerScheduledAnalyze(period: string): Promise<any> {
-  const response = await fetch(`${API_URL}/ai/scheduled-analyze`, {
+  return requireJson("/ai/scheduled-analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ period })
+    body: JSON.stringify({ period }),
   });
-  if (!response.ok) {
-    throw new Error(`Scheduled analysis failed: ${response.statusText}`);
-  }
-  return response.json();
 }
 
 export async function getInvestorProfile(accountId?: string): Promise<any> {
@@ -330,15 +335,11 @@ export async function getInvestorProfile(accountId?: string): Promise<any> {
 
 export async function updateInvestorProfile(profile: any, accountId?: string): Promise<any> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  const response = await fetch(`${API_URL}/portfolio/profile${query}`, {
+  return requireJson(`/portfolio/profile${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(profile)
+    body: JSON.stringify(profile),
   });
-  if (!response.ok) {
-    throw new Error(`Failed to update investor profile: ${response.statusText}`);
-  }
-  return response.json();
 }
 
 export async function getPortfolioPolicy(accountId?: string): Promise<any> {
@@ -359,15 +360,11 @@ export async function getPortfolioPolicy(accountId?: string): Promise<any> {
 
 export async function updatePortfolioPolicy(policy: any, accountId?: string): Promise<any> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  const response = await fetch(`${API_URL}/portfolio/policy${query}`, {
+  return requireJson(`/portfolio/policy${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(policy)
+    body: JSON.stringify(policy),
   });
-  if (!response.ok) {
-    throw new Error(`Failed to update portfolio policy: ${response.statusText}`);
-  }
-  return response.json();
 }
 
 export async function getAdvancedRiskMetrics(accountId?: string): Promise<any> {
@@ -412,8 +409,13 @@ export async function getOptimizationProposal(accountId?: string): Promise<Portf
   return { ...proposal, unavailable: false };
 }
 
-export async function getOptionsStrategy(symbol: string): Promise<OptionsStrategyReport> {
-  return requireJson<OptionsStrategyReport>(`/stocks/${symbol}/options-strategy`);
+export async function getOptionsStrategy(
+  symbol: string,
+  accountId?: string,
+  conId?: number | null,
+): Promise<OptionsStrategyReport> {
+  const query = buildHoldingQuery(accountId, conId);
+  return requireJson<OptionsStrategyReport>(`/stocks/${symbol}/options-strategy${query}`);
 }
 
 

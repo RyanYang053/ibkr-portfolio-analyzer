@@ -91,9 +91,18 @@ def get_pnl_history(account_id: Optional[str] = None) -> list[PortfolioPnLSnapsh
     if is_demo and not os.path.exists(history_file):
         _initialize_mock_history(history_file)
 
+    from app.core.config import settings
     from app.db.legacy_bridge import read_json_with_legacy
 
-    raw = read_json_with_legacy("pnl_history", store_key, history_file if os.path.exists(history_file) else None, default=[])
+    raw: list[dict] | None = None
+    if settings.persistence_backend == "postgres" and not is_demo:
+        from app.db.pnl_snapshot_repo import read_pnl_snapshots
+
+        raw = read_pnl_snapshots(store_key)
+
+    if raw is None:
+        legacy = read_json_with_legacy("pnl_history", store_key, history_file if os.path.exists(history_file) else None, default=[])
+        raw = legacy if isinstance(legacy, list) else []
     if not raw:
         return []
 
@@ -247,11 +256,18 @@ def record_pnl_snapshot(
 
     history.append(snapshot)
     store_key = "demo" if is_demo else active_account_id
+    from app.core.config import settings
     from app.db.legacy_bridge import write_json_state
 
+    snapshot_payload = snapshot.model_dump()
     write_json_state("pnl_history", store_key, [item.model_dump() for item in history])
-    history_file = _history_path(None if is_demo else active_account_id, is_demo)
-    _atomic_write(history_file, [item.model_dump() for item in history])
+    if settings.persistence_backend == "postgres" and not is_demo:
+        from app.db.pnl_snapshot_repo import upsert_pnl_snapshot
+
+        upsert_pnl_snapshot(active_account_id, date.fromisoformat(snapshot.date), snapshot_payload)
+    elif not is_demo:
+        history_file = _history_path(None if is_demo else active_account_id, is_demo)
+        _atomic_write(history_file, [item.model_dump() for item in history])
     return snapshot
 
 

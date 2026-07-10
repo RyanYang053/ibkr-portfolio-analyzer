@@ -7,9 +7,11 @@ import { TrendingUp, Activity, DollarSign, Calendar, Shield, Percent, Sparkles, 
 type OptionsStrategyDashboardProps = {
   initialData?: OptionsStrategyReport | null;
   symbol: string;
+  accountId?: string;
+  conId?: number | null;
 };
 
-export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrategyDashboardProps) {
+export function OptionsStrategyDashboard({ initialData, symbol, accountId, conId }: OptionsStrategyDashboardProps) {
   const [data, setData] = React.useState<OptionsStrategyReport | null>(initialData || null);
   const [loading, setLoading] = React.useState(!initialData);
   const [error, setError] = React.useState<string | null>(null);
@@ -23,12 +25,8 @@ export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrateg
     
     const fetchOptions = async () => {
       try {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-        const res = await fetch(`${API_URL}/stocks/${symbol}/options-strategy`);
-        if (!res.ok) {
-          throw new Error("Failed to fetch options strategy data");
-        }
-        const json = await res.json();
+        const { getOptionsStrategy } = await import("@/lib/api");
+        const json = await getOptionsStrategy(symbol, accountId, conId);
         if (active) {
           setData(json);
           setLoading(false);
@@ -46,7 +44,7 @@ export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrateg
     return () => {
       active = false;
     };
-  }, [symbol, initialData]);
+  }, [symbol, initialData, accountId, conId]);
 
   const formatIV = (iv: number | null | undefined) => {
     if (iv == null) return "Unavailable";

@@ -16,13 +16,14 @@ export default async function HoldingDetailPage({
   searchParams,
 }: { 
   params: Promise<{ symbol: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; account_id?: string; con_id?: string }>;
 }) {
   const { symbol } = await params;
-  const { tab = "research" } = await searchParams;
+  const { tab = "research", account_id: accountId, con_id: conIdRaw } = await searchParams;
+  const conId = conIdRaw ? Number(conIdRaw) : undefined;
   
   const [data, aiStatus, technicals, news, fundamentals, watchlist] = await Promise.all([
-    getHoldingAnalysis(symbol.toUpperCase()),
+    getHoldingAnalysis(symbol.toUpperCase(), accountId, conId),
     getAIStatus(),
     getTechnicals(symbol.toUpperCase()),
     getNews(symbol.toUpperCase()),
@@ -75,7 +76,7 @@ export default async function HoldingDetailPage({
       </div>
 
       {tab === "options" ? (
-        <OptionsStrategyDashboard symbol={position.symbol} />
+        <OptionsStrategyDashboard symbol={position.symbol} accountId={accountId} conId={conId ?? position.con_id ?? null} />
       ) : (
         <>
           <Disclaimer />

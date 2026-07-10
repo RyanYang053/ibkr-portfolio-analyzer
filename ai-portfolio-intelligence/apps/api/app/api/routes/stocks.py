@@ -7,7 +7,8 @@ from app.api.auth_deps import get_current_principal
 from app.api.deps import broker_not_configured_error, data_provider_not_configured_error, demo_mode_enabled, get_broker_adapter
 from app.services.broker.base import BrokerAdapter
 from app.services.portfolio.account_scope import find_portfolio_position, is_symbol_held, resolve_portfolio_account_id
-from app.services.fundamentals.mock_provider import MockFundamentalProvider
+from app.services.portfolio.snapshot import gate_professional_response, is_portfolio_position
+from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
@@ -21,9 +22,14 @@ router = APIRouter(
 )
 
 
-def _position(symbol: str, adapter: BrokerAdapter, account_id: Optional[str] = None):
+def _position(
+    symbol: str,
+    adapter: BrokerAdapter,
+    account_id: Optional[str] = None,
+    con_id: Optional[int] = None,
+):
     try:
-        position = find_portfolio_position(symbol, adapter, account_id)
+        position = find_portfolio_position(symbol, adapter, account_id, con_id)
         if position is not None:
             return position
     except HTTPException:
@@ -92,9 +98,10 @@ def _is_held(symbol: str, adapter: BrokerAdapter, account_id: Optional[str] = No
 def stock(
     symbol: str,
     account_id: Optional[str] = None,
+    con_id: Optional[int] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
 ):
-    return _position(symbol, adapter, account_id)
+    return _position(symbol, adapter, account_id, con_id)
 
 
 @router.get("/{symbol}/fundamentals")
@@ -104,7 +111,7 @@ def fundamentals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapte
         raise data_provider_not_configured_error("Fundamental")
     allow_mock = is_demo
     try:
-        return MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(symbol.upper())
+        return get_fundamental_provider(allow_mock=allow_mock).get_fundamentals(symbol.upper())
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Fundamental data not found for {symbol.upper()}: {exc}")
 
@@ -173,7 +180,7 @@ def valuation(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter))
         raise data_provider_not_configured_error("Valuation")
     allow_mock = is_demo
     try:
-        data = MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(symbol.upper())
+        data = get_fundamental_provider(allow_mock=allow_mock).get_fundamentals(symbol.upper())
         return {"symbol": symbol.upper(), "pe_forward": data.pe_forward, "ev_sales": data.ev_sales, "fcf_yield": data.fcf_yield}
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Valuation data not found for {symbol.upper()}: {exc}")
@@ -194,13 +201,27 @@ def news(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
 
 
 @router.get("/{symbol}/score")
-def score(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    return score_stock(_position(symbol, adapter))
+def score(
+    symbol: str,
+    account_id: Optional[str] = None,
+    con_id: Optional[int] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    position = _position(symbol, adapter, account_id, con_id)
+    result = score_stock(position)
+    if is_portfolio_position(position):
+        return gate_professional_response(adapter, position.account_id, result)
+    return result
 
 
 @router.get("/{symbol}/analysis")
-def analysis(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    position = _position(symbol, adapter)
+def analysis(
+    symbol: str,
+    account_id: Optional[str] = None,
+    con_id: Optional[int] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    position = _position(symbol, adapter, account_id, con_id)
     from app.services.ai.report_cache import get_cached_report
     cached = get_cached_report(position.symbol)
     if cached:
@@ -209,21 +230,26 @@ def analysis(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
             prov = dict(cached["provenance"])
             prov["cached_data"] = True
             cached["provenance"] = prov
-    return {
-        "position": position,
-        "score": score_stock(position),
-        "recommendation": build_recommendation(position),
+    score = score_stock(position)
+    payload = {
+        "position": position.model_dump(),
+        "score": score.model_dump(),
+        "recommendation": build_recommendation(position).model_dump(),
         "last_ai_report": cached,
     }
+    if is_portfolio_position(position):
+        return gate_professional_response(adapter, position.account_id, payload)
+    return payload
 
 
 @router.get("/{symbol}/options-strategy")
 def options_strategy(
     symbol: str,
     account_id: Optional[str] = None,
+    con_id: Optional[int] = None,
     adapter: BrokerAdapter = Depends(get_broker_adapter),
 ):
-    position = _position(symbol, adapter, account_id)
+    position = _position(symbol, adapter, account_id, con_id)
     is_demo = demo_mode_enabled()
     allow_mock = is_demo
     provider = MockMarketDataProvider(allow_mock=allow_mock)
@@ -241,23 +267,31 @@ def options_strategy(
     except Exception:
         pass
 
-    cash_available = 15000.0
-    account_type = "Margin"
     try:
         active_id = resolve_portfolio_account_id(account_id, adapter)
         summary_data = adapter.get_account_summary(active_id)
         cash_available = summary_data.cash
         accounts = adapter.get_accounts()
         account_type = next((acct.account_type for acct in accounts if acct.id == active_id), "Margin")
-    except Exception:
-        pass
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "ACCOUNT_CONTEXT_UNAVAILABLE",
+                "message": "Options eligibility requires a resolved broker account context.",
+                "error": str(exc),
+            },
+        ) from exc
 
     from app.services.ai.report_generator import generate_options_strategy_report
-    return generate_options_strategy_report(
+    result = generate_options_strategy_report(
         position,
         technicals_data,
         cash_available=cash_available,
-        account_type=account_type
+        account_type=account_type,
     )
+    return gate_professional_response(adapter, active_id, result)
 
 

@@ -14,7 +14,7 @@ from app.services.ai.prompt_templates import (
     build_stock_analysis_prompt,
 )
 from app.services.ai.structured_outputs import build_claim, build_structured_stock_context, evaluate_confidence_limits
-from app.services.fundamentals.mock_provider import MockFundamentalProvider
+from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
 from app.services.scoring.decision_engine import build_recommendation
@@ -396,7 +396,7 @@ def _build_context(position: Position, score, recommendation) -> dict[str, Any]:
     allow_mock = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
 
     try:
-        fundamentals = MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(position.symbol)
+        fundamentals = get_fundamental_provider(allow_mock=allow_mock).get_fundamentals(position.symbol)
     except Exception:
         fundamentals = None
     valuation = (

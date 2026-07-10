@@ -48,3 +48,11 @@ def test_reit_sector_uses_ffo_and_occupancy_when_present():
         "Real Estate",
     )
     assert scores["business_quality"] > 50
+
+
+def test_financials_sector_falls_back_with_partial_sector_inputs():
+    scores = score_fundamentals_for_sector(
+        _fundamentals(price_to_tangible_book=1.2),
+        "Financials",
+    )
+    assert "business_quality" in scores
