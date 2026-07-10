@@ -150,7 +150,8 @@ def test_measured_factor_model_returns_exposures():
         assert metadata.get("observation_count", 0) >= 20
 
 
-def test_portfolio_optimizer_produces_trade_proposal():
+def test_portfolio_optimizer_produces_trade_proposal(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.optimization_liquidity_cap", 0.5)
     positions = [
         Position(
             account_id="MOCK-001",
@@ -208,6 +209,8 @@ def test_portfolio_optimizer_produces_trade_proposal():
         target_cash_percent=20,
         target_bond_percent=0,
         minimum_cash=5000,
+        max_single_stock_weight=60.0,
+        max_sector_weight=80.0,
     )
     profile = InvestorProfile(
         objective="Growth",

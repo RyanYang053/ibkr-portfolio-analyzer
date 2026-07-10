@@ -1,10 +1,85 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.spatial.distance import squareform
+
+InstrumentKey = tuple[int | None, str, str, str]
+
+
+@dataclass(frozen=True)
+class OptimizationConstraints:
+    sleeve_budget: float
+    current_weights: np.ndarray
+    turnover_budget: float | None
+    liquidity_caps: np.ndarray | None
+    max_weights: np.ndarray | None
+    sector_labels: list[str]
+    sector_cap: float | None
+    fixed_sector_exposure: dict[str, float]
+    sleeve_portfolio_fraction: float
+
+
+def build_cvxpy_constraints(weights, constraints: OptimizationConstraints) -> list:
+    import cvxpy as cp
+
+    built: list = [
+        cp.sum(weights) == constraints.sleeve_budget,
+        weights >= 0,
+    ]
+    if constraints.turnover_budget is not None:
+        built.append(cp.norm1(weights - constraints.current_weights) <= constraints.turnover_budget)
+    if constraints.liquidity_caps is not None:
+        built.append(weights <= constraints.liquidity_caps)
+    if constraints.max_weights is not None:
+        built.append(weights <= constraints.max_weights)
+    if constraints.sector_labels and constraints.sector_cap is not None:
+        sectors = sorted(set(constraints.sector_labels))
+        for sector in sectors:
+            indices = [index for index, label in enumerate(constraints.sector_labels) if label == sector]
+            optimized = cp.sum(weights[indices])
+            fixed = constraints.fixed_sector_exposure.get(sector, 0.0)
+            built.append(
+                fixed + constraints.sleeve_portfolio_fraction * optimized <= constraints.sector_cap
+            )
+    return built
+
+
+def verify_optimization_constraints(
+    weights: list[float],
+    constraints: OptimizationConstraints,
+    *,
+    tolerance: float = 1e-4,
+) -> dict[str, Any]:
+    result = verify_weight_constraints(
+        weights,
+        sleeve_budget=constraints.sleeve_budget,
+        current_weights=[float(value) for value in constraints.current_weights],
+        turnover_budget=constraints.turnover_budget,
+        liquidity_caps=(
+            [float(value) for value in constraints.liquidity_caps]
+            if constraints.liquidity_caps is not None
+            else None
+        ),
+        max_weight=None,
+        sector_labels=constraints.sector_labels,
+        sector_cap=constraints.sector_cap,
+        fixed_sector_exposure=constraints.fixed_sector_exposure,
+        sleeve_portfolio_fraction=constraints.sleeve_portfolio_fraction,
+        tolerance=tolerance,
+    )
+    if constraints.max_weights is not None:
+        for index, weight in enumerate(weights):
+            cap = float(constraints.max_weights[index])
+            slack_key = f"max_weight_{index}"
+            result["slack"][slack_key] = round(cap - weight, 6)
+            if weight > cap + tolerance:
+                result["violations"].append(slack_key)
+        result["feasible"] = not result["violations"]
+    return result
 
 
 def _correlation_matrix(covariance: np.ndarray) -> np.ndarray:
@@ -156,25 +231,37 @@ def verify_weight_constraints(
     return {"feasible": not violations, "violations": violations, "slack": slack}
 
 
-def _apply_sector_constraints(
-    constraints: list,
-    weights,
-    *,
-    sector_labels: list[str] | None,
-    sector_cap: float | None,
-    fixed_sector_exposure: dict[str, float] | None,
-    sleeve_portfolio_fraction: float = 1.0,
-) -> None:
-    if not sector_labels or sector_cap is None:
-        return
-    import cvxpy as cp
+def solve_min_variance_with_constraints(
+    covariance: list[list[float]],
+    constraints: OptimizationConstraints,
+) -> tuple[list[float] | None, dict[str, Any]]:
+    try:
+        import cvxpy as cp
+    except ImportError:
+        return None, {"status": "cvxpy_unavailable"}
 
-    fixed_sector_exposure = fixed_sector_exposure or {}
-    sectors = sorted(set(sector_labels))
-    for sector in sectors:
-        indices = [index for index, label in enumerate(sector_labels) if label == sector]
-        optimized = cp.sum(weights[indices])
-        constraints.append(fixed_sector_exposure.get(sector, 0.0) + sleeve_portfolio_fraction * optimized <= sector_cap)
+    size = len(covariance)
+    if size == 0:
+        return None, {"status": "empty_covariance"}
+    sigma = np.array(covariance, dtype=float)
+    weights = cp.Variable(size, nonneg=True)
+    problem = cp.Problem(
+        cp.Minimize(cp.quad_form(weights, sigma)),
+        build_cvxpy_constraints(weights, constraints),
+    )
+    try:
+        problem.solve(solver=cp.OSQP, warm_start=True)
+    except Exception:
+        problem.solve()
+    if weights.value is None or problem.status not in {"optimal", "optimal_inaccurate"}:
+        return None, {"status": problem.status or "solver_failed"}
+    values = [float(value) for value in weights.value]
+    total = sum(values)
+    if total <= 0:
+        return None, {"status": "zero_weights"}
+    normalized = [value / total * constraints.sleeve_budget for value in values]
+    feasibility = verify_optimization_constraints(normalized, constraints)
+    return normalized, {"status": problem.status, "feasibility": feasibility}
 
 
 def solve_cvar_weights(
@@ -186,6 +273,7 @@ def solve_cvar_weights(
     current_weights: list[float] | None = None,
     turnover_budget: float | None = None,
     liquidity_caps: list[float] | None = None,
+    max_weights: np.ndarray | None = None,
     sector_labels: list[str] | None = None,
     sector_cap: float | None = None,
     fixed_sector_exposure: dict[str, float] | None = None,
@@ -206,23 +294,22 @@ def solve_cvar_weights(
     var = cp.Variable()
     tail_losses = cp.Variable(scenarios, nonneg=True)
     losses = -portfolio_returns
-    constraints = [
-        cp.sum(weights) == sleeve_budget,
-        tail_losses >= losses - var,
-    ]
-    if current_weights is not None and turnover_budget is not None:
-        current = np.array(current_weights, dtype=float)
-        constraints.append(cp.norm1(weights - current) <= turnover_budget)
-    if liquidity_caps is not None:
-        for index, cap in enumerate(liquidity_caps):
-            constraints.append(weights[index] <= cap)
-    _apply_sector_constraints(
-        constraints,
-        weights,
-        sector_labels=sector_labels,
+    constraint_set = OptimizationConstraints(
+        sleeve_budget=sleeve_budget,
+        current_weights=np.array(current_weights if current_weights is not None else [0.0] * assets),
+        turnover_budget=turnover_budget,
+        liquidity_caps=np.array(liquidity_caps) if liquidity_caps is not None else None,
+        max_weights=max_weights,
+        sector_labels=sector_labels or [],
         sector_cap=sector_cap,
-        fixed_sector_exposure=fixed_sector_exposure,
+        fixed_sector_exposure=fixed_sector_exposure or {},
         sleeve_portfolio_fraction=sleeve_portfolio_fraction,
+    )
+    constraints = build_cvxpy_constraints(weights, constraint_set)
+    constraints.extend(
+        [
+            tail_losses >= losses - var,
+        ]
     )
 
     problem = cp.Problem(
@@ -240,17 +327,7 @@ def solve_cvar_weights(
     if total <= 0:
         return None, {"status": "zero_weights"}
     normalized = [value / total * sleeve_budget for value in values]
-    feasibility = verify_weight_constraints(
-        normalized,
-        sleeve_budget=sleeve_budget,
-        current_weights=current_weights,
-        turnover_budget=turnover_budget,
-        liquidity_caps=liquidity_caps,
-        sector_labels=sector_labels,
-        sector_cap=sector_cap,
-        fixed_sector_exposure=fixed_sector_exposure,
-        sleeve_portfolio_fraction=sleeve_portfolio_fraction,
-    )
+    feasibility = verify_optimization_constraints(normalized, constraint_set)
     return normalized, {
         "status": problem.status,
         "objective": float(problem.value) if problem.value is not None else None,
@@ -267,6 +344,7 @@ def solve_mean_variance_with_constraints(
     turnover_budget: float | None = None,
     liquidity_caps: list[float] | None = None,
     max_weight: float | None = None,
+    max_weights: np.ndarray | None = None,
     sector_labels: list[str] | None = None,
     sector_cap: float | None = None,
     fixed_sector_exposure: dict[str, float] | None = None,
@@ -281,22 +359,21 @@ def solve_mean_variance_with_constraints(
     sigma = np.array(covariance, dtype=float)
     mu = np.array(expected_returns, dtype=float)
     weights = cp.Variable(size, nonneg=True)
-    constraints = [cp.sum(weights) == sleeve_budget]
-    if current_weights is not None and turnover_budget is not None:
-        constraints.append(cp.norm1(weights - np.array(current_weights)) <= turnover_budget)
-    if liquidity_caps is not None:
-        for index, cap in enumerate(liquidity_caps):
-            constraints.append(weights[index] <= cap)
-    if max_weight is not None:
-        constraints.append(weights <= max_weight)
-    _apply_sector_constraints(
-        constraints,
-        weights,
-        sector_labels=sector_labels,
+    resolved_max_weights = max_weights
+    if resolved_max_weights is None and max_weight is not None:
+        resolved_max_weights = np.full(size, max_weight)
+    constraint_set = OptimizationConstraints(
+        sleeve_budget=sleeve_budget,
+        current_weights=np.array(current_weights if current_weights is not None else [0.0] * size),
+        turnover_budget=turnover_budget,
+        liquidity_caps=np.array(liquidity_caps) if liquidity_caps is not None else None,
+        max_weights=resolved_max_weights,
+        sector_labels=sector_labels or [],
         sector_cap=sector_cap,
-        fixed_sector_exposure=fixed_sector_exposure,
+        fixed_sector_exposure=fixed_sector_exposure or {},
         sleeve_portfolio_fraction=sleeve_portfolio_fraction,
     )
+    constraints = build_cvxpy_constraints(weights, constraint_set)
     problem = cp.Problem(cp.Maximize(mu @ weights - 0.5 * cp.quad_form(weights, sigma)), constraints)
     try:
         problem.solve(solver=cp.OSQP, warm_start=True)
@@ -309,16 +386,5 @@ def solve_mean_variance_with_constraints(
     if total <= 0:
         return None, {"status": "zero_weights"}
     normalized = [value / total * sleeve_budget for value in values]
-    feasibility = verify_weight_constraints(
-        normalized,
-        sleeve_budget=sleeve_budget,
-        current_weights=current_weights,
-        turnover_budget=turnover_budget,
-        liquidity_caps=liquidity_caps,
-        max_weight=max_weight,
-        sector_labels=sector_labels,
-        sector_cap=sector_cap,
-        fixed_sector_exposure=fixed_sector_exposure,
-        sleeve_portfolio_fraction=sleeve_portfolio_fraction,
-    )
+    feasibility = verify_optimization_constraints(normalized, constraint_set)
     return normalized, {"status": problem.status, "feasibility": feasibility}
