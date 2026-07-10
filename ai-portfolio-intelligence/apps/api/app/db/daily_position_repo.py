@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -34,6 +35,40 @@ def _table_available() -> bool:
         return False
 
 
+def _resolve_position_fx(
+    position: Position,
+    *,
+    snapshot_date: date,
+    base_currency: str | None,
+    fx_resolver,
+) -> tuple[float | None, float | None, str | None, datetime | None, date | None, str]:
+    native = (position.currency or settings.default_reporting_currency).upper()
+    reporting = (base_currency or settings.default_reporting_currency).upper()
+    if native == reporting:
+        return 1.0, float(position.market_value), "identity", _utc_now(), snapshot_date, "available"
+
+    if fx_resolver is None or not base_currency:
+        if settings.persistence_backend == "postgres":
+            raise ValueError(
+                f"Historical FX resolver required for {native}/{reporting} on {snapshot_date}"
+            )
+        return None, None, None, None, None, "withheld"
+
+    fx_rate = float(
+        fx_resolver(
+            position.currency,
+            base_currency,
+            snapshot_date,
+        )
+    )
+    if not math.isfinite(fx_rate) or fx_rate <= 0:
+        raise ValueError(
+            f"Invalid historical FX rate for {native}/{reporting} on {snapshot_date}"
+        )
+    base_value = float(position.market_value) * fx_rate
+    return fx_rate, base_value, "historical_fx_store", _utc_now(), snapshot_date, "available"
+
+
 def upsert_daily_positions(
     account_id: str,
     snapshot_date: date,
@@ -48,14 +83,12 @@ def upsert_daily_positions(
     for position in positions:
         if position.quantity == 0:
             continue
-        fx_rate = None
-        base_value = None
-        if fx_resolver is not None and base_currency:
-            try:
-                fx_rate = float(fx_resolver(position.currency, base_currency, snapshot_date))
-                base_value = float(position.market_value) * fx_rate
-            except (TypeError, ValueError):
-                fx_rate = None
+        fx_rate, base_value, fx_source, fx_observed_at, fx_rate_date, valuation_status = _resolve_position_fx(
+            position,
+            snapshot_date=snapshot_date,
+            base_currency=base_currency,
+            fx_resolver=fx_resolver,
+        )
         rows.append(
             {
                 "symbol": position.symbol.upper(),
@@ -72,6 +105,10 @@ def upsert_daily_positions(
                 "price_source": "broker_snapshot",
                 "fx_rate_to_base": fx_rate,
                 "base_market_value": base_value,
+                "fx_source": fx_source,
+                "fx_observed_at": fx_observed_at.isoformat() if fx_observed_at else None,
+                "fx_rate_date": fx_rate_date.isoformat() if fx_rate_date else None,
+                "valuation_status": valuation_status,
                 "broker_batch_id": broker_batch_id,
                 "calculation_run_id": calculation_run_id,
             }
@@ -85,17 +122,24 @@ def upsert_daily_positions(
         with SessionLocal() as session:
             for row in rows:
                 payload = json.dumps(row)
+                observed_at = (
+                    datetime.fromisoformat(row["fx_observed_at"])
+                    if row.get("fx_observed_at")
+                    else None
+                )
                 session.execute(
                     text(
                         """
                         INSERT INTO daily_position_snapshots (
                             account_id, snapshot_date, symbol, con_id, con_id_key, quantity, market_value,
                             market_price, avg_cost, unrealized_pnl, base_market_value, fx_rate_to_base,
-                            price_source, broker_batch_id, calculation_run_id, currency, payload_json, created_at
+                            price_source, broker_batch_id, calculation_run_id, currency, payload_json,
+                            fx_source, fx_observed_at, fx_rate_date, valuation_status, created_at
                         ) VALUES (
                             :account_id, :snapshot_date, :symbol, :con_id, :con_id_key, :quantity, :market_value,
                             :market_price, :avg_cost, :unrealized_pnl, :base_market_value, :fx_rate_to_base,
-                            :price_source, :broker_batch_id, :calculation_run_id, :currency, :payload_json, :created_at
+                            :price_source, :broker_batch_id, :calculation_run_id, :currency, :payload_json,
+                            :fx_source, :fx_observed_at, :fx_rate_date, :valuation_status, :created_at
                         )
                         ON CONFLICT ON CONSTRAINT uq_daily_position_snapshots_account_date_symbol
                         DO UPDATE SET
@@ -112,6 +156,10 @@ def upsert_daily_positions(
                             calculation_run_id = EXCLUDED.calculation_run_id,
                             currency = EXCLUDED.currency,
                             payload_json = EXCLUDED.payload_json,
+                            fx_source = EXCLUDED.fx_source,
+                            fx_observed_at = EXCLUDED.fx_observed_at,
+                            fx_rate_date = EXCLUDED.fx_rate_date,
+                            valuation_status = EXCLUDED.valuation_status,
                             created_at = EXCLUDED.created_at
                         """
                     ),
@@ -133,6 +181,10 @@ def upsert_daily_positions(
                         "calculation_run_id": row["calculation_run_id"],
                         "currency": row["currency"],
                         "payload_json": payload,
+                        "fx_source": row["fx_source"],
+                        "fx_observed_at": observed_at,
+                        "fx_rate_date": date.fromisoformat(row["fx_rate_date"]) if row.get("fx_rate_date") else None,
+                        "valuation_status": row["valuation_status"],
                         "created_at": now,
                     },
                 )

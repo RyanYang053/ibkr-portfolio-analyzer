@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     sec_edgar_user_agent: str = "PortfolioIntelligence/1.0 contact@example.com"
     optimization_turnover_budget: float = 0.25
     optimization_liquidity_cap: float = 0.15
+    default_reporting_currency: str = "USD"
 
 
 settings = Settings()

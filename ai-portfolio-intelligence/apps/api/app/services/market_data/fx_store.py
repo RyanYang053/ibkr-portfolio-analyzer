@@ -6,7 +6,7 @@ import os
 import tempfile
 from datetime import date, datetime, timedelta, timezone
 from threading import Lock
-from typing import Optional
+from typing import Optional, Protocol
 
 from app.services.market_data.http_client import request_with_retry
 from app.core.config import settings
@@ -16,6 +16,21 @@ FX_STORE_FILE = os.path.join(DATA_DIR, "historical_fx_rates.json")
 MAX_FX_STALENESS_DAYS = 7
 _FILE_LOCK = Lock()
 _MEMORY_CACHE: dict[str, dict[str, float]] = {}
+
+
+class CurrentFxResolver(Protocol):
+    def __call__(self, from_currency: str, to_currency: str) -> float: ...
+
+
+class HistoricalFxResolver(Protocol):
+    def __call__(self, from_currency: str, to_currency: str, as_of: date) -> float: ...
+
+
+def get_current_exchange_rate(from_currency: str, to_currency: str) -> float:
+    from app.services.broker.ibkr_readonly import get_exchange_rate
+
+    return get_exchange_rate(from_currency, to_currency)
+
 
 
 def _pair_key(from_curr: str, to_curr: str) -> str:
@@ -160,7 +175,7 @@ def get_historical_exchange_rate(from_curr: str, to_curr: str, as_of: date) -> f
     return rate
 
 
-def make_transaction_fx_resolver():
+def make_transaction_fx_resolver() -> HistoricalFxResolver:
     def resolver(from_curr: str, to_curr: str, trade_date: date | None = None) -> float:
         if trade_date is None:
             raise ValueError("Dated FX resolver requires trade_date for historical conversion")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from dataclasses import dataclass
 from itertools import count
 from threading import Lock
 from typing import Any
@@ -69,36 +70,75 @@ def allocate_readonly_client_id(base_client_id: int) -> int:
         return base_client_id + (next(_client_id_offsets) % 1000)
 
 
-_fx_cache: dict[tuple[str, str], float] = {}
+_fx_cache: dict[tuple[str, str], FxQuote] = {}
+_fx_cache_lock = Lock()
+CURRENT_FX_TTL_SECONDS = 60
 
 
-def get_exchange_rate(from_curr: str, to_curr: str) -> float:
-    if not from_curr or not to_curr or from_curr == to_curr:
-        return 1.0
-        
-    pair = (from_curr.upper(), to_curr.upper())
-    if pair in _fx_cache:
-        return _fx_cache[pair]
-        
+@dataclass(frozen=True)
+class FxQuote:
+    rate: float
+    source: str
+    observed_at: datetime
+    expires_at: datetime
+
+
+def _fetch_current_fx_quote(pair: tuple[str, str]) -> FxQuote:
     import httpx
+
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{pair[0]}{pair[1]}=X"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
+    now = datetime.now(timezone.utc)
     try:
         with httpx.Client() as client:
             response = client.get(url, headers=headers, timeout=2.0)
             if response.status_code == 200:
                 data = response.json()
                 price = data["chart"]["result"][0]["meta"].get("regularMarketPrice")
-                if price is not None and price > 0:
-                    val = float(price)
-                    _fx_cache[pair] = val
-                    return val
+                if price is not None and float(price) > 0:
+                    return FxQuote(
+                        rate=float(price),
+                        source="yahoo_fx_live",
+                        observed_at=now,
+                        expires_at=now + timedelta(seconds=CURRENT_FX_TTL_SECONDS),
+                    )
     except Exception as exc:
         raise RuntimeError(f"Live FX rate unavailable for {pair[0]}/{pair[1]}") from exc
 
     raise RuntimeError(f"Live FX rate unavailable for {pair[0]}/{pair[1]}")
+
+
+def get_exchange_rate_quote(from_curr: str, to_curr: str) -> FxQuote:
+    if not from_curr or not to_curr or from_curr.upper() == to_curr.upper():
+        now = datetime.now(timezone.utc)
+        return FxQuote(rate=1.0, source="identity", observed_at=now, expires_at=now + timedelta(seconds=CURRENT_FX_TTL_SECONDS))
+
+    pair = (from_curr.upper(), to_curr.upper())
+    now = datetime.now(timezone.utc)
+
+    with _fx_cache_lock:
+        cached = _fx_cache.get(pair)
+        if cached and cached.expires_at > now:
+            return cached
+
+    quote = _fetch_current_fx_quote(pair)
+    with _fx_cache_lock:
+        _fx_cache[pair] = quote
+    return quote
+
+
+def get_exchange_rate(from_curr: str, to_curr: str) -> float:
+    return get_exchange_rate_quote(from_curr, to_curr).rate
+
+def _base_currency_for_account(ib, account_id: str) -> str:
+    values = _summary_values(ib.accountSummary(account_id))
+    return (
+        values.get("BaseCurrency")
+        or values.get("Currency")
+        or settings.default_reporting_currency
+    )
 
 
 def get_exchange_rate_at_date(from_curr: str, to_curr: str, as_of: date) -> float:
@@ -154,7 +194,7 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                     account_number_hash=f"ibkr:{account_id[-4:]}",
                     account_alias=f"IBKR {account_id[-4:]}",
                     account_type="IBKR",
-                    base_currency="USD",
+                    base_currency=_base_currency_for_account(ib, account_id),
                     status="connected_readonly",
                     last_sync_at=__import__("app.schemas.domain", fromlist=["utc_now"]).utc_now(),
                 )
@@ -171,7 +211,11 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
         with self._connect() as ib:
             values = _summary_values(ib.accountSummary(account_id))
             total_unrealized = _float_value(values, "UnrealizedPnL")
-            base_currency = values.get("Currency", "USD")
+            base_currency = (
+                values.get("BaseCurrency")
+                or values.get("Currency")
+                or settings.default_reporting_currency
+            )
 
             res = AccountSummary(
                 account_id=account_id,
@@ -196,7 +240,11 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
         with self._connect() as ib:
             portfolio_items = ib.portfolio(account_id)
             summary_values = _summary_values(ib.accountSummary(account_id))
-            base_currency = summary_values.get("Currency", "USD")
+            base_currency = (
+                summary_values.get("BaseCurrency")
+                or summary_values.get("Currency")
+                or settings.default_reporting_currency
+            )
             now = __import__("app.schemas.domain", fromlist=["utc_now"]).utc_now()
             
             positions_data = []

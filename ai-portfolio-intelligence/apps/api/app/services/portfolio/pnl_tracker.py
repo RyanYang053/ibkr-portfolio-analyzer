@@ -258,14 +258,14 @@ def record_pnl_snapshot(
 
     try:
         from app.db.daily_position_repo import upsert_daily_positions
-        from app.services.broker.ibkr_readonly import get_exchange_rate
+        from app.services.market_data.fx_store import get_historical_exchange_rate
 
         upsert_daily_positions(
             active_account_id,
             date.fromisoformat(today),
             positions,
             base_currency=summary.base_currency,
-            fx_resolver=get_exchange_rate,
+            fx_resolver=get_historical_exchange_rate,
         )
     except Exception as exc:
         from app.core.config import settings
