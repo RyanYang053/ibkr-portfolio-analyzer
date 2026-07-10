@@ -69,8 +69,19 @@ def configure_readonly(payload: BrokerConfigureRequest) -> dict[str, object]:
 @router.post("/sync-readonly")
 def sync_readonly(adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[str, object]:
     try:
+        from app.services.portfolio.transaction_store import sync_transactions
+
         accounts = adapter.get_accounts()
-        return {"status": "synced_readonly", "accounts": accounts, "trading": "disabled"}
+        transaction_counts: dict[str, int] = {}
+        for account in accounts:
+            synced = sync_transactions(adapter, account.id)
+            transaction_counts[account.id] = len(synced)
+        return {
+            "status": "synced_readonly",
+            "accounts": accounts,
+            "transaction_counts": transaction_counts,
+            "trading": "disabled",
+        }
     except Exception as exc:
         raise broker_not_configured_error(exc) from exc
 
@@ -100,9 +111,17 @@ def positions(account_id: str, adapter: BrokerAdapter = Depends(get_broker_adapt
 
 
 @router.get("/accounts/{account_id}/transactions")
-def transactions(account_id: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def transactions(
+    account_id: str,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    from app.services.portfolio.transaction_store import get_transactions as load_stored_transactions
+
     end_date = date.today()
     try:
+        stored = load_stored_transactions(account_id, end_date - timedelta(days=365), end_date)
+        if stored:
+            return stored
         return adapter.get_transactions(account_id, end_date - timedelta(days=90), end_date)
     except Exception as exc:
         raise broker_not_configured_error(exc) from exc

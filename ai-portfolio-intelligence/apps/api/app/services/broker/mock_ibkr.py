@@ -6,6 +6,22 @@ from app.services.broker.base import BrokerAdapter
 
 from app.services.broker.securities import SECURITIES_DB as SAMPLE_SECURITIES
 
+MOCK_CON_IDS = {
+    "QQQ": 320227571,
+    "SPY": 756733,
+    "MSFT": 272093,
+    "META": 107113386,
+    "GOOGL": 208813720,
+    "SOXX": 229725622,
+    "SOFI": 494162451,
+    "CRM": 29624264,
+    "CELH": 71364351,
+    "NKE": 10291,
+    "IONQ": 517593749,
+    "LAES": 665380967,
+    "INFQ": 531212348,
+}
+
 MOCK_LOTS = {
     "QQQ": (68, 405, 468),
     "SPY": (52, 485, 545),
@@ -107,12 +123,17 @@ class MockIBKRAdapter(BrokerAdapter):
                     is_etf=is_etf,
                     is_speculative=is_speculative,
                     updated_at=self._synced_at,
+                    con_id=MOCK_CON_IDS.get(symbol),
+                    local_symbol=symbol,
+                    multiplier=1.0,
+                    price_source="mock_broker",
                 )
             )
         return positions
 
     def get_transactions(self, account_id: str, start_date: date, end_date: date) -> list[Transaction]:
-        return [
+        currency = "USD" if account_id == "MOCK-001" else "CAD"
+        rows = [
             Transaction(
                 account_id=account_id,
                 symbol="MSFT",
@@ -121,7 +142,12 @@ class MockIBKRAdapter(BrokerAdapter):
                 quantity=3,
                 price=410,
                 commission=1,
-                currency="USD" if account_id == "MOCK-001" else "CAD",
+                currency=currency,
+                con_id=MOCK_CON_IDS["MSFT"],
+                local_symbol="MSFT",
+                transaction_id=f"{account_id}:buy:MSFT:1",
+                amount=1230.0,
+                source="mock_ibkr_readonly",
             ),
             Transaction(
                 account_id=account_id,
@@ -131,9 +157,41 @@ class MockIBKRAdapter(BrokerAdapter):
                 quantity=68,
                 price=0.74,
                 commission=0,
-                currency="USD" if account_id == "MOCK-001" else "CAD",
+                currency=currency,
+                con_id=MOCK_CON_IDS["QQQ"],
+                local_symbol="QQQ",
+                transaction_id=f"{account_id}:dividend:QQQ:1",
+                amount=50.32,
+                source="mock_ibkr_readonly",
+            ),
+            Transaction(
+                account_id=account_id,
+                symbol="CASH",
+                trade_date=end_date - timedelta(days=120),
+                action="deposit",
+                quantity=1,
+                price=25000,
+                commission=0,
+                currency=currency,
+                transaction_id=f"{account_id}:deposit:1",
+                amount=25000.0,
+                source="mock_ibkr_readonly",
+            ),
+            Transaction(
+                account_id=account_id,
+                symbol="CASH",
+                trade_date=end_date - timedelta(days=10),
+                action="withdrawal",
+                quantity=1,
+                price=5000,
+                commission=0,
+                currency=currency,
+                transaction_id=f"{account_id}:withdrawal:1",
+                amount=5000.0,
+                source="mock_ibkr_readonly",
             ),
         ]
+        return [row for row in rows if start_date <= row.trade_date <= end_date]
 
     def get_open_orders_readonly(self, account_id: str) -> list[OpenOrderReadOnly]:
         return []

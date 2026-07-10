@@ -70,6 +70,11 @@ class Position(BaseModel):
     is_etf: bool = False
     is_speculative: bool = False
     updated_at: datetime
+    # IBKR contract identity — retained through ingestion and consolidation.
+    con_id: Optional[int] = None
+    local_symbol: Optional[str] = None
+    multiplier: float = 1.0
+    price_source: str = "broker"
 
 
 class Transaction(BaseModel):
@@ -84,6 +89,10 @@ class Transaction(BaseModel):
     currency: str
     fx_rate: Optional[float] = None
     source: str = "mock_ibkr_readonly"
+    con_id: Optional[int] = None
+    local_symbol: Optional[str] = None
+    transaction_id: Optional[str] = None
+    amount: Optional[float] = None
 
 
 class OpenOrderReadOnly(BaseModel):
@@ -291,6 +300,34 @@ class PerformanceAttribution(BaseModel):
     asset_class_return: dict[str, float]
     realized_vs_unrealized: dict[str, float]
     benchmark_relative_alpha: Optional[float]
+    data_quality: dict[str, str]
+    methodology: str
+    # Brinson-Fachler decomposition (allocation / selection / interaction).
+    allocation_effect: Optional[float] = None
+    selection_effect: Optional[float] = None
+    interaction_effect: Optional[float] = None
+    total_active_return: Optional[float] = None
+    brinson_by_sector: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+
+class PerformanceReturns(BaseModel):
+    time_weighted_return: Optional[float]
+    time_weighted_return_annualized: Optional[float]
+    xirr: Optional[float]
+    period_days: int
+    observation_count: int
+    daily_returns: list[dict[str, float | str]]
+    data_quality: dict[str, str]
+    methodology: str
+
+
+class ScoreCalibrationReport(BaseModel):
+    model_name: str
+    observation_count: int
+    information_coefficient: Optional[float]
+    rank_correlation: Optional[float]
+    hit_rate_top_quintile: Optional[float]
+    calibration_buckets: list[dict[str, float | int | str]]
     data_quality: dict[str, str]
     methodology: str
 

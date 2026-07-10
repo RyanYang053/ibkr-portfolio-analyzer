@@ -15,9 +15,9 @@ from app.services.risk.portfolio_risk import analyze_portfolio_risk
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
 
-def _position_group_key(position: Position) -> tuple[str, str, str, str]:
-    # The current domain model has no IBKR conId. Keeping listing currency and
-    # exchange in the key is safer than merging every identical ticker.
+def _position_group_key(position: Position) -> tuple[str, ...]:
+    if position.con_id is not None:
+        return ("conid", str(position.con_id))
     return (
         position.symbol.upper(),
         position.asset_class.upper(),
@@ -83,7 +83,7 @@ def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[Acc
         data_timestamp=min(item.data_timestamp for item in summaries),
     )
 
-    grouped: dict[tuple[str, str, str, str], list[Position]] = defaultdict(list)
+    grouped: dict[tuple[str, ...], list[Position]] = defaultdict(list)
     for position in all_positions:
         grouped[_position_group_key(position)].append(position)
 
@@ -136,6 +136,10 @@ def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[Acc
                 is_etf=first.is_etf,
                 is_speculative=first.is_speculative,
                 updated_at=min(position.updated_at for position in group),
+                con_id=first.con_id,
+                local_symbol=first.local_symbol,
+                multiplier=first.multiplier,
+                price_source=first.price_source,
             )
         )
 
@@ -227,32 +231,63 @@ def allocation(account_id: Optional[str] = None, adapter: BrokerAdapter = Depend
 def performance(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
     account_summary, _ = _resolve_account_data(adapter, account_id)
 
+    from app.services.portfolio.performance_returns import calculate_performance_returns
     from app.services.portfolio.pnl_tracker import get_pnl_history
 
     active_id = account_id or account_summary.account_id or "default"
     history = get_pnl_history(None if active_id == "all" else active_id)
     history = sorted(history, key=lambda item: (item.date, item.timestamp))
     latest = history[-1] if history else None
+    returns = calculate_performance_returns(
+        active_id if active_id != "all" else "default",
+        history,
+        account_summary.base_currency,
+        get_exchange_rate,
+    )
 
     return {
         "total_unrealized_pnl": account_summary.total_unrealized_pnl,
         "total_realized_pnl": account_summary.total_realized_pnl,
-        # Never label raw net-liquidation changes as investment return until cash
-        # flows are imported and time-weighted returns can be calculated.
-        "daily_return": None,
+        "daily_return": returns.daily_returns[-1]["investment_return_percent"] if returns.daily_returns else None,
+        "time_weighted_return": returns.time_weighted_return,
+        "time_weighted_return_annualized": returns.time_weighted_return_annualized,
+        "xirr": returns.xirr,
         "benchmark_comparison": {},
         "account_value_change": latest.daily_pnl if latest else None,
         "account_value_change_percent": latest.daily_pnl_percent if latest else None,
-        "data_quality": {
-            "cash_flow_adjustment": "missing",
-            "benchmark_series": "missing",
-            "history_observations": len(history),
-        },
-        "methodology": (
-            "Daily return and benchmark alpha are withheld because transaction cash flows and aligned "
-            "benchmark total-return series are not available. Account-value change is shown separately."
-        ),
+        "data_quality": returns.data_quality,
+        "methodology": returns.methodology,
     }
+
+
+@router.get("/score-calibration")
+def score_calibration(model_name: str = "universal"):
+    from app.services.scoring.calibration import run_score_calibration
+
+    # Demo calibration uses reproducible score/return pairs until live walk-forward history is stored.
+    observations = [
+        {"symbol": "MSFT", "score": 82.0, "forward_return": 0.12},
+        {"symbol": "META", "score": 78.0, "forward_return": 0.09},
+        {"symbol": "IONQ", "score": 48.0, "forward_return": -0.08},
+        {"symbol": "QQQ", "score": 74.0, "forward_return": 0.07},
+        {"symbol": "SOFI", "score": 55.0, "forward_return": 0.01},
+        {"symbol": "NKE", "score": 42.0, "forward_return": -0.04},
+        {"symbol": "CRM", "score": 69.0, "forward_return": 0.05},
+        {"symbol": "GOOGL", "score": 76.0, "forward_return": 0.08},
+        {"symbol": "LAES", "score": 35.0, "forward_return": -0.15},
+        {"symbol": "SPY", "score": 71.0, "forward_return": 0.06},
+        {"symbol": "CELH", "score": 58.0, "forward_return": 0.02},
+        {"symbol": "INFQ", "score": 31.0, "forward_return": -0.12},
+        {"symbol": "SOXX", "score": 73.0, "forward_return": 0.10},
+        {"symbol": "AAPL", "score": 80.0, "forward_return": 0.11},
+        {"symbol": "NVDA", "score": 84.0, "forward_return": 0.18},
+        {"symbol": "TSLA", "score": 52.0, "forward_return": -0.02},
+        {"symbol": "AMZN", "score": 77.0, "forward_return": 0.09},
+        {"symbol": "MSFT", "score": 79.0, "forward_return": 0.06},
+        {"symbol": "META", "score": 75.0, "forward_return": 0.04},
+        {"symbol": "QQQ", "score": 72.0, "forward_return": 0.05},
+    ]
+    return run_score_calibration(observations, model_name=model_name)
 
 
 @router.get("/risk")
@@ -327,4 +362,9 @@ def get_portfolio_attribution(
     account_summary, account_positions = _resolve_account_data(adapter, account_id)
     active_id = account_id or account_summary.account_id or "default"
     history = get_pnl_history(None if active_id == "all" else active_id)
-    return calculate_performance_attribution(account_positions, history)
+    return calculate_performance_attribution(
+        account_positions,
+        history,
+        base_currency=account_summary.base_currency,
+        fx_resolver=get_exchange_rate,
+    )

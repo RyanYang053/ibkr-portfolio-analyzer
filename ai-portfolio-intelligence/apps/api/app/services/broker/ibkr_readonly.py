@@ -299,13 +299,78 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                         is_etf=sec_info["is_etf"],
                         is_speculative=sec_info["is_speculative"],
                         updated_at=now,
+                        con_id=int(getattr(contract, "conId", 0) or 0) or None,
+                        local_symbol=getattr(contract, "localSymbol", None) or None,
+                        multiplier=float(getattr(contract, "multiplier", 1) or 1),
+                        price_source="broker" if market_price > 0 else "yahoo_fallback",
                     )
                 )
             _set_in_cache(f"positions:{account_id}", positions)
             return positions
 
     def get_transactions(self, account_id: str, start_date: date, end_date: date) -> list[Transaction]:
-        return []
+        with self._connect() as ib:
+            from ib_insync import ExecutionFilter
+
+            transactions: list[Transaction] = []
+            seen: set[str] = set()
+
+            def append_transaction(txn: Transaction) -> None:
+                key = txn.transaction_id or (
+                    f"{txn.trade_date}:{txn.action}:{txn.symbol}:{txn.quantity}:{txn.price}:{txn.commission}"
+                )
+                if key in seen:
+                    return
+                seen.add(key)
+                transactions.append(txn)
+
+            try:
+                filter_obj = ExecutionFilter()
+                filter_obj.acctCode = account_id
+                ib.reqExecutions(filter_obj)
+                ib.sleep(0.5)
+            except Exception:
+                pass
+
+            for fill in ib.fills():
+                contract = fill.contract
+                execution = fill.execution
+                if getattr(execution, "acctNumber", account_id) != account_id:
+                    continue
+                trade_time = getattr(execution, "time", None)
+                if trade_time is None:
+                    continue
+                trade_day = trade_time.date() if hasattr(trade_time, "date") else start_date
+                if trade_day < start_date or trade_day > end_date:
+                    continue
+                side = str(getattr(execution, "side", "")).upper()
+                action = "buy" if side in {"BOT", "BUY"} else "sell" if side in {"SLD", "SELL"} else "buy"
+                quantity = float(getattr(execution, "shares", 0) or 0)
+                price = float(getattr(execution, "price", 0) or 0)
+                commission_report = getattr(fill, "commissionReport", None)
+                commission = float(getattr(commission_report, "commission", 0) or 0) if commission_report else 0.0
+                symbol = getattr(contract, "symbol", "") or getattr(contract, "localSymbol", "")
+                currency = getattr(contract, "currency", "USD") or "USD"
+                exec_id = str(getattr(execution, "execId", "") or "")
+                append_transaction(
+                    Transaction(
+                        account_id=account_id,
+                        symbol=symbol,
+                        trade_date=trade_day,
+                        action=action,
+                        quantity=quantity,
+                        price=price,
+                        commission=commission,
+                        currency=currency,
+                        source="ibkr_readonly",
+                        con_id=int(getattr(contract, "conId", 0) or 0) or None,
+                        local_symbol=getattr(contract, "localSymbol", None) or None,
+                        transaction_id=exec_id or None,
+                        amount=quantity * price,
+                    )
+                )
+
+            return sorted(transactions, key=lambda item: (item.trade_date, item.symbol))
 
     def get_open_orders_readonly(self, account_id: str) -> list[OpenOrderReadOnly]:
         with self._connect() as ib:

@@ -47,6 +47,126 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 5,
         "portfolio_fit": 30,
     },
+    "technology_growth": {
+        "business_quality": 16,
+        "growth": 20,
+        "profitability": 14,
+        "balance_sheet": 10,
+        "valuation": 14,
+        "technical_trend": 12,
+        "catalyst_news": 6,
+        "portfolio_fit": 8,
+    },
+    "financials_pb_rotce": {
+        "business_quality": 14,
+        "growth": 10,
+        "profitability": 22,
+        "balance_sheet": 20,
+        "valuation": 18,
+        "technical_trend": 8,
+        "catalyst_news": 3,
+        "portfolio_fit": 5,
+    },
+    "reit_affo_nav": {
+        "business_quality": 12,
+        "growth": 8,
+        "profitability": 20,
+        "balance_sheet": 18,
+        "valuation": 22,
+        "technical_trend": 8,
+        "catalyst_news": 4,
+        "portfolio_fit": 8,
+    },
+    "dividend_utility": {
+        "business_quality": 16,
+        "growth": 6,
+        "profitability": 22,
+        "balance_sheet": 16,
+        "valuation": 18,
+        "technical_trend": 8,
+        "catalyst_news": 4,
+        "portfolio_fit": 10,
+    },
+    "consumer_cyclical": {
+        "business_quality": 16,
+        "growth": 16,
+        "profitability": 16,
+        "balance_sheet": 12,
+        "valuation": 16,
+        "technical_trend": 10,
+        "catalyst_news": 6,
+        "portfolio_fit": 8,
+    },
+    "stable_consumer": {
+        "business_quality": 20,
+        "growth": 10,
+        "profitability": 20,
+        "balance_sheet": 14,
+        "valuation": 16,
+        "technical_trend": 8,
+        "catalyst_news": 4,
+        "portfolio_fit": 8,
+    },
+    "communication_services": {
+        "business_quality": 16,
+        "growth": 16,
+        "profitability": 16,
+        "balance_sheet": 10,
+        "valuation": 16,
+        "technical_trend": 12,
+        "catalyst_news": 6,
+        "portfolio_fit": 8,
+    },
+    "healthcare_innovation": {
+        "business_quality": 16,
+        "growth": 18,
+        "profitability": 14,
+        "balance_sheet": 12,
+        "valuation": 14,
+        "technical_trend": 10,
+        "catalyst_news": 8,
+        "portfolio_fit": 8,
+    },
+    "energy_cyclical": {
+        "business_quality": 12,
+        "growth": 12,
+        "profitability": 20,
+        "balance_sheet": 14,
+        "valuation": 18,
+        "technical_trend": 10,
+        "catalyst_news": 6,
+        "portfolio_fit": 8,
+    },
+    "industrials": {
+        "business_quality": 16,
+        "growth": 12,
+        "profitability": 18,
+        "balance_sheet": 14,
+        "valuation": 16,
+        "technical_trend": 10,
+        "catalyst_news": 6,
+        "portfolio_fit": 8,
+    },
+    "materials_cyclical": {
+        "business_quality": 12,
+        "growth": 12,
+        "profitability": 18,
+        "balance_sheet": 14,
+        "valuation": 18,
+        "technical_trend": 10,
+        "catalyst_news": 6,
+        "portfolio_fit": 10,
+    },
+    "diversified_index": {
+        "business_quality": 14,
+        "growth": 10,
+        "profitability": 14,
+        "balance_sheet": 12,
+        "valuation": 14,
+        "technical_trend": 10,
+        "catalyst_news": 6,
+        "portfolio_fit": 30,
+    },
 }
 
 
@@ -241,15 +361,11 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
         # valuation, expense ratio, tracking error, or liquidity metrics.
         missing_data.append("ETF valuation and implementation metrics")
     else:
-        model_name = (
-            "speculative_growth"
-            if position.is_speculative
-            else position.stock_type
-            if position.stock_type in MODEL_WEIGHTS
-            else "universal"
-        )
+        from app.services.fundamentals.sector_models import resolve_scoring_model, score_fundamentals_for_sector
+
+        model_name = resolve_scoring_model(position)
         if fundamentals is not None and not str(fundamentals.source).endswith("_etf"):
-            sub_scores.update(_stock_fundamental_scores(fundamentals))
+            sub_scores.update(score_fundamentals_for_sector(fundamentals, position.sector or "Unknown"))
             evidence.extend(
                 [
                     f"Revenue growth YoY: {fundamentals.revenue_growth_yoy * 100:.2f}%",
@@ -282,7 +398,7 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
     else:
         missing_data.append("Recent catalyst/news inputs")
 
-    weights = MODEL_WEIGHTS[model_name]
+    weights = MODEL_WEIGHTS.get(model_name, MODEL_WEIGHTS["universal"])
     raw_score, coverage = _weighted_score(sub_scores, weights)
 
     input_sources = {

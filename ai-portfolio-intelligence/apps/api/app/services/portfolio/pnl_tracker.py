@@ -124,6 +124,31 @@ def record_pnl_snapshot(
     history = [item for item in history if item.date != today]
     last_entry = history[-1] if history else None
 
+    external_cash_flow = None
+    investment_return_percent = None
+    try:
+        from app.services.broker.ibkr_readonly import get_exchange_rate
+        from app.services.portfolio.transaction_store import (
+            external_cash_flows_by_date,
+            get_transactions,
+        )
+
+        transactions = get_transactions(active_account_id)
+        cash_flows = external_cash_flows_by_date(
+            transactions,
+            summary.base_currency,
+            get_exchange_rate,
+        )
+        external_cash_flow = round(cash_flows.get(today, 0.0), 2)
+        if last_entry and last_entry.net_liquidation != 0:
+            investment_return_percent = round(
+                (summary.net_liquidation - external_cash_flow) / last_entry.net_liquidation - 1.0,
+                6,
+            ) * 100.0
+    except Exception:
+        external_cash_flow = None
+        investment_return_percent = None
+
     is_transition = False
     if last_entry and last_entry.is_mock and last_entry.net_liquidation > 0:
         deviation = abs(last_entry.net_liquidation - summary.net_liquidation) / last_entry.net_liquidation
@@ -179,11 +204,15 @@ def record_pnl_snapshot(
         daily_pnl_percent=round(account_value_change_percent, 4),
         positions=positions_pnl,
         is_mock=is_demo,
-        external_cash_flow=None,
-        investment_return_percent=None,
+        external_cash_flow=external_cash_flow,
+        investment_return_percent=investment_return_percent,
         data_quality={
             "daily_pnl": "account_value_change_not_cash_flow_adjusted",
-            "investment_return": "withheld_missing_external_cash_flows",
+            "investment_return": (
+                "cash_flow_adjusted_when_transactions_present"
+                if external_cash_flow is not None
+                else "withheld_missing_external_cash_flows"
+            ),
             "position_pnl": "price_effect_estimate; quantity changes flagged",
         },
     )
