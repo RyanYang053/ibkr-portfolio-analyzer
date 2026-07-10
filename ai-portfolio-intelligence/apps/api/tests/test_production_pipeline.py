@@ -53,7 +53,7 @@ def test_transaction_fx_resolver_enables_mixed_currency_tax_lots(monkeypatch):
         reporting_currency="USD",
         fx_resolver=make_transaction_fx_resolver(),
     )
-    assert report.data_quality["status"] == "sufficient"
+    assert report.data_quality["status"] == "lot_matching_complete"
     assert report.data_quality["fx_conversion"] == "transaction_date_fx"
     assert report.total_realized_gain_loss == 750.0
 
@@ -92,35 +92,62 @@ def test_stock_split_corporate_action_doubles_lot_quantity():
 
 
 def test_calibration_ingestion_materializes_forward_return(monkeypatch, tmp_path):
+    captured: list[dict] = []
+
     monkeypatch.setattr(
         "app.services.scoring.calibration_ingestion.PENDING_FILE",
         tmp_path / "pending.json",
     )
     monkeypatch.setattr(
-        "app.services.scoring.calibration_ingestion._forward_return",
-        lambda _symbol, _start, _end, allow_mock=False: 0.08,
+        "app.services.scoring.calibration_ingestion._period_total_return",
+        lambda symbol, _start, _end, allow_mock=False: 0.08 if symbol != "SPY" else 0.03,
     )
     monkeypatch.setattr(
         "app.services.scoring.calibration_ingestion.save_calibration_observations",
-        lambda _model, observations: observations,
+        lambda _model, observations: captured.extend(observations),
     )
     monkeypatch.setattr(
         "app.services.scoring.calibration_ingestion.load_calibration_observations",
-        lambda _model: [],
+        lambda _model, include_synthetic_demo=False: [],
     )
 
     observed = date.today() - timedelta(days=120)
-    record_score_observation(symbol="MSFT", model_name="universal", score=82.0, observed_on=observed)
+    record_score_observation(
+        symbol="MSFT",
+        model_name="universal",
+        score=82.0,
+        observed_on=observed,
+        model_version="2026.07.1",
+        feature_snapshot_hash="abc123",
+        input_sources=["live_yahoo_finance", "verified_close_only"],
+        synthetic_demo=False,
+    )
     promoted = materialize_calibration_observations("universal", allow_mock=True)
     assert promoted == 1
+    assert captured[0]["forward_total_return"] == 0.08
+    assert captured[0]["benchmark_total_return"] == 0.03
+    assert captured[0]["forward_excess_return"] == pytest.approx(0.05)
+    assert captured[0]["model_version"] == "2026.07.1"
+    assert captured[0]["feature_snapshot_hash"] == "abc123"
 
 
 def test_measured_factor_model_returns_exposures():
-    portfolio_returns = [0.01, -0.005, 0.008, 0.004, -0.002] * 6
-    exposures, quality = compute_measured_factor_exposures(portfolio_returns, allow_mock=True)
+    from datetime import date, timedelta
+
+    end = date.today()
+    portfolio_returns = {
+        (end - timedelta(days=index)).isoformat(): value
+        for index, value in enumerate(reversed([0.01, -0.005, 0.008, 0.004, -0.002] * 6))
+    }
+    exposures, quality, metadata = compute_measured_factor_exposures(
+        portfolio_returns,
+        end_date=end,
+        allow_mock=True,
+    )
     assert quality in {"experimental", "insufficient_factor_history", "regression_failed", "insufficient_history"}
     if quality == "experimental":
         assert exposures
+        assert metadata.get("observation_count", 0) >= 20
 
 
 def test_portfolio_optimizer_produces_trade_proposal():

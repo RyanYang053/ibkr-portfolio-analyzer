@@ -51,6 +51,83 @@ def _convert_amount(
     return amount * float(rate), "transaction_date_fx"
 
 
+def _is_long_term_us(acquired: date, sold: date) -> bool:
+    try:
+        anniversary = acquired.replace(year=acquired.year + 1)
+    except ValueError:
+        anniversary = acquired.replace(year=acquired.year + 1, day=28)
+    return sold > anniversary
+
+
+def _consume_sell(
+    open_lots: dict[tuple[str, int | None], Deque[_OpenLot]],
+    txn: Transaction,
+    reporting_currency: str,
+    tax_labeling_jurisdiction: Literal["US", "CA", "OTHER"],
+    fx_resolver: Optional[Callable[..., float]],
+    emit_realized: bool,
+) -> tuple[Optional[RealizedLotAttribution], Optional[str]]:
+    key = _lot_key(txn)
+    remaining = abs(txn.quantity)
+    proceeds_per_share_native = txn.price - (txn.commission / abs(txn.quantity) if txn.quantity else 0.0)
+    proceeds_per_share, status = _convert_amount(
+        proceeds_per_share_native,
+        txn.currency,
+        reporting_currency,
+        txn.trade_date,
+        fx_resolver,
+        txn.fx_rate,
+    )
+    if proceeds_per_share is None:
+        return None, status
+
+    total_proceeds = 0.0
+    total_cost = 0.0
+    short_term = 0.0
+    long_term = 0.0
+    matched_qty = 0.0
+    max_holding_days = 0
+
+    while remaining > 1e-9 and open_lots[key]:
+        lot = open_lots[key][0]
+        matched = min(remaining, lot.quantity)
+        cost = matched * lot.cost_basis_per_share
+        proceeds = matched * proceeds_per_share
+        gain = proceeds - cost
+        holding_days = (txn.trade_date - lot.acquired_date).days
+        max_holding_days = max(max_holding_days, holding_days)
+        if tax_labeling_jurisdiction == "US" and emit_realized:
+            if _is_long_term_us(lot.acquired_date, txn.trade_date):
+                long_term += gain
+            else:
+                short_term += gain
+        total_cost += cost
+        total_proceeds += proceeds
+        matched_qty += matched
+        lot.quantity -= matched
+        remaining -= matched
+        if lot.quantity <= 1e-9:
+            open_lots[key].popleft()
+
+    if not emit_realized:
+        return None, status
+
+    return (
+        RealizedLotAttribution(
+            symbol=txn.symbol.upper(),
+            realized_gain_loss=round(total_proceeds - total_cost, 2),
+            short_term_gain_loss=round(short_term, 2) if tax_labeling_jurisdiction == "US" else None,
+            long_term_gain_loss=round(long_term, 2) if tax_labeling_jurisdiction == "US" else None,
+            quantity_sold=round(matched_qty, 6),
+            unmatched_sell_quantity=round(remaining, 6),
+            proceeds=round(total_proceeds, 2),
+            cost_basis=round(total_cost, 2),
+            holding_period_days=max_holding_days,
+        ),
+        status,
+    )
+
+
 def build_tax_lot_attribution(
     account_id: str,
     transactions: list[Transaction],
@@ -90,9 +167,19 @@ def build_tax_lot_attribution(
     buys_before_period = 0
     fx_status: Optional[str] = None
 
-    ordered = sorted(transactions, key=lambda item: (item.trade_date, item.symbol, item.action))
-    if period_start:
-        ordered = [txn for txn in ordered if txn.trade_date <= (period_end or date.today())]
+    ordered = sorted(
+        (
+            txn
+            for txn in transactions
+            if period_end is None or txn.trade_date <= period_end
+        ),
+        key=lambda item: (
+            item.trade_date,
+            item.transaction_id or "",
+            item.symbol,
+            item.action,
+        ),
+    )
 
     for txn in ordered:
         key = _lot_key(txn)
@@ -132,68 +219,20 @@ def build_tax_lot_attribution(
             continue
         if txn.action != "sell":
             continue
-        if period_start and txn.trade_date < period_start:
-            continue
-        if period_end and txn.trade_date > period_end:
-            continue
 
-        remaining = abs(txn.quantity)
-        proceeds_per_share_native = txn.price - (txn.commission / abs(txn.quantity) if txn.quantity else 0.0)
-        proceeds_per_share, status = _convert_amount(
-            proceeds_per_share_native,
-            txn.currency,
+        emit_realized = period_start is None or txn.trade_date >= period_start
+        realized_row, status = _consume_sell(
+            open_lots,
+            txn,
             reporting_currency,
-            txn.trade_date,
+            tax_labeling_jurisdiction,
             fx_resolver,
-            txn.fx_rate,
+            emit_realized,
         )
-        if proceeds_per_share is None:
-            fx_status = status
-            continue
         if status:
             fx_status = status
-
-        total_proceeds = 0.0
-        total_cost = 0.0
-        short_term = 0.0
-        long_term = 0.0
-        matched_qty = 0.0
-        max_holding_days = 0
-
-        while remaining > 1e-9 and open_lots[key]:
-            lot = open_lots[key][0]
-            matched = min(remaining, lot.quantity)
-            cost = matched * lot.cost_basis_per_share
-            proceeds = matched * proceeds_per_share
-            gain = proceeds - cost
-            holding_days = (txn.trade_date - lot.acquired_date).days
-            max_holding_days = max(max_holding_days, holding_days)
-            if tax_labeling_jurisdiction == "US":
-                if holding_days > 365:
-                    long_term += gain
-                else:
-                    short_term += gain
-            total_cost += cost
-            total_proceeds += proceeds
-            matched_qty += matched
-            lot.quantity -= matched
-            remaining -= matched
-            if lot.quantity <= 1e-9:
-                open_lots[key].popleft()
-
-        realized_rows.append(
-            RealizedLotAttribution(
-                symbol=txn.symbol.upper(),
-                realized_gain_loss=round(total_proceeds - total_cost, 2),
-                short_term_gain_loss=round(short_term, 2) if tax_labeling_jurisdiction == "US" else None,
-                long_term_gain_loss=round(long_term, 2) if tax_labeling_jurisdiction == "US" else None,
-                quantity_sold=round(matched_qty, 6),
-                unmatched_sell_quantity=round(remaining, 6),
-                proceeds=round(total_proceeds, 2),
-                cost_basis=round(total_cost, 2),
-                holding_period_days=max_holding_days,
-            )
-        )
+        if realized_row is not None:
+            realized_rows.append(realized_row)
 
     open_rows: list[TaxLot] = []
     for (symbol, con_id), lots in open_lots.items():
@@ -236,15 +275,27 @@ def build_tax_lot_attribution(
     elif incomplete_opening_lots or has_unmatched:
         status = "incomplete"
     elif realized_rows or open_rows:
-        status = "sufficient"
+        status = "lot_matching_complete"
         if corporate_rows:
             corp_note = "corporate_actions_applied"
     else:
         status = "missing"
 
-    total_realized = round(sum(row.realized_gain_loss for row in realized_rows), 2) if status == "sufficient" else 0.0
-    total_short = round(sum(row.short_term_gain_loss or 0.0 for row in realized_rows), 2) if status == "sufficient" else 0.0
-    total_long = round(sum(row.long_term_gain_loss or 0.0 for row in realized_rows), 2) if status == "sufficient" else 0.0
+    total_realized = (
+        round(sum(row.realized_gain_loss for row in realized_rows), 2)
+        if status == "lot_matching_complete"
+        else 0.0
+    )
+    total_short = (
+        round(sum(row.short_term_gain_loss or 0.0 for row in realized_rows), 2)
+        if status == "lot_matching_complete"
+        else 0.0
+    )
+    total_long = (
+        round(sum(row.long_term_gain_loss or 0.0 for row in realized_rows), 2)
+        if status == "lot_matching_complete"
+        else 0.0
+    )
 
     methodology = (
         "Realized gains and losses are computed using FIFO tax lots from buy/sell executions only. "
@@ -268,6 +319,7 @@ def build_tax_lot_attribution(
         "transaction_count": str(len(transactions)),
         "execution_count": str(len(execution_rows)),
         "status": status,
+        "tax_compliance_status": "experimental",
         "tax_labeling_jurisdiction": tax_labeling_jurisdiction,
     }
     if fx_status:
@@ -309,7 +361,7 @@ def realized_gain_by_symbol(
         period_end=period_end,
         fx_resolver=fx_resolver,
     )
-    if report.data_quality.get("status") != "sufficient":
+    if report.data_quality.get("status") != "lot_matching_complete":
         return {}
     grouped: dict[str, float] = defaultdict(float)
     for row in report.realized_by_symbol:

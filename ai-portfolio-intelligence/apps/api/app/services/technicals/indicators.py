@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from app.schemas.domain import TechnicalIndicators
 
@@ -103,7 +103,7 @@ def _trend(price: float, sma_20: float, sma_50: float, sma_200: float) -> str:
     return "neutral"
 
 
-def _atr(highs: list[float], lows: list[float], closes: list[float], window: int = 14) -> float | None:
+def _wilder_atr(highs: list[float], lows: list[float], closes: list[float], window: int = 14) -> float | None:
     if len(highs) < window + 1 or len(lows) < window + 1 or len(closes) < window + 1:
         return None
     true_ranges: list[float] = []
@@ -116,29 +116,69 @@ def _atr(highs: list[float], lows: list[float], closes: list[float], window: int
         true_ranges.append(tr)
     if len(true_ranges) < window:
         return None
-    return sum(true_ranges[-window:]) / window
+    atr = sum(true_ranges[:window]) / window
+    for tr in true_ranges[window:]:
+        atr = ((window - 1) * atr + tr) / window
+    return atr
+
+
+def _normalize_bars(bars: list[dict[str, float | str]]) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]]:
+    by_date: dict[str, dict[str, float | str]] = {}
+    for bar in bars:
+        raw_date = bar.get("date")
+        if raw_date is None:
+            continue
+        day = str(raw_date)[:10]
+        close = bar.get("close")
+        if close is None:
+            continue
+        close_value = float(close)
+        if not math.isfinite(close_value) or close_value <= 0:
+            continue
+        by_date[day] = {**bar, "date": day, "close": close_value}
+
+    close_bars = [by_date[day] for day in sorted(by_date)]
+    hlc_bars: list[dict[str, float | str]] = []
+    for bar in close_bars:
+        high = bar.get("high")
+        low = bar.get("low")
+        if high is None or low is None:
+            continue
+        high_value = float(high)
+        low_value = float(low)
+        close_value = float(bar["close"])
+        if not math.isfinite(high_value) or not math.isfinite(low_value):
+            continue
+        open_value = float(bar["open"]) if bar.get("open") is not None else close_value
+        if high_value < max(open_value, close_value, low_value):
+            continue
+        hlc_bars.append(bar)
+    return close_bars, hlc_bars
 
 
 def calculate_technical_indicators_from_bars(symbol: str, bars: list[dict[str, float | str]]) -> TechnicalIndicators:
-    aligned_bars = [
-        bar
-        for bar in bars
-        if bar.get("close") is not None
-        and bar.get("high") is not None
-        and bar.get("low") is not None
-    ]
-    closes = [float(bar["close"]) for bar in aligned_bars]
-    indicators = calculate_technical_indicators(symbol, closes)
-    if len(aligned_bars) >= 15:
-        highs = [float(bar["high"]) for bar in aligned_bars]
-        lows = [float(bar["low"]) for bar in aligned_bars]
-        atr = _atr(highs, lows, closes)
+    close_bars, hlc_bars = _normalize_bars(bars)
+    if len(close_bars) < 252:
+        raise ValueError("Need at least 252 daily closes")
+    closes = [float(bar["close"]) for bar in close_bars]
+    last_bar_date = date.fromisoformat(str(close_bars[-1]["date"]))
+    indicators = calculate_technical_indicators(symbol, closes, as_of=last_bar_date)
+    if len(hlc_bars) >= 15:
+        highs = [float(bar["high"]) for bar in hlc_bars]
+        lows = [float(bar["low"]) for bar in hlc_bars]
+        hlc_closes = [float(bar["close"]) for bar in hlc_bars]
+        atr = _wilder_atr(highs, lows, hlc_closes)
         if atr is not None:
             return indicators.model_copy(update={"atr_14": round(atr, 4)})
     return indicators
 
 
-def calculate_technical_indicators(symbol: str, prices: list[float]) -> TechnicalIndicators:
+def calculate_technical_indicators(
+    symbol: str,
+    prices: list[float],
+    *,
+    as_of: date | None = None,
+) -> TechnicalIndicators:
     cleaned = _validated_prices(prices, minimum=252)
 
     sma_20 = _sma(cleaned, 20)
@@ -153,7 +193,7 @@ def calculate_technical_indicators(symbol: str, prices: list[float]) -> Technica
 
     return TechnicalIndicators(
         symbol=symbol.upper().strip(),
-        date=datetime.now(timezone.utc).date(),
+        date=(as_of or datetime.now(timezone.utc).date()),
         sma_20=round(sma_20, 4),
         sma_50=round(sma_50, 4),
         sma_100=round(sma_100, 4),

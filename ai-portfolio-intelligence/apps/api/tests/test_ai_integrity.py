@@ -258,7 +258,7 @@ def test_attribution_does_not_invent_benchmark_return_or_alpha():
     attribution = calculate_performance_attribution([_position()], [snapshot])
 
     assert attribution.benchmark_relative_alpha is None
-    assert attribution.data_quality["benchmark_data"] == "missing"
+    assert attribution.data_quality["benchmark_data"] == "withheld_modeled_alpha"
 
 
 def test_thesis_tracker_weakens_when_required_evidence_is_missing(monkeypatch):

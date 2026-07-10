@@ -97,9 +97,10 @@ export function PortfolioConstructionPanel({
           unavailable={optimization.unavailable}
           emptyMessage="Optimization requires at least two long equity positions with sufficient return history."
           metrics={[
-            { label: "Expected volatility", value: formatPercent(optimization.expected_volatility) },
-            { label: "Expected return", value: formatPercent(optimization.expected_return) },
-            { label: "Sharpe (modeled)", value: formatNumber(optimization.sharpe_ratio) },
+            { label: "Modeled sleeve volatility", value: formatPercent(optimization.modeled_sleeve_expected_volatility) },
+            { label: "Modeled sleeve return", value: formatPercent(optimization.modeled_sleeve_expected_return) },
+            { label: "Modeled sleeve Sharpe", value: formatNumber(optimization.modeled_sleeve_sharpe) },
+            { label: "Modeled coverage", value: formatPercent(optimization.modeled_portfolio_coverage_percent) },
             { label: "Proposed trades", value: String(activeTrades.length) },
           ]}
           warning={optimization.methodology}

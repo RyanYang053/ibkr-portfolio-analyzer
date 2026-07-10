@@ -267,6 +267,7 @@ class InvestmentPolicyStatement(BaseModel):
 
 class RebalanceProposalItem(BaseModel):
     symbol: str
+    con_id: int | None = None
     current_weight: float
     target_weight: float
     current_value: float
@@ -300,6 +301,10 @@ class PortfolioOptimizationProposal(BaseModel):
     expected_volatility: Optional[float] = None
     expected_return: Optional[float] = None
     sharpe_ratio: Optional[float] = None
+    modeled_sleeve_expected_volatility: Optional[float] = None
+    modeled_sleeve_expected_return: Optional[float] = None
+    modeled_sleeve_sharpe: Optional[float] = None
+    modeled_portfolio_coverage_percent: Optional[float] = None
     constraints_applied: list[str] = Field(default_factory=list)
     methodology: str
     compliance_disclaimer: str = DISCLAIMER
@@ -335,9 +340,9 @@ class AdvancedRiskMetrics(BaseModel):
 
 
 class PerformanceAttribution(BaseModel):
-    security_selection_return: dict[str, float]
-    sector_allocation_return: dict[str, float]
-    asset_class_return: dict[str, float]
+    security_selection_pnl: dict[str, float]
+    sector_allocation_pnl: dict[str, float]
+    asset_class_pnl: dict[str, float]
     realized_vs_unrealized: dict[str, float]
     benchmark_relative_alpha: Optional[float]
     data_quality: dict[str, str]
@@ -424,6 +429,22 @@ class ScoreCalibrationReport(BaseModel):
     calibration_buckets: list[dict[str, float | int | str]]
     data_quality: dict[str, str]
     methodology: str
+
+
+class ScoreCalibrationObservation(BaseModel):
+    symbol: str
+    model_name: str
+    model_version: str
+    feature_snapshot_hash: str
+    score: float
+    observed_on: date
+    matured_on: Optional[date] = None
+    forward_total_return: Optional[float] = None
+    benchmark_total_return: Optional[float] = None
+    forward_excess_return: Optional[float] = None
+    forward_return: Optional[float] = None
+    input_sources: list[str] = Field(default_factory=list)
+    synthetic_demo: bool = False
 
 
 

@@ -204,7 +204,7 @@ def test_actual_account_returns_remove_external_cash_flow(monkeypatch):
     monkeypatch.setattr("app.services.portfolio.ledger_coverage.load_ledger_coverage", lambda _account: coverage)
     monkeypatch.setattr("app.services.portfolio.transaction_store.get_transactions", lambda _account: [deposit])
     monkeypatch.setattr("app.services.broker.ibkr_readonly.get_exchange_rate", lambda _a, _b: 1.0)
-    returns, _, status = _actual_account_returns(
+    returns, _, status, _ = _actual_account_returns(
         _summary(),
         [_snapshot(start, 100.0, "a"), _snapshot(end, 150.0, "b")],
     )

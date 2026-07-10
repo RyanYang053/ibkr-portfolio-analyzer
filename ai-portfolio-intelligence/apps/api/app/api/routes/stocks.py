@@ -112,14 +112,16 @@ def technicals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)
         closes = [float(item["close"]) for item in bars if item.get("close") is not None]
         from app.services.technicals.indicators import calculate_technical_indicators_from_bars
 
-        if len(closes) < 200:
-            raise RuntimeError("At least 200 daily closes are required")
+        if len(closes) < 252:
+            raise RuntimeError("At least 252 daily closes are required")
         indicators = calculate_technical_indicators_from_bars(symbol.upper(), bars)
         historical_prices = closes[-30:]
-        has_ohlcv = all(key in bars[0] for key in ("open", "high", "low", "close"))
+        has_volume = any(bar.get("volume") not in (None, 0) for bar in bars)
         data_quality = "verified_close_only"
-        if indicators.atr_14 is not None and has_ohlcv:
+        if indicators.atr_14 is not None:
             data_quality = "verified_ohlcv_partial"
+        if has_volume and indicators.atr_14 is not None:
+            data_quality = "verified_ohlcv"
         if is_demo:
             data_quality = "mock_demo"
     except Exception as exc:

@@ -18,6 +18,19 @@ def _store_path(symbol: str) -> str:
     return os.path.join(DATA_DIR, f"fundamentals_{safe}.json")
 
 
+def _record_key(record: FundamentalSnapshotRecord) -> str:
+    ingested = record.ingested_at.isoformat() if record.ingested_at else "unknown"
+    return "|".join(
+        [
+            record.symbol.upper(),
+            record.as_of_date.isoformat(),
+            str(record.point_in_time),
+            record.source,
+            ingested,
+        ]
+    )
+
+
 def _atomic_write(path: str, payload: list[dict]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with _FILE_LOCK:
@@ -40,12 +53,15 @@ def save_snapshot_record(record: FundamentalSnapshotRecord) -> FundamentalSnapsh
         with _FILE_LOCK, open(path, "r", encoding="utf-8") as handle:
             existing = json.load(handle)
     keyed = {
-        f"{item['as_of_date']}": item
+        _record_key(FundamentalSnapshotRecord(**item)): item
         for item in existing
-        if isinstance(item, dict) and item.get("as_of_date")
+        if isinstance(item, dict) and item.get("symbol")
     }
-    keyed[record.as_of_date.isoformat()] = record.model_dump(mode="json")
-    merged = sorted(keyed.values(), key=lambda item: item["as_of_date"])
+    keyed[_record_key(record)] = record.model_dump(mode="json")
+    merged = sorted(
+        keyed.values(),
+        key=lambda item: (item.get("as_of_date", ""), item.get("ingested_at", "")),
+    )
     _atomic_write(path, merged)
     return record
 
@@ -92,7 +108,7 @@ def seed_demo_fundamentals_records(symbol: str, base_snapshot: FundamentalSnapsh
             symbol=symbol.upper(),
             as_of_date=as_of,
             snapshot=adjusted,
-            point_in_time=False,
+            point_in_time=True,
             source="synthetic_demo",
             report_period=adjusted.period,
             ingested_at=datetime.now(timezone.utc),

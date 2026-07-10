@@ -52,10 +52,9 @@ def fetch_live_options_chain(symbol: str, current_price: float, *, max_expiratio
                     continue
                 bid = float(row.get("bid") or 0.0)
                 ask = float(row.get("ask") or 0.0)
-                last = float(row.get("lastPrice") or 0.0)
-                mid = (bid + ask) / 2.0 if bid > 0 and ask > 0 else last
-                if mid <= 0:
+                if bid <= 0 or ask <= 0 or ask < bid:
                     continue
+                mid = (bid + ask) / 2.0
                 implied = row.get("impliedVolatility")
                 if implied in (None, 0):
                     continue

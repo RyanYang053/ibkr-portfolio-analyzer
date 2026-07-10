@@ -167,11 +167,13 @@ export type OptionsStrategyDetails = {
   type: string;
   expiration: string;
   strikes: string;
-  net_credit_debit: number;
+  net_premium: number;
+  premium_type: "credit" | "debit";
+  net_credit_debit?: number;
   max_profit: string;
   max_loss: string;
   breakeven: number;
-  probability_of_profit: number;
+  probability_of_profit: number | null;
   rationale: string;
   eligible: boolean;
   eligibility_reason: string;
@@ -179,6 +181,7 @@ export type OptionsStrategyDetails = {
 
 export type TradeProposalItem = {
   symbol: string;
+  con_id?: number | null;
   current_weight: number;
   target_weight: number;
   current_value: number;
@@ -206,6 +209,10 @@ export type PortfolioOptimizationProposal = {
   expected_volatility: number | null;
   expected_return: number | null;
   sharpe_ratio: number | null;
+  modeled_sleeve_expected_volatility?: number | null;
+  modeled_sleeve_expected_return?: number | null;
+  modeled_sleeve_sharpe?: number | null;
+  modeled_portfolio_coverage_percent?: number | null;
   constraints_applied: string[];
   methodology: string;
   compliance_disclaimer: string;
@@ -215,9 +222,10 @@ export type PortfolioOptimizationProposal = {
 export type OptionsStrategyReport = {
   symbol: string;
   stock_price: number;
-  implied_volatility: number;
-  iv_percentile: number;
-  implied_move_percent: number;
+  implied_volatility: number | null;
+  iv_percentile: number | null;
+  implied_move_percent: number | null;
+  implied_move_horizon_days?: number | null;
   strategies: OptionsStrategyDetails[];
   market_sentiment: string;
   human_review_required: boolean;
@@ -225,9 +233,9 @@ export type OptionsStrategyReport = {
   provider: string;
   provider_error?: string;
   asOf: string;
-  dataSource: "IBKR" | "Polygon" | "Tradier" | "GeminiGroundedSearch" | "Mock";
+  dataSource: "IBKR" | "Polygon" | "Tradier" | "GeminiGroundedSearch" | "Mock" | "LiveYahooOptions" | "Unavailable";
   isMock: boolean;
-  quoteDelaySeconds?: number;
+  quoteDelaySeconds?: number | null;
   sourceUrls?: string[];
   warnings: string[];
   provenance?: {

@@ -12,6 +12,8 @@ from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
 
 TRADING_DAYS = 252
 MIN_RISK_RETURNS = 20
+MIN_HISTORICAL_VAR_RETURNS = 100
+MAX_SNAPSHOT_GAP_DAYS = 5
 Z_95 = 1.6448536269514722
 NORMAL_ES_95 = 2.0627128075074253
 MAX_BENCHMARK_STALENESS_DAYS = 7
@@ -48,20 +50,51 @@ def _max_drawdown_from_returns(returns: list[float]) -> float | None:
     return maximum * 100.0
 
 
+def _snapshot_spacing_valid(dates: list[str]) -> bool:
+    if len(dates) < 2:
+        return True
+    for previous, current in zip(dates, dates[1:]):
+        gap = (date.fromisoformat(current) - date.fromisoformat(previous)).days
+        if gap > MAX_SNAPSHOT_GAP_DAYS:
+            return False
+    return True
+
+
+def _daily_risk_free_rate(risk_free_rate_annual: float) -> float:
+    return (1.0 + risk_free_rate_annual) ** (1.0 / TRADING_DAYS) - 1.0
+
+
+def _ols_intercept(y: list[float], x: list[float]) -> float | None:
+    if len(y) < 2 or len(y) != len(x):
+        return None
+    x_mean = fmean(x)
+    y_mean = fmean(y)
+    variance = sum((value - x_mean) ** 2 for value in x) / (len(x) - 1)
+    if variance <= 0:
+        return None
+    covariance = sum((a - x_mean) * (b - y_mean) for a, b in zip(x, y)) / (len(x) - 1)
+    slope = covariance / variance
+    return y_mean - slope * x_mean
+
+
 def _actual_account_returns(
     summary: Any,
     history: list[PortfolioPnLSnapshot],
-) -> tuple[list[float], list[str], str]:
+) -> tuple[list[float], list[str], str, dict[str, float]]:
     ordered = _latest_daily_snapshots(history)
     if len(ordered) < 2:
-        return [], [item.date for item in ordered], "insufficient_history"
+        return [], [item.date for item in ordered], "insufficient_history", {}
+
+    dates = [item.date for item in ordered]
+    if not _snapshot_spacing_valid(dates):
+        return [], dates, "irregular_snapshot_spacing", {}
 
     from app.services.market_data.fx_store import make_transaction_fx_resolver
 
     fx_resolver = make_transaction_fx_resolver()
     account_id = str(getattr(summary, "account_id", "") or "default")
     if account_id == "all":
-        return [], [item.date for item in ordered], "consolidated_scope_unavailable"
+        return [], dates, "consolidated_scope_unavailable", {}
     from app.services.portfolio.ledger_coverage import (
         external_cash_flows_for_interval,
         ledger_covers_period,
@@ -79,11 +112,11 @@ def _actual_account_returns(
             status = coverage.status
         else:
             status = "missing"
-        return [], [item.date for item in ordered], status
+        return [], dates, status, {}
 
     transactions = get_transactions(account_id)
     returns: list[float] = []
-    dates = [item.date for item in ordered]
+    returns_by_date: dict[str, float] = {}
     for previous, current in zip(ordered, ordered[1:]):
         previous_date = date.fromisoformat(previous.date)
         current_date = date.fromisoformat(current.date)
@@ -96,9 +129,10 @@ def _actual_account_returns(
         )
         value = (current.net_liquidation - flow) / previous.net_liquidation - 1.0
         if not math.isfinite(value) or value <= -1.0:
-            return [], dates, "invalid_interval"
+            return [], dates, "invalid_interval", returns_by_date
         returns.append(value)
-    return returns, dates, "sufficient"
+        returns_by_date[current.date] = value
+    return returns, dates, "sufficient", returns_by_date
 
 
 def _benchmark_returns_for_dates(
@@ -179,22 +213,23 @@ def _historical_metrics(
     if len(returns) < MIN_RISK_RETURNS:
         return result
 
-    daily_mean = fmean(returns)
+    rf_daily = _daily_risk_free_rate(risk_free_rate_annual)
+    excess = [value - rf_daily for value in returns]
     daily_sigma = _sample_std(returns)
+    excess_sigma = _sample_std(excess)
     if daily_sigma is None:
         return result
 
-    annualized_return = (1.0 + daily_mean) ** TRADING_DAYS - 1.0 if daily_mean > -1.0 else -1.0
     annualized_sigma = daily_sigma * math.sqrt(TRADING_DAYS)
     result["volatility"] = annualized_sigma * 100.0
 
     # Parametric one-day normal loss estimates plus historical simulation quantile.
-    var_loss_fraction = max(0.0, Z_95 * daily_sigma - daily_mean)
-    es_loss_fraction = max(0.0, NORMAL_ES_95 * daily_sigma - daily_mean)
+    var_loss_fraction = max(0.0, Z_95 * daily_sigma - fmean(returns))
+    es_loss_fraction = max(0.0, NORMAL_ES_95 * daily_sigma - fmean(returns))
     result["value_at_risk_95"] = total_value * var_loss_fraction
     result["conditional_var_95"] = total_value * es_loss_fraction
     historical_losses = sorted(-value for value in returns)
-    if len(historical_losses) >= MIN_RISK_RETURNS:
+    if len(historical_losses) >= MIN_HISTORICAL_VAR_RETURNS:
         var_index = max(0, min(len(historical_losses) - 1, math.ceil(0.95 * len(historical_losses)) - 1))
         var_loss_fraction = max(0.0, historical_losses[var_index])
         result["historical_var_95"] = total_value * var_loss_fraction
@@ -202,34 +237,31 @@ def _historical_metrics(
         if tail_losses:
             result["historical_es_95"] = total_value * (sum(tail_losses) / len(tail_losses))
 
-    if annualized_sigma > 0:
-        result["sharpe_ratio"] = (annualized_return - risk_free_rate_annual) / annualized_sigma
+    if excess_sigma is not None and excess_sigma > 0:
+        result["sharpe_ratio"] = math.sqrt(TRADING_DAYS) * fmean(excess) / excess_sigma
 
-    rf_daily = (1.0 + risk_free_rate_annual) ** (1.0 / TRADING_DAYS) - 1.0
-    downside = [min(0.0, value - rf_daily) for value in returns]
-    downside_sigma = math.sqrt(sum(value * value for value in downside) / len(downside)) * math.sqrt(TRADING_DAYS)
-    if downside_sigma > 0:
-        result["sortino_ratio"] = (annualized_return - risk_free_rate_annual) / downside_sigma
+    downside = [min(0.0, value) for value in excess]
+    downside_variance = fmean([value * value for value in downside])
+    if downside_variance > 0:
+        downside_sigma = math.sqrt(downside_variance)
+        result["sortino_ratio"] = math.sqrt(TRADING_DAYS) * fmean(excess) / downside_sigma
 
     if len(spy_returns) == len(returns) and len(spy_returns) >= MIN_RISK_RETURNS:
         beta = _beta(returns, spy_returns)
         result["portfolio_beta_spy"] = beta
         active_returns = [portfolio - benchmark for portfolio, benchmark in zip(returns, spy_returns)]
         tracking_daily = _sample_std(active_returns)
-        benchmark_mean = fmean(spy_returns)
-        benchmark_annual = (1.0 + benchmark_mean) ** TRADING_DAYS - 1.0 if benchmark_mean > -1.0 else -1.0
+        excess_market = [value - rf_daily for value in spy_returns]
         if beta is not None:
-            alpha = annualized_return - (
-                risk_free_rate_annual + beta * (benchmark_annual - risk_free_rate_annual)
-            )
-            result["jensens_alpha"] = alpha * 100.0
+            alpha_daily = _ols_intercept(excess, excess_market)
+            if alpha_daily is not None:
+                alpha_annual = (1.0 + alpha_daily) ** TRADING_DAYS - 1.0
+                result["jensens_alpha"] = alpha_annual * 100.0
         if tracking_daily is not None:
             tracking_annual = tracking_daily * math.sqrt(TRADING_DAYS)
             result["tracking_error"] = tracking_annual * 100.0
             if tracking_annual > 0:
-                active_mean = fmean(active_returns)
-                active_annual = (1.0 + active_mean) ** TRADING_DAYS - 1.0 if active_mean > -1.0 else -1.0
-                result["information_ratio"] = active_annual / tracking_annual
+                result["information_ratio"] = math.sqrt(TRADING_DAYS) * fmean(active_returns) / tracking_annual
     return result
 
 
@@ -324,7 +356,7 @@ def calculate_advanced_risk_metrics(
     allow_mock = settings.broker_mode == "mock_ibkr_readonly"
     risk_free_rate = float(getattr(settings, "risk_free_rate_annual", 0.0))
 
-    account_returns, snapshot_dates, ledger_status = _actual_account_returns(summary, history)
+    account_returns, snapshot_dates, ledger_status, account_returns_by_date = _actual_account_returns(summary, history)
     try:
         spy_returns, spy_source = _benchmark_returns_for_dates("SPY", snapshot_dates, allow_mock)
     except Exception:
@@ -359,17 +391,23 @@ def calculate_advanced_risk_metrics(
     except Exception:
         reconstruction = None
 
-    enough_history = len(account_returns) >= MIN_RISK_RETURNS
+    enough_history = (
+        len(account_returns) >= MIN_RISK_RETURNS
+        and ledger_status == "sufficient"
+    )
     benchmark_sufficient = enough_history and len(spy_returns) == len(account_returns)
 
     factor_exposures, factor_excluded = _factor_exposures(positions, summary)
     measured_exposures: dict[str, float] = {}
     factor_quality = "heuristic_current_exposure"
-    if enough_history:
+    factor_metadata: dict[str, str] = {}
+    if enough_history and account_returns_by_date:
         from app.services.risk.factor_model import compute_measured_factor_exposures
 
-        measured_exposures, factor_quality = compute_measured_factor_exposures(
-            account_returns,
+        end_date = date.fromisoformat(snapshot_dates[-1]) if snapshot_dates else None
+        measured_exposures, factor_quality, factor_metadata = compute_measured_factor_exposures(
+            account_returns_by_date,
+            end_date=end_date,
             allow_mock=allow_mock,
         )
     if measured_exposures and factor_quality == "experimental":
@@ -396,6 +434,7 @@ def calculate_advanced_risk_metrics(
         "stress_fx_excluded_symbols": ",".join(sorted(set(stress_excluded))) or "none",
         "factor_fx_excluded_symbols": ",".join(sorted(set(factor_excluded))) or "none",
         "factor_model": factor_quality,
+        **{f"factor_{key}": str(value) for key, value in factor_metadata.items()},
     }
 
     methodology = {
@@ -417,11 +456,11 @@ def calculate_advanced_risk_metrics(
         ),
         "stress_tests": "Current base-currency market values under transparent assumption-based shocks; not forecasts.",
         "risk_free_rate": f"Configured annual risk-free rate: {risk_free_rate * 100.0:.4f}%.",
-        "sharpe_ratio": "Geometrically annualized mean return minus configured risk-free rate, divided by annualized volatility.",
-        "sortino_ratio": "Geometrically annualized mean return minus configured risk-free rate, divided by annualized downside deviation.",
-        "jensens_alpha": "CAPM alpha from actual account returns and aligned SPY total returns.",
+        "sharpe_ratio": "Daily excess return Sharpe: sqrt(252) * mean(excess) / sample_std(excess).",
+        "sortino_ratio": "Daily excess return Sortino: sqrt(252) * mean(excess) / downside deviation of excess returns.",
+        "jensens_alpha": "Daily CAPM intercept from excess portfolio and market returns, geometrically annualized.",
         "tracking_error": "Annualized sample standard deviation of actual account active returns versus SPY.",
-        "information_ratio": "Geometrically annualized mean active return divided by annualized tracking error.",
+        "information_ratio": "sqrt(252) * mean(active return) / annualized tracking error.",
     }
 
     def rounded(name: str, digits: int = 2):

@@ -19,6 +19,9 @@ _FILE_LOCK = Lock()
 
 class PositionPnL(BaseModel):
     symbol: str
+    con_id: int | None = None
+    currency: str = "USD"
+    contract_multiplier: float = 1.0
     quantity: float
     market_price: float
     market_value: float
@@ -126,6 +129,7 @@ def record_pnl_snapshot(
 
     external_cash_flow = None
     investment_return_percent = None
+    investment_return_status = "withheld_missing_coverage"
     try:
         from app.services.market_data.fx_store import make_transaction_fx_resolver
         from app.services.portfolio.ledger_coverage import (
@@ -138,10 +142,10 @@ def record_pnl_snapshot(
         transactions = get_transactions(active_account_id)
         coverage = load_ledger_coverage(active_account_id)
         fx_resolver = make_transaction_fx_resolver()
-        if last_entry and coverage and coverage.status == "completed":
+        if last_entry and coverage:
             interval_start = date.fromisoformat(last_entry.date)
             interval_end = date.fromisoformat(today)
-            if ledger_covers_period(coverage, interval_start, interval_end) or coverage.coverage_end:
+            if ledger_covers_period(coverage, interval_start, interval_end):
                 external_cash_flow = round(
                     external_cash_flows_for_interval(
                         transactions,
@@ -157,9 +161,11 @@ def record_pnl_snapshot(
                         (summary.net_liquidation - external_cash_flow) / last_entry.net_liquidation - 1.0,
                         6,
                     ) * 100.0
-    except Exception:
+                investment_return_status = "cash_flow_adjusted"
+    except Exception as exc:
         external_cash_flow = None
         investment_return_percent = None
+        investment_return_status = f"withheld_error:{type(exc).__name__}"
 
     is_transition = False
     if last_entry and last_entry.is_mock and last_entry.net_liquidation > 0:
@@ -182,19 +188,31 @@ def record_pnl_snapshot(
         position_change_percent = 0.0
         quantity_changed = False
         if last_entry and not is_transition:
-            previous = next((item for item in last_entry.positions if item.symbol == position.symbol), None)
+            previous = next(
+                (
+                    item
+                    for item in last_entry.positions
+                    if item.symbol == position.symbol and item.con_id == position.con_id
+                ),
+                None,
+            )
             if previous and previous.market_price > 0:
                 quantity_changed = abs(previous.quantity - position.quantity) > 1e-9
-                # Use the prior quantity to isolate price P&L. This naturally handles
-                # short positions; trade effects remain outside this estimate.
-                position_change = previous.quantity * (position.market_price - previous.market_price)
-                position_change_percent = (
-                    (position.market_price / previous.market_price - 1.0) * 100.0
-                )
+                if position.asset_class in {"OPT", "FOP"} or position.currency != summary.base_currency:
+                    position_change = 0.0
+                    position_change_percent = 0.0
+                else:
+                    position_change = previous.quantity * (position.market_price - previous.market_price)
+                    position_change_percent = (
+                        (position.market_price / previous.market_price - 1.0) * 100.0
+                    )
 
         positions_pnl.append(
             PositionPnL(
                 symbol=position.symbol,
+                con_id=position.con_id,
+                currency=position.currency,
+                contract_multiplier=float(position.multiplier or 1.0),
                 quantity=position.quantity,
                 market_price=position.market_price,
                 market_value=position.market_value,
@@ -220,11 +238,7 @@ def record_pnl_snapshot(
         investment_return_percent=investment_return_percent,
         data_quality={
             "daily_pnl": "account_value_change_not_cash_flow_adjusted",
-            "investment_return": (
-                "cash_flow_adjusted_when_transactions_present"
-                if external_cash_flow is not None
-                else "withheld_missing_external_cash_flows"
-            ),
+            "investment_return": investment_return_status,
             "position_pnl": "price_effect_estimate; quantity changes flagged",
         },
     )

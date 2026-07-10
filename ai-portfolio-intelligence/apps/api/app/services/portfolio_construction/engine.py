@@ -35,10 +35,18 @@ def _validate_policy(policy: InvestmentPolicyStatement) -> None:
         raise ValueError("Minimum cash cannot be negative")
 
 
+PositionKey = tuple[str, int | None]
+
+
+def _position_key(position: Position) -> PositionKey:
+    return position.symbol.upper(), position.con_id
+
+
 def _position_bucket_key(position: Position) -> str:
-    if position.con_id is not None:
-        return f"{position.symbol.upper()}:{position.con_id}"
-    return position.symbol.upper()
+    symbol, con_id = _position_key(position)
+    if con_id is not None:
+        return f"{symbol}:{con_id}"
+    return symbol
 
 
 def generate_rebalance_proposal(
@@ -64,9 +72,9 @@ def generate_rebalance_proposal(
     current_cash = float(summary.cash)
     cash_floor = max(policy.minimum_cash, total_value * policy.target_cash_percent / 100.0)
 
-    converted: dict[str, tuple[Position, float, float]] = {}
+    converted: dict[PositionKey, tuple[Position, float, float]] = {}
     for position in positions:
-        key = _position_bucket_key(position)
+        key = _position_key(position)
         if key in converted:
             raise ValueError(
                 "Duplicate position keys require a conId-aware rebalance proposal schema; refusing to merge distinct contracts."
@@ -92,25 +100,26 @@ def generate_rebalance_proposal(
         for item in converted.values()
         if item[0].quantity > 0 and item[1] > 0 and item[2] > 0
     ]
-    position_keys = [_position_bucket_key(item[0]) for item in long_positions]
+    position_keys = [_position_key(item[0]) for item in long_positions]
     if len(position_keys) != len(set(position_keys)):
         raise ValueError(
             "Duplicate position keys require a conId-aware rebalance proposal schema; refusing to merge distinct contracts."
         )
-    by_symbol = {item[0].symbol: item for item in long_positions}
-    planned_sales: dict[str, float] = defaultdict(float)
-    sale_reasons: dict[str, list[str]] = defaultdict(list)
+    by_key = {key: item for key, item in zip(position_keys, long_positions)}
+    planned_sales: dict[PositionKey, float] = defaultdict(float)
+    sale_reasons: dict[PositionKey, list[str]] = defaultdict(list)
 
     def plan_sale(item: tuple[Position, float, float], requested_value_base: float, reason: str) -> None:
         position, market_value_base, _ = item
+        key = _position_key(position)
         if requested_value_base <= 0:
             return
-        remaining_value = max(0.0, market_value_base - planned_sales[position.symbol])
+        remaining_value = max(0.0, market_value_base - planned_sales[key])
         sale_value = min(requested_value_base, remaining_value)
         if sale_value < MINIMUM_TRADE_VALUE:
             return
-        planned_sales[position.symbol] += sale_value
-        sale_reasons[position.symbol].append(reason)
+        planned_sales[key] += sale_value
+        sale_reasons[key].append(reason)
 
     for item in long_positions:
         position, market_value_base, _ = item
@@ -127,7 +136,7 @@ def generate_rebalance_proposal(
 
     speculative = [item for item in long_positions if item[0].is_speculative]
     speculative_value_after_sales = sum(
-        max(0.0, market_value_base - planned_sales[position.symbol])
+        max(0.0, market_value_base - planned_sales[_position_key(position)])
         for position, market_value_base, _ in speculative
     )
     speculative_limit_value = total_value * policy.max_speculative_weight / 100.0
@@ -135,7 +144,7 @@ def generate_rebalance_proposal(
     if speculative_excess > 0 and speculative_value_after_sales > 0:
         for item in speculative:
             position, market_value_base, _ = item
-            remaining = max(0.0, market_value_base - planned_sales[position.symbol])
+            remaining = max(0.0, market_value_base - planned_sales[_position_key(position)])
             plan_sale(
                 item,
                 speculative_excess * remaining / speculative_value_after_sales,
@@ -154,8 +163,13 @@ def generate_rebalance_proposal(
     additional_sale_target = max(additional_cash_needed, equity_reduction_needed - cash_from_planned_sales)
 
     if additional_sale_target > 0:
+        candidates = [
+            item
+            for item in long_positions
+            if item[0].asset_class not in {"OPT", "FOP"}
+        ]
         candidates = sorted(
-            long_positions,
+            candidates,
             key=lambda item: (
                 0 if item[0].is_etf else 1 if not item[0].is_speculative else 2,
                 -item[1],
@@ -164,18 +178,19 @@ def generate_rebalance_proposal(
         remaining_target = additional_sale_target
         for item in candidates:
             position, market_value_base, _ = item
+            key = _position_key(position)
             if remaining_target < MINIMUM_TRADE_VALUE:
                 break
-            available = max(0.0, market_value_base - planned_sales[position.symbol])
+            available = max(0.0, market_value_base - planned_sales[key])
             if available < MINIMUM_TRADE_VALUE:
                 continue
-            before = planned_sales[position.symbol]
+            before = planned_sales[key]
             plan_sale(item, min(available, remaining_target), "Raise the required cash buffer or reduce equity drift.")
-            remaining_target -= planned_sales[position.symbol] - before
+            remaining_target -= planned_sales[key] - before
 
     proposed_trades: list[RebalanceProposalItem] = []
-    for symbol, sale_value_base in sorted(planned_sales.items()):
-        position, market_value_base, market_price_base = by_symbol[symbol]
+    for key, sale_value_base in sorted(planned_sales.items()):
+        position, market_value_base, market_price_base = by_key[key]
         quantity = min(position.quantity, sale_value_base / market_price_base)
         actual_value_base = quantity * market_price_base
         if actual_value_base < MINIMUM_TRADE_VALUE:
@@ -183,14 +198,15 @@ def generate_rebalance_proposal(
         target_weight = max(0.0, (market_value_base - actual_value_base) / total_value * 100.0)
         proposed_trades.append(
             RebalanceProposalItem(
-                symbol=symbol,
+                symbol=position.symbol,
+                con_id=position.con_id,
                 current_weight=round(market_value_base / total_value * 100.0, 2),
                 target_weight=round(target_weight, 2),
                 current_value=round(market_value_base, 2),
                 proposed_trade_value=round(-actual_value_base, 2),
                 proposed_trade_qty=round(-quantity, 6),
                 action="Sell",
-                reason=" ".join(dict.fromkeys(sale_reasons[symbol])),
+                reason=" ".join(dict.fromkeys(sale_reasons[key])),
             )
         )
 
@@ -207,6 +223,7 @@ def generate_rebalance_proposal(
                 proposed_trades.append(
                     RebalanceProposalItem(
                         symbol=benchmark,
+                        con_id=position.con_id,
                         current_weight=round(market_value_base / total_value * 100.0, 2),
                         target_weight=round((market_value_base + desired_purchase) / total_value * 100.0, 2),
                         current_value=round(market_value_base, 2),

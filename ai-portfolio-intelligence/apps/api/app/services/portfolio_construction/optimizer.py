@@ -14,9 +14,15 @@ from app.schemas.domain import (
 from app.services.policy.engine import analyze_policy_drift
 
 MINIMUM_TRADE_VALUE = 100.0
-MIN_RETURN_OBSERVATIONS = 20
 TRADING_DAYS = 252
-RISK_FREE_RATE_ANNUAL = 0.045
+
+
+def _position_key(position: Position) -> tuple[str, int | None]:
+    return position.symbol.upper(), position.con_id
+
+
+def _minimum_observations(asset_count: int) -> int:
+    return max(60, 3 * asset_count)
 
 
 def _invert_matrix(matrix: list[list[float]]) -> list[list[float]] | None:
@@ -74,8 +80,10 @@ def _aligned_daily_returns(
 def _covariance_matrix(returns_by_symbol: dict[str, list[float]]) -> tuple[list[str], list[list[float]]]:
     symbols = sorted(returns_by_symbol)
     length = min(len(returns_by_symbol[symbol]) for symbol in symbols)
-    if length < MIN_RETURN_OBSERVATIONS:
+    minimum = _minimum_observations(len(symbols))
+    if length < minimum:
         return [], []
+    ridge = 1e-6
     matrix = [[0.0 for _ in symbols] for _ in symbols]
     for i, left in enumerate(symbols):
         left_returns = returns_by_symbol[left][-length:]
@@ -88,6 +96,8 @@ def _covariance_matrix(returns_by_symbol: dict[str, list[float]]) -> tuple[list[
                 for index in range(length)
             ) / max(length - 1, 1)
             matrix[i][j] = covariance
+    for index in range(len(symbols)):
+        matrix[index][index] += ridge
     return symbols, matrix
 
 
@@ -148,8 +158,12 @@ def generate_portfolio_optimization(
 ) -> PortfolioOptimizationProposal:
     from datetime import date, timedelta
 
+    from app.core.config import settings
     from app.services.broker.ibkr_readonly import get_exchange_rate
     from app.services.market_data.mock_provider import MockMarketDataProvider
+
+    if objective != "min_variance":
+        raise ValueError("Only min_variance is implemented")
 
     allow_mock = summary.account_id.startswith("MOCK")
     total_value = float(summary.net_liquidation)
@@ -188,7 +202,7 @@ def generate_portfolio_optimization(
 
     symbols, returns_by_symbol = _aligned_daily_returns(
         closes_by_symbol,
-        minimum_observations=MIN_RETURN_OBSERVATIONS,
+        minimum_observations=_minimum_observations(len(closes_by_symbol)),
     )
     if not symbols:
         raise ValueError("Insufficient date-aligned return history to optimize portfolio weights")
@@ -211,9 +225,14 @@ def generate_portfolio_optimization(
         raise ValueError("Unable to solve minimum-variance weights")
 
     cash_target = policy.target_cash_percent / 100.0
+    modeled_keys = {
+        _position_key(position)
+        for position in optimizable_positions
+        if position.symbol in covariance_symbols
+    }
     fixed_weight = 0.0
     for position in positions:
-        if position in optimizable_positions:
+        if _position_key(position) in modeled_keys:
             continue
         rate = get_exchange_rate(position.currency, summary.base_currency)
         fixed_weight += abs(position.market_value * rate) / total_value
@@ -291,9 +310,14 @@ def generate_portfolio_optimization(
         for j, right in enumerate(covariance_symbols):
             variance += weight_vector[i] * covariance[i][j] * weight_vector[j] * TRADING_DAYS
     expected_vol_annual = math.sqrt(max(variance, 0.0))
+    risk_free_rate = float(getattr(settings, "risk_free_rate_annual", 0.0))
     sharpe = None
     if expected_vol_annual > 0:
-        sharpe = (expected_return_annual - RISK_FREE_RATE_ANNUAL) / expected_vol_annual
+        sharpe = (expected_return_annual - risk_free_rate) / expected_vol_annual
+
+    modeled_coverage = (
+        sum(converted_values.get(symbol, 0.0) for symbol in covariance_symbols) / total_value * 100.0
+    )
 
     constraints = [
         f"objective={objective}",
@@ -310,14 +334,19 @@ def generate_portfolio_optimization(
     return PortfolioOptimizationProposal(
         objective=objective,
         proposed_trades=proposed_trades,
-        expected_volatility=round(expected_vol_annual * 100.0, 2) if expected_vol_annual else None,
-        expected_return=round(expected_return_annual * 100.0, 2),
-        sharpe_ratio=round(sharpe, 2) if sharpe is not None else None,
+        expected_volatility=None,
+        expected_return=None,
+        sharpe_ratio=None,
+        modeled_sleeve_expected_volatility=round(expected_vol_annual * 100.0, 2) if expected_vol_annual else None,
+        modeled_sleeve_expected_return=round(expected_return_annual * 100.0, 2),
+        modeled_sleeve_sharpe=round(sharpe, 2) if sharpe is not None else None,
+        modeled_portfolio_coverage_percent=round(modeled_coverage, 2),
         constraints_applied=constraints,
         methodology=(
             "Mean-variance optimization on date-aligned historical daily total returns. "
-            "Cash, derivatives, speculative holdings, and restricted symbols are reserved outside the "
-            "optimizable sleeve. Displayed expected return, volatility, and Sharpe use proposed weights "
-            "(w^T mu, sqrt(w^T Sigma w), and Sharpe with risk-free rate). Output is a review proposal only."
+            "Cash, derivatives, speculative holdings, restricted symbols, and positions without "
+            "return history are reserved outside the optimizable sleeve. Displayed metrics are "
+            "modeled-sleeve ex-ante estimates (w^T mu, sqrt(w^T Sigma w), Sharpe with risk-free rate). "
+            "Output is a review proposal only."
         ),
     )

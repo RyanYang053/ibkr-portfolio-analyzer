@@ -35,6 +35,10 @@ class TransactionLedgerCoverage(BaseModel):
     has_external_cash_flows: bool = False
     execution_only: bool = False
     flex_error: Optional[str] = None
+    flex_query_id: str | None = None
+    flex_generated_at: datetime | None = None
+    flex_statement_account_id: str | None = None
+    coverage_basis: Literal["explicit_statement_period", "unknown", "execution_only"] = "unknown"
 
 
 def _coverage_path(account_id: str) -> str:
@@ -104,10 +108,15 @@ def external_cash_flows_for_interval(
         amount = external_cash_flow_amount(txn)
         if amount == 0.0:
             continue
-        try:
-            rate = float(fx_resolver(txn.currency, base_currency, txn.trade_date))
-        except TypeError:
-            rate = float(fx_resolver(txn.currency, base_currency))
+        if txn.currency.upper() == base_currency.upper():
+            rate = 1.0
+        else:
+            try:
+                rate = float(fx_resolver(txn.currency, base_currency, txn.trade_date))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Transaction-date FX required for {txn.currency}/{base_currency} on {txn.trade_date}"
+                ) from exc
         if rate <= 0:
             raise ValueError(f"Invalid FX rate for {txn.currency}/{base_currency}: {rate}")
         total += amount * rate
@@ -122,6 +131,9 @@ def build_ledger_coverage(
     flex_error: Optional[str] = None,
     period_start: Optional[date] = None,
     period_end: Optional[date] = None,
+    flex_query_id: Optional[str] = None,
+    flex_generated_at: Optional[datetime] = None,
+    flex_statement_account_id: Optional[str] = None,
 ) -> TransactionLedgerCoverage:
     """Build source-period coverage metadata, independent of transaction presence.
 
@@ -137,15 +149,26 @@ def build_ledger_coverage(
     has_external = bool(external_rows)
     execution_only = bool(execution_rows) and not has_activity_ledger
 
-    if has_activity_ledger and period_start is not None and period_end is not None:
+    explicit_period = (
+        has_activity_ledger
+        and period_start is not None
+        and period_end is not None
+        and flex_statement_account_id in {None, account_id}
+    )
+    if explicit_period:
         coverage_start = period_start
         coverage_end = period_end
-    elif transactions:
-        coverage_start = min(txn.trade_date for txn in transactions)
-        coverage_end = max(txn.trade_date for txn in transactions)
+        coverage_basis: Literal["explicit_statement_period", "unknown", "execution_only"] = (
+            "explicit_statement_period"
+        )
+    elif execution_only:
+        coverage_start = min(txn.trade_date for txn in transactions) if transactions else None
+        coverage_end = max(txn.trade_date for txn in transactions) if transactions else None
+        coverage_basis = "execution_only"
     else:
         coverage_start = None
         coverage_end = None
+        coverage_basis = "unknown"
 
     sources = sorted({txn.source for txn in transactions if txn.source})
     if sources:
@@ -160,11 +183,9 @@ def build_ledger_coverage(
     status: Literal["completed", "partial", "error"] = "partial"
     if flex_error:
         status = "error" if not transactions else "partial"
-    elif has_activity_ledger and period_start is not None and period_end is not None:
-        status = "completed" if rejected_row_count == 0 else "partial"
+    elif explicit_period and rejected_row_count == 0:
+        status = "completed"
     elif has_activity_ledger:
-        # The activity section was imported, but its requested date window is not
-        # known, so full-period performance cannot be asserted.
         status = "partial"
 
     return TransactionLedgerCoverage(
@@ -179,6 +200,10 @@ def build_ledger_coverage(
         has_external_cash_flows=has_external,
         execution_only=execution_only,
         flex_error=flex_error,
+        flex_query_id=flex_query_id,
+        flex_generated_at=flex_generated_at,
+        flex_statement_account_id=flex_statement_account_id,
+        coverage_basis=coverage_basis,
     )
 
 

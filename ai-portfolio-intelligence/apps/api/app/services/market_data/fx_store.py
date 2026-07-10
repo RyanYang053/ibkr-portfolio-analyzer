@@ -12,6 +12,7 @@ from app.services.market_data.http_client import request_with_retry
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 FX_STORE_FILE = os.path.join(DATA_DIR, "historical_fx_rates.json")
+MAX_FX_STALENESS_DAYS = 7
 _FILE_LOCK = Lock()
 _MEMORY_CACHE: dict[str, dict[str, float]] = {}
 
@@ -82,16 +83,24 @@ def _merge_series_into_store(pair: str, series: dict[str, float]) -> None:
     _MEMORY_CACHE[pair] = store[pair]
 
 
-def _lookup_rate(series: dict[str, float], as_of: date) -> Optional[float]:
+def _lookup_rate(
+    series: dict[str, float],
+    as_of: date,
+    max_staleness_days: int = MAX_FX_STALENESS_DAYS,
+) -> Optional[float]:
     if not series:
         return None
     as_of_text = as_of.isoformat()
     if as_of_text in series:
         return series[as_of_text]
     prior_dates = [day for day in series if day <= as_of_text]
-    if prior_dates:
-        return series[sorted(prior_dates)[-1]]
-    return None
+    if not prior_dates:
+        return None
+    chosen = sorted(prior_dates)[-1]
+    staleness = (as_of - date.fromisoformat(chosen)).days
+    if staleness > max_staleness_days:
+        return None
+    return series[chosen]
 
 
 def get_historical_exchange_rate(from_curr: str, to_curr: str, as_of: date) -> float:
@@ -121,16 +130,17 @@ def get_historical_exchange_rate(from_curr: str, to_curr: str, as_of: date) -> f
     _merge_series_into_store(pair, fetched)
     rate = _lookup_rate(fetched, as_of)
     if rate is None:
-        raise RuntimeError(f"Historical FX unavailable for {native}/{reporting} on {as_of.isoformat()}")
+        raise RuntimeError(
+            f"Historical FX unavailable for {native}/{reporting} on {as_of.isoformat()} "
+            f"within {MAX_FX_STALENESS_DAYS} day staleness limit"
+        )
     return rate
 
 
 def make_transaction_fx_resolver():
-    from app.services.broker.ibkr_readonly import get_exchange_rate
-
     def resolver(from_curr: str, to_curr: str, trade_date: date | None = None) -> float:
         if trade_date is None:
-            return get_exchange_rate(from_curr, to_curr)
+            raise ValueError("Dated FX resolver requires trade_date for historical conversion")
         return get_historical_exchange_rate(from_curr, to_curr, trade_date)
 
     return resolver

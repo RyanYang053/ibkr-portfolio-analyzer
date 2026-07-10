@@ -148,7 +148,7 @@ def test_performance_attribution_includes_brinson_fields():
     ]
     result = calculate_performance_attribution(positions, history, base_currency="USD", fx_resolver=lambda _a, _b: 1.0)
     assert result.brinson_by_sector == {}
-    assert result.data_quality["brinson_attribution"] == "insufficient"
+    assert result.data_quality["brinson_attribution"] == "experimental_withheld"
 
 
 def test_score_calibration_reports_ic_and_buckets():

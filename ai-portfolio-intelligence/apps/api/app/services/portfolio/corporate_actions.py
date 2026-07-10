@@ -39,9 +39,7 @@ def parse_corporate_action(txn: Transaction) -> Optional[CorporateAction]:
         if denominator <= 0 or numerator <= 0:
             return None
         ratio = numerator / denominator
-        if "reverse" in lowered:
-            ratio = 1.0 / ratio if ratio > 0 else None
-        if ratio is None or ratio <= 0:
+        if ratio <= 0:
             return None
         return CorporateAction(action_type="split", ratio=ratio)
 

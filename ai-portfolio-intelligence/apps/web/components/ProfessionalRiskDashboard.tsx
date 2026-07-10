@@ -30,9 +30,9 @@ interface AdvancedRiskMetrics {
 }
 
 interface PerformanceAttribution {
-  security_selection_return: Record<string, number>;
-  sector_allocation_return: Record<string, number>;
-  asset_class_return: Record<string, number>;
+  security_selection_pnl: Record<string, number>;
+  sector_allocation_pnl: Record<string, number>;
+  asset_class_pnl: Record<string, number>;
   realized_vs_unrealized: { realized: number; unrealized: number };
   benchmark_relative_alpha: number | null;
   data_quality: Record<string, string>;
@@ -102,17 +102,23 @@ export function ProfessionalRiskDashboard({
                 : "Strategic Factor Exposures"}
             </h4>
             <div className="space-y-2">
-              {Object.entries(advancedRisk.factor_exposures).map(([factor, value]) => (
+              {Object.entries(advancedRisk.factor_exposures).map(([factor, value]) => {
+                const isExperimental = advancedRisk.data_quality?.factor_model === "experimental";
+                const label = isExperimental ? `${value.toFixed(2)}x` : `${value.toFixed(1)}%`;
+                const width = isExperimental
+                  ? `${Math.min(100, Math.abs(value) * 50)}%`
+                  : `${value}%`;
+                return (
                 <div key={factor} className="space-y-1">
                   <div className="flex justify-between text-xs font-medium">
                     <span>{factor}</span>
-                    <span>{value.toFixed(1)}%</span>
+                    <span>{label}</span>
                   </div>
                   <div className="h-1.5 w-full bg-zinc-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-accent rounded-full" style={{ width: `${value}%` }} />
+                    <div className="h-full bg-accent rounded-full" style={{ width }} />
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         </section>

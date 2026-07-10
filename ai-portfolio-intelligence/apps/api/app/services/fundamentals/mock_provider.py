@@ -102,7 +102,8 @@ class MockFundamentalProvider:
                         raise RuntimeError(f"Live fundamental data incomplete for {symbol.upper()}")
 
                     report_date = datetime.fromtimestamp(float(most_recent_quarter), tz=timezone.utc).date()
-                    as_of_date = filing_date or report_date
+                    observed_at = datetime.now(timezone.utc)
+                    as_of_date = observed_at.date()
 
                     from app.schemas.domain import FundamentalSnapshotRecord
                     from app.services.fundamentals.snapshot_store import save_snapshot_record

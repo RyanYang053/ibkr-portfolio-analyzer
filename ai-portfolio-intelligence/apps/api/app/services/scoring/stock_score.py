@@ -8,6 +8,8 @@ from typing import Optional
 
 from app.schemas.domain import Position, StockScore, utc_now
 
+SCORE_MODEL_VERSION = "2026.07.1"
+
 
 MODEL_WEIGHTS: dict[str, dict[str, float]] = {
     "universal": {
@@ -462,15 +464,44 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
     evidence.append(f"Model coverage: {coverage * 100:.1f}%")
 
     if final_score is not None:
+        import hashlib
+        import json
+
         from app.services.scoring.calibration_ingestion import (
             materialize_calibration_observations,
             record_score_observation,
         )
 
+        input_sources: list[str] = []
+        if fundamentals is not None:
+            input_sources.append(str(fundamentals.source))
+        if technicals is not None:
+            input_sources.append(history_source)
+        if news_list:
+            input_sources.append("news")
+        elif not allow_mock:
+            input_sources.append("news_unavailable_live")
+        feature_snapshot_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "model_name": model_name,
+                    "model_version": SCORE_MODEL_VERSION,
+                    "sub_scores": rounded_sub_scores,
+                    "missing_data": sorted(missing_data),
+                    "input_sources": sorted(input_sources),
+                },
+                sort_keys=True,
+            ).encode("utf-8"),
+        ).hexdigest()[:16]
+
         record_score_observation(
             symbol=position.symbol,
             model_name=model_name,
             score=final_score,
+            model_version=SCORE_MODEL_VERSION,
+            feature_snapshot_hash=feature_snapshot_hash,
+            input_sources=input_sources,
+            synthetic_demo=uses_mock or bool(allow_mock),
         )
         materialize_calibration_observations(model_name, allow_mock=uses_mock or bool(allow_mock))
 

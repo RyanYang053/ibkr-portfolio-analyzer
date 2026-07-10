@@ -14,6 +14,26 @@ import type {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(status: number, detail: unknown) {
+    super(`API request failed with status ${status}`);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+async function requireJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, { cache: "no-store" });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    throw new ApiError(response.status, detail);
+  }
+  return response.json() as Promise<T>;
+}
+
 async function getJson<T>(path: string, fallback: T): Promise<T> {
   try {
     const response = await fetch(`${API_URL}${path}`, { cache: "no-store" });
@@ -449,37 +469,12 @@ export async function updatePortfolioPolicy(policy: any, accountId?: string): Pr
 
 export async function getAdvancedRiskMetrics(accountId?: string): Promise<any> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  return getJson(`/portfolio/advanced-risk${query}`, {
-    max_drawdown: null,
-    volatility: null,
-    portfolio_beta_spy: null,
-    portfolio_beta_qqq: null,
-    value_at_risk_95: null,
-    conditional_var_95: null,
-    sharpe_ratio: null,
-    sortino_ratio: null,
-    jensens_alpha: null,
-    tracking_error: null,
-    information_ratio: null,
-    correlation_matrix: {},
-    factor_exposures: {},
-    stress_tests: [],
-    data_quality: { historical_metrics: "unavailable" },
-    methodology: {}
-  });
+  return requireJson(`/portfolio/advanced-risk${query}`);
 }
 
 export async function getPerformanceAttribution(accountId?: string): Promise<any> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  return getJson(`/portfolio/attribution${query}`, {
-    security_selection_return: {},
-    sector_allocation_return: {},
-    asset_class_return: {},
-    realized_vs_unrealized: { realized: 0.0, unrealized: 0.0 },
-    benchmark_relative_alpha: null,
-    data_quality: { benchmark_data: "missing" },
-    methodology: "Unavailable"
-  });
+  return requireJson(`/portfolio/attribution${query}`);
 }
 
 const emptyRebalanceProposal: RebalanceProposal = {
@@ -504,49 +499,18 @@ const emptyOptimizationProposal: PortfolioOptimizationProposal = {
 
 export async function getRebalanceProposal(accountId?: string): Promise<RebalanceProposal> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  try {
-    const response = await fetch(`${API_URL}/portfolio/rebalance-proposal${query}`, { cache: "no-store" });
-    if (!response.ok) {
-      return emptyRebalanceProposal;
-    }
-    const proposal = (await response.json()) as RebalanceProposal;
-    return { ...emptyRebalanceProposal, ...proposal, unavailable: false };
-  } catch {
-    return emptyRebalanceProposal;
-  }
+  const proposal = await requireJson<RebalanceProposal>(`/portfolio/rebalance-proposal${query}`);
+  return { ...proposal, unavailable: false };
 }
 
 export async function getOptimizationProposal(accountId?: string): Promise<PortfolioOptimizationProposal> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  try {
-    const response = await fetch(`${API_URL}/portfolio/optimization-proposal${query}`, { cache: "no-store" });
-    if (!response.ok) {
-      return emptyOptimizationProposal;
-    }
-    const proposal = (await response.json()) as PortfolioOptimizationProposal;
-    return { ...emptyOptimizationProposal, ...proposal, unavailable: false };
-  } catch {
-    return emptyOptimizationProposal;
-  }
+  const proposal = await requireJson<PortfolioOptimizationProposal>(`/portfolio/optimization-proposal${query}`);
+  return { ...proposal, unavailable: false };
 }
 
 export async function getOptionsStrategy(symbol: string): Promise<OptionsStrategyReport> {
-  return getJson<OptionsStrategyReport>(`/stocks/${symbol}/options-strategy`, {
-    symbol,
-    stock_price: 0,
-    implied_volatility: 0,
-    iv_percentile: 0,
-    implied_move_percent: 0,
-    strategies: [],
-    market_sentiment: "IBKR not connected or option parameters unavailable.",
-    human_review_required: true,
-    disclaimer: "This is fallback data. Please configure your API client.",
-    provider: "deterministic_fallback",
-    asOf: new Date().toISOString(),
-    dataSource: "Mock",
-    isMock: true,
-    warnings: ["Fallback data: failed to connect to portfolio API."]
-  });
+  return requireJson<OptionsStrategyReport>(`/stocks/${symbol}/options-strategy`);
 }
 
 

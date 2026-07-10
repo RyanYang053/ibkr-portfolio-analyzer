@@ -9,9 +9,10 @@ from app.schemas.domain import ScoreCalibrationReport
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 CALIBRATION_FILE = os.path.join(DATA_DIR, "score_calibration_observations.json")
+MIN_EXPERIMENTAL_OBSERVATIONS = 20
 
 
-def _load_store() -> dict[str, list[dict[str, float | str]]]:
+def _load_store() -> dict[str, list[dict[str, float | str | bool | list[str]]]]:
     if not os.path.exists(CALIBRATION_FILE):
         return {}
     try:
@@ -22,20 +23,41 @@ def _load_store() -> dict[str, list[dict[str, float | str]]]:
         return {}
 
 
-def _save_store(store: dict[str, list[dict[str, float | str]]]) -> None:
+def _save_store(store: dict[str, list[dict[str, float | str | bool | list[str]]]]) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(CALIBRATION_FILE, "w", encoding="utf-8") as handle:
         json.dump(store, handle, indent=2)
 
 
-def save_calibration_observations(model_name: str, observations: list[dict[str, float | str]]) -> None:
+def save_calibration_observations(model_name: str, observations: list[dict]) -> None:
     store = _load_store()
     store[model_name] = observations
     _save_store(store)
 
 
-def load_calibration_observations(model_name: str) -> list[dict[str, float | str]]:
-    return list(_load_store().get(model_name, []))
+def load_calibration_observations(
+    model_name: str,
+    *,
+    include_synthetic_demo: bool = False,
+) -> list[dict]:
+    observations = list(_load_store().get(model_name, []))
+    if include_synthetic_demo:
+        return observations
+    return [item for item in observations if not item.get("synthetic_demo")]
+
+
+def _observation_forward_return(item: dict) -> Optional[float]:
+    for key in ("forward_excess_return", "forward_return"):
+        value = item.get(key)
+        if isinstance(value, (int, float)):
+            return float(value)
+    forward_total = item.get("forward_total_return")
+    benchmark_total = item.get("benchmark_total_return")
+    if isinstance(forward_total, (int, float)) and isinstance(benchmark_total, (int, float)):
+        return float(forward_total) - float(benchmark_total)
+    if isinstance(forward_total, (int, float)):
+        return float(forward_total)
+    return None
 
 
 def get_calibration_status(model_name: str) -> Literal["sufficient", "insufficient"]:
@@ -44,29 +66,50 @@ def get_calibration_status(model_name: str) -> Literal["sufficient", "insufficie
     return "sufficient" if status == "sufficient" else "insufficient"
 
 
-def demo_calibration_observations() -> list[dict[str, float | str]]:
-    return [
-        {"symbol": "MSFT", "score": 82.0, "forward_return": 0.12},
-        {"symbol": "META", "score": 78.0, "forward_return": 0.09},
-        {"symbol": "IONQ", "score": 48.0, "forward_return": -0.08},
-        {"symbol": "QQQ", "score": 74.0, "forward_return": 0.07},
-        {"symbol": "SOFI", "score": 55.0, "forward_return": 0.01},
-        {"symbol": "NKE", "score": 42.0, "forward_return": -0.04},
-        {"symbol": "CRM", "score": 69.0, "forward_return": 0.05},
-        {"symbol": "GOOGL", "score": 76.0, "forward_return": 0.08},
-        {"symbol": "LAES", "score": 35.0, "forward_return": -0.15},
-        {"symbol": "SPY", "score": 71.0, "forward_return": 0.06},
-        {"symbol": "CELH", "score": 58.0, "forward_return": 0.02},
-        {"symbol": "INFQ", "score": 31.0, "forward_return": -0.12},
-        {"symbol": "SOXX", "score": 73.0, "forward_return": 0.10},
-        {"symbol": "AAPL", "score": 80.0, "forward_return": 0.11},
-        {"symbol": "NVDA", "score": 84.0, "forward_return": 0.18},
-        {"symbol": "TSLA", "score": 52.0, "forward_return": -0.02},
-        {"symbol": "AMZN", "score": 77.0, "forward_return": 0.09},
-        {"symbol": "MSFT", "score": 79.0, "forward_return": 0.06},
-        {"symbol": "META", "score": 75.0, "forward_return": 0.04},
-        {"symbol": "QQQ", "score": 72.0, "forward_return": 0.05},
+def demo_calibration_observations() -> list[dict]:
+    rows = [
+        ("MSFT", 82.0, 0.12, 0.06),
+        ("META", 78.0, 0.09, 0.03),
+        ("IONQ", 48.0, -0.08, -0.11),
+        ("QQQ", 74.0, 0.07, 0.01),
+        ("SOFI", 55.0, 0.01, -0.02),
+        ("NKE", 42.0, -0.04, -0.07),
+        ("CRM", 69.0, 0.05, 0.02),
+        ("GOOGL", 76.0, 0.08, 0.04),
+        ("LAES", 35.0, -0.15, -0.18),
+        ("SPY", 71.0, 0.06, 0.0),
+        ("CELH", 58.0, 0.02, -0.01),
+        ("INFQ", 31.0, -0.12, -0.15),
+        ("SOXX", 73.0, 0.10, 0.07),
+        ("AAPL", 80.0, 0.11, 0.08),
+        ("NVDA", 84.0, 0.18, 0.15),
+        ("TSLA", 52.0, -0.02, -0.05),
+        ("AMZN", 77.0, 0.09, 0.06),
+        ("MSFT", 79.0, 0.06, 0.03),
+        ("META", 75.0, 0.04, 0.01),
+        ("QQQ", 72.0, 0.05, 0.02),
     ]
+    observations: list[dict] = []
+    for symbol, score, forward_total, benchmark_total in rows:
+        forward_excess = forward_total - benchmark_total
+        observations.append(
+            {
+                "symbol": symbol,
+                "model_name": "universal",
+                "model_version": "demo",
+                "feature_snapshot_hash": "demo",
+                "score": score,
+                "observed_on": "2024-01-01",
+                "matured_on": "2024-04-01",
+                "forward_total_return": forward_total,
+                "benchmark_total_return": benchmark_total,
+                "forward_excess_return": forward_excess,
+                "forward_return": forward_excess,
+                "input_sources": ["synthetic_demo"],
+                "synthetic_demo": True,
+            }
+        )
+    return observations
 
 
 def _rank(values: list[float]) -> list[float]:
@@ -104,20 +147,20 @@ def _spearman(xs: list[float], ys: list[float]) -> Optional[float]:
 
 
 def run_score_calibration(
-    observations: list[dict[str, float | str]],
+    observations: list[dict],
     model_name: str = "universal",
 ) -> ScoreCalibrationReport:
-    """Walk-forward style calibration on (score, forward_return) pairs.
+    """Walk-forward calibration on (score, benchmark-relative forward return) pairs."""
+    usable = []
+    for item in observations:
+        score = item.get("score")
+        forward = _observation_forward_return(item)
+        if isinstance(score, (int, float)) and forward is not None:
+            usable.append((float(score), forward, item))
 
-    Observations must include numeric `score` and `forward_return` keys.
-    """
-    usable = [
-        item
-        for item in observations
-        if isinstance(item.get("score"), (int, float)) and isinstance(item.get("forward_return"), (int, float))
-    ]
-    scores = [float(item["score"]) for item in usable]
-    forward_returns = [float(item["forward_return"]) for item in usable]
+    scores = [score for score, _, _ in usable]
+    forward_returns = [forward for _, forward, _ in usable]
+    non_demo_count = sum(1 for _, _, item in usable if not item.get("synthetic_demo"))
 
     information_coefficient = _pearson(scores, forward_returns)
     rank_correlation = _spearman(scores, forward_returns)
@@ -125,7 +168,7 @@ def run_score_calibration(
     hit_rate = None
     if len(usable) >= 10:
         cutoff = sorted(scores)[int(len(scores) * 0.8)]
-        top_quintile = [forward_returns[index] for index, score in enumerate(scores) if score >= cutoff]
+        top_quintile = [forward for score, forward, _ in usable if score >= cutoff]
         if top_quintile:
             hit_rate = sum(1 for value in top_quintile if value > 0) / len(top_quintile)
 
@@ -138,8 +181,8 @@ def run_score_calibration(
             low = minimum + bucket_index * width
             high = minimum + (bucket_index + 1) * width
             members = [
-                forward_returns[index]
-                for index, score in enumerate(scores)
+                forward
+                for score, forward, _ in usable
                 if (score >= low if bucket_index > 0 else score >= low)
                 and (score < high if bucket_index < 4 else score <= high)
             ]
@@ -151,15 +194,25 @@ def run_score_calibration(
                 }
             )
 
+    if non_demo_count >= MIN_EXPERIMENTAL_OBSERVATIONS:
+        status = "experimental"
+    elif len(usable) >= MIN_EXPERIMENTAL_OBSERVATIONS:
+        status = "experimental"
+    else:
+        status = "insufficient"
+
     data_quality = {
         "observation_count": str(len(usable)),
-        "minimum_required": "20 for exploratory IC estimates",
-        "status": "experimental" if len(usable) >= 20 else "insufficient",
+        "non_demo_observation_count": str(non_demo_count),
+        "minimum_required": f"{MIN_EXPERIMENTAL_OBSERVATIONS} non-demo, PIT-safe observations across regimes",
+        "status": status,
+        "return_basis": "benchmark_relative_excess",
     }
     methodology = (
-        "Out-of-sample calibration ranks historical scores against realized forward returns. "
+        "Out-of-sample calibration ranks historical scores against realized benchmark-relative forward excess "
+        "returns (security total return minus SPY total return over the same maturity window). "
         "Information coefficient is Pearson correlation; rank correlation is Spearman. "
-        "Top-quintile hit rate measures how often the highest scores preceded positive forward returns."
+        "Observations remain experimental until enough non-demo, point-in-time-safe samples exist."
     )
 
     return ScoreCalibrationReport(

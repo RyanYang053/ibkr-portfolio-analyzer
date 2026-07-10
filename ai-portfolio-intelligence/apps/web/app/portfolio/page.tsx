@@ -9,8 +9,9 @@ import {
   getPerformanceAttribution,
   getRebalanceProposal,
   getOptimizationProposal,
+  ApiError,
 } from "@/lib/api";
-import type { PortfolioRisk, Position } from "@/lib/types";
+import type { PortfolioRisk, Position, RebalanceProposal, PortfolioOptimizationProposal } from "@/lib/types";
 import { DonutChart } from "@/components/DonutChart";
 import { ProfessionalRiskDashboard } from "@/components/ProfessionalRiskDashboard";
 import { PortfolioConstructionPanel } from "@/components/PortfolioConstructionPanel";
@@ -42,7 +43,6 @@ function shouldUsePositionDerivedRisk(risk: PortfolioRisk, positions: Position[]
 }
 
 function deriveRiskFromPositions(risk: PortfolioRisk, positions: Position[]) {
-  // Ensure risk is fully initialized to avoid undefined property access elsewhere on the page
   const safeRisk: PortfolioRisk = {
     total_value: risk?.total_value ?? 0,
     risk_score: risk?.risk_score ?? 0,
@@ -83,6 +83,26 @@ function topExposure(exposure: Record<string, number>) {
   return Object.entries(exposure).sort(([, first], [, second]) => second - first)[0] ?? ["None", 0];
 }
 
+const emptyRebalanceProposal: RebalanceProposal = {
+  proposed_trades: [],
+  cash_impact: 0,
+  tax_impact_warning: "Rebalance proposal unavailable for consolidated view.",
+  compliance_disclaimer: "Review only. This application does not execute trades.",
+  unavailable: true,
+};
+
+const emptyOptimizationProposal: PortfolioOptimizationProposal = {
+  objective: "min_variance",
+  proposed_trades: [],
+  expected_volatility: null,
+  expected_return: null,
+  sharpe_ratio: null,
+  constraints_applied: [],
+  methodology: "Optimization proposal unavailable for consolidated view.",
+  compliance_disclaimer: "Review only. This application does not execute trades.",
+  unavailable: true,
+};
+
 interface PageProps {
   searchParams: Promise<{ account_id?: string }>;
 }
@@ -90,15 +110,39 @@ interface PageProps {
 export default async function PortfolioPage(props: PageProps) {
   const searchParams = await props.searchParams;
   const accountId = searchParams.account_id || undefined;
+  const professionalAnalyticsAvailable = Boolean(accountId && accountId !== "all");
 
-  const [summary, positions, advancedRisk, attribution, rebalance, optimization] = await Promise.all([
+  const [summary, positions] = await Promise.all([
     getPortfolioSummary(accountId),
     getPositions(accountId),
-    getAdvancedRiskMetrics(accountId),
-    getPerformanceAttribution(accountId),
-    getRebalanceProposal(accountId),
-    getOptimizationProposal(accountId),
   ]);
+
+  let advancedRisk: any = null;
+  let attribution: any = null;
+  let rebalance: RebalanceProposal = emptyRebalanceProposal;
+  let optimization: PortfolioOptimizationProposal = emptyOptimizationProposal;
+  let analyticsError: string | null = null;
+
+  if (professionalAnalyticsAvailable) {
+    try {
+      [advancedRisk, attribution, rebalance, optimization] = await Promise.all([
+        getAdvancedRiskMetrics(accountId),
+        getPerformanceAttribution(accountId),
+        getRebalanceProposal(accountId),
+        getOptimizationProposal(accountId),
+      ]);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        analyticsError =
+          typeof error.detail === "object" && error.detail && "message" in (error.detail as object)
+            ? String((error.detail as { message?: string }).message)
+            : `Professional analytics unavailable (${error.status}).`;
+      } else {
+        analyticsError = "Professional analytics unavailable.";
+      }
+    }
+  }
+
   const { risk, derivedFromPositions } = deriveRiskFromPositions(summary.risk, positions);
   const [topCurrency, topCurrencyWeight] = topExposure(risk.currency_exposure);
 
@@ -111,6 +155,16 @@ export default async function PortfolioPage(props: PageProps) {
         <h2 className="text-3xl font-semibold">Portfolio</h2>
       </div>
       <Disclaimer />
+      {!professionalAnalyticsAvailable ? (
+        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
+          Select a specific account to view performance, historical risk, attribution, tax lots, and construction proposals.
+        </div>
+      ) : null}
+      {analyticsError ? (
+        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
+          {analyticsError}
+        </div>
+      ) : null}
       {positions.length === 0 ? (
         <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
           No live IBKR read-only portfolio is connected. Mock holdings are disabled.
@@ -136,12 +190,14 @@ export default async function PortfolioPage(props: PageProps) {
         baseCurrency={summary.summary.base_currency}
       />
       
-      <ProfessionalRiskDashboard
-        suitabilityWarnings={suitabilityWarnings}
-        advancedRisk={advancedRisk}
-        attribution={attribution}
-        baseCurrency={summary.summary.base_currency}
-      />
+      {advancedRisk && attribution ? (
+        <ProfessionalRiskDashboard
+          suitabilityWarnings={suitabilityWarnings}
+          advancedRisk={advancedRisk}
+          attribution={attribution}
+          baseCurrency={summary.summary.base_currency}
+        />
+      ) : null}
 
       <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <div className="rounded-md border border-line bg-white p-4">

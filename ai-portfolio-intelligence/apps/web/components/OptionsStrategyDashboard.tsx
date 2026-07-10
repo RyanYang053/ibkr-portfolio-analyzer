@@ -157,7 +157,7 @@ export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrateg
               {data.dataSource}
             </span>
           </div>
-          {data.quoteDelaySeconds !== undefined && data.quoteDelaySeconds > 0 && (
+          {(data.quoteDelaySeconds ?? 0) > 0 && (
             <div>
               <span className="font-semibold text-zinc-700">Quote Delay:</span>{" "}
               {data.quoteDelaySeconds}s
@@ -211,7 +211,11 @@ export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrateg
             <div className="mt-2 text-2xl font-bold text-accent">
               ±{data.implied_move_percent != null ? `${data.implied_move_percent.toFixed(1)}%` : "Unavailable"}
             </div>
-            <div className="text-[10px] text-zinc-400 mt-1">Estimated monthly price range</div>
+            <div className="text-[10px] text-zinc-400 mt-1">
+              {data.implied_move_horizon_days
+                ? `To selected expiration (${data.implied_move_horizon_days} days)`
+                : "To selected expiration"}
+            </div>
           </div>
         </div>
 
@@ -258,9 +262,9 @@ export function OptionsStrategyDashboard({ initialData, symbol }: OptionsStrateg
                     <span className="font-semibold text-zinc-800">{strat.strikes}</span>
                   </div>
                   <div>
-                    <span className="text-zinc-500 block text-xs">Net Debit/Credit</span>
-                    <span className={`font-semibold ${strat.net_credit_debit >= 0 ? "text-emerald-600" : "text-zinc-800"}`}>
-                      {strat.net_credit_debit >= 0 ? "+" : ""}${Math.abs(strat.net_credit_debit).toFixed(2)}
+                    <span className="text-zinc-500 block text-xs">Net Premium</span>
+                    <span className={`font-semibold ${strat.premium_type === "credit" ? "text-emerald-600" : "text-zinc-800"}`}>
+                      {strat.premium_type === "credit" ? "+" : "-"}${Math.abs(strat.net_premium).toFixed(2)} ({strat.premium_type})
                     </span>
                   </div>
                   <div>

@@ -202,9 +202,9 @@ def test_performance_attribution():
     # Mock unrealized pnl is 1000 for each (avg_cost=100, market_price=110, qty=100)
     attribution = calculate_performance_attribution(positions, [])
     
-    assert attribution.security_selection_return["MSFT"] == 1000.0
-    assert attribution.asset_class_return["Single Stock"] == 1000.0
-    assert attribution.asset_class_return["ETF"] == 1000.0
+    assert attribution.security_selection_pnl["MSFT"] == 1000.0
+    assert attribution.asset_class_pnl["Single Stock"] == 1000.0
+    assert attribution.asset_class_pnl["ETF"] == 1000.0
     assert attribution.benchmark_relative_alpha is None
 
 

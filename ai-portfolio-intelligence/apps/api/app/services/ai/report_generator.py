@@ -582,67 +582,81 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
     try:
         report = gemini.generate_json(prompt, response_schema=OPTIONS_STRATEGY_RESPONSE_SCHEMA)
         
-        # 3. Deterministic calculations over LLM strategies
+        contract_by_symbol = {contract.symbol: contract for contract in chain}
         validated_strategies = []
         for strat in report.get("strategies", []):
             contract_symbols = strat.get("target_contract_symbols", [])
-            selected_contracts = [c for c in chain if c.symbol in contract_symbols]
-            
-            if not selected_contracts:
-                selected_contracts = [c for c in chain if c.right == ("C" if "call" in strat.get("name", "").lower() else "P")][:1]
-                if not selected_contracts:
+            selected_contracts = [
+                contract_by_symbol[symbol]
+                for symbol in contract_symbols
+                if symbol in contract_by_symbol
+            ]
+            if len(selected_contracts) != len(contract_symbols):
+                continue
+
+            strat_name = strat.get("name", "")
+            strat_name_lower = strat_name.lower()
+            if "spread" in strat_name_lower:
+                if len(selected_contracts) != 2:
                     continue
-            
+                if (
+                    selected_contracts[0].expiration != selected_contracts[1].expiration
+                    or selected_contracts[0].right != selected_contracts[1].right
+                ):
+                    continue
+
             main_contract = selected_contracts[0]
             strike = main_contract.strike
             premium = main_contract.mid
-            
-            net_credit_debit = premium
+            net_premium = abs(premium)
+            premium_type = "credit"
             max_profit = ""
             max_loss = ""
             breakeven = strike
             
-            strat_name = strat.get("name", "")
-            strat_name_lower = strat_name.lower()
-            
             if "covered call" in strat_name_lower:
                 metrics = calculate_covered_call_metrics(position.market_price, strike, premium)
+                max_profit_per_share = strike - position.market_price + premium
+                if max_profit_per_share < 0:
+                    continue
                 max_profit = metrics["max_profit"]
                 max_loss = metrics["max_loss"]
                 breakeven = metrics["breakeven"]
-                net_credit_debit = premium
+                net_premium = abs(premium)
+                premium_type = "credit"
             elif "cash-secured put" in strat_name_lower:
                 metrics = calculate_cash_secured_put_metrics(strike, premium)
                 max_profit = metrics["max_profit"]
                 max_loss = metrics["max_loss"]
                 breakeven = metrics["breakeven"]
-                net_credit_debit = premium
+                net_premium = abs(premium)
+                premium_type = "credit"
             elif "spread" in strat_name_lower:
-                if len(selected_contracts) >= 2:
-                    leg1, leg2 = selected_contracts[0], selected_contracts[1]
-                else:
-                    legs = [c for c in chain if c.right == main_contract.right]
-                    leg1 = legs[len(legs)//2]
-                    leg2 = legs[min(len(legs)//2 + 1, len(legs)-1)]
-                
+                leg1, leg2 = selected_contracts[0], selected_contracts[1]
                 if main_contract.right == "C":
                     long_leg = leg1 if leg1.strike < leg2.strike else leg2
                     short_leg = leg2 if leg1.strike < leg2.strike else leg1
                     net_debit = round(long_leg.mid - short_leg.mid, 2)
-                    net_credit_debit = net_debit
+                    width = short_leg.strike - long_leg.strike
+                    if net_debit <= 0 or net_debit >= width:
+                        continue
                     metrics = calculate_bull_call_spread_metrics(long_leg.strike, short_leg.strike, net_debit)
                 else:
                     long_leg = leg1 if leg1.strike > leg2.strike else leg2
                     short_leg = leg2 if leg1.strike > leg2.strike else leg1
                     net_debit = round(long_leg.mid - short_leg.mid, 2)
-                    net_credit_debit = net_debit
+                    width = long_leg.strike - short_leg.strike
+                    if net_debit <= 0 or net_debit >= width:
+                        continue
                     metrics = calculate_bear_put_spread_metrics(long_leg.strike, short_leg.strike, net_debit)
-                
                 max_profit = metrics["max_profit"]
                 max_loss = metrics["max_loss"]
                 breakeven = metrics["breakeven"]
+                net_premium = abs(net_debit)
+                premium_type = "debit"
             else:
-                net_credit_debit = -premium
+                net_premium = abs(premium)
+                premium_type = "debit"
                 max_profit = "Unlimited" if main_contract.right == "C" else f"${(strike - premium) * 100:.2f} (cap at strike zero)"
                 max_loss = f"${premium * 100:.2f} (premium debit paid)"
                 breakeven = round(strike + premium if main_contract.right == "C" else strike - premium, 2)
@@ -662,7 +676,9 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
                 "type": strat.get("type", "income"),
                 "expiration": main_contract.expiration.isoformat(),
                 "strikes": strat.get("selected_strikes", f"{main_contract.right} at ${strike:.2f}"),
-                "net_credit_debit": net_credit_debit,
+                "net_premium": net_premium,
+                "premium_type": premium_type,
+                "net_credit_debit": net_premium if premium_type == "credit" else -net_premium,
                 "max_profit": max_profit,
                 "max_loss": max_loss,
                 "breakeven": breakeven,
@@ -686,25 +702,28 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
         atm_iv = atm_implied_volatility(chain, position.market_price)
         atm_contract = min(chain, key=lambda item: abs(item.strike - position.market_price)) if chain else None
         implied_move = None
+        implied_move_horizon_days = None
         if not is_demo and atm_iv is not None and atm_contract is not None:
             days = max((atm_contract.expiration - date.today()).days, 1)
             time_to_expiry = days / 365.0
             implied_move = round(atm_iv * math.sqrt(time_to_expiry) * 100.0, 2)
+            implied_move_horizon_days = days
         return {
             "symbol": position.symbol,
             "stock_price": position.market_price,
             "implied_volatility": 0.30 if is_demo else atm_iv,
             "iv_percentile": 50 if is_demo else None,
             "implied_move_percent": implied_move if implied_move is not None else (5.0 if is_demo else None),
+            "implied_move_horizon_days": implied_move_horizon_days,
             "strategies": validated_strategies,
             "market_sentiment": report.get("market_sentiment", "Educational market analysis active."),
             "human_review_required": True,
             "disclaimer": report.get("disclaimer", "Disclaimer: This options analysis is for educational purposes only."),
             "provider": f"gemini:{gemini.model}",
             "asOf": utc_now().isoformat(),
-            "dataSource": "Mock" if is_demo else ("LiveYahooOptions" if not live_chain_unavailable else "SimulatedChainNoLiveQuotes"),
-            "isMock": is_demo or (is_live_market and live_chain_unavailable),
-            "quoteDelaySeconds": 15 if is_demo else 0,
+            "dataSource": "Mock" if is_demo else ("LiveYahooOptions" if not live_chain_unavailable else "Unavailable"),
+            "isMock": is_demo,
+            "quoteDelaySeconds": None if is_demo else None,
             "warnings": warnings,
             "provenance": {
                 "live_portfolio_data": is_live_portfolio,
@@ -715,11 +734,20 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             }
         }
     except Exception as exc:
-        if not settings.allow_mock_options_strategy and not is_demo:
+        if not is_demo:
             from fastapi import HTTPException
             raise HTTPException(
-                status_code=503, 
-                detail=f"Options strategy generation failed in production: {exc}"
+                status_code=503,
+                detail={
+                    "code": "OPTIONS_ANALYSIS_UNAVAILABLE",
+                    "message": str(exc),
+                },
+            ) from exc
+        if not settings.allow_mock_options_strategy:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=503,
+                detail=f"Options strategy generation failed in production: {exc}",
             )
         return _fallback_options_report(position.symbol, position.market_price, f"Gemini error: {exc}", is_live_portfolio, is_live_market, is_mock_fallback)
 

@@ -103,7 +103,7 @@ def test_same_currency_tax_lot_fifo_realized_gain():
         ),
     ]
     report = build_tax_lot_attribution("MOCK-001", transactions, reporting_currency="USD")
-    assert report.data_quality["status"] == "sufficient"
+    assert report.data_quality["status"] == "lot_matching_complete"
     assert report.total_realized_gain_loss == 120.0
 
     transactions = [

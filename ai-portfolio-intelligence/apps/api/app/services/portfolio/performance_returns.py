@@ -180,10 +180,15 @@ def build_xirr_cash_flows(
         amount = external_cash_flow_amount(txn)
         if amount == 0.0:
             continue
-        try:
-            rate = float(fx_resolver(txn.currency, base_currency, txn.trade_date))
-        except TypeError:
-            rate = float(fx_resolver(txn.currency, base_currency))
+        if txn.currency.upper() == base_currency.upper():
+            rate = 1.0
+        else:
+            try:
+                rate = float(fx_resolver(txn.currency, base_currency, txn.trade_date))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Transaction-date FX required for {txn.currency}/{base_currency} on {txn.trade_date}"
+                ) from exc
         if rate <= 0:
             raise ValueError(f"Invalid FX rate for {txn.currency}/{base_currency}: {rate}")
         flows.append((txn.trade_date, -(amount * rate)))

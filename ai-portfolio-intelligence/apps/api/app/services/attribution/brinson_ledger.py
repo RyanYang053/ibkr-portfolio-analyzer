@@ -91,8 +91,10 @@ def beginning_sector_weights(
         currency = next((position.currency for position in positions if position.symbol.upper() == symbol), "USD")
         try:
             rate = float(fx_resolver(currency, base_currency, period_start))
-        except TypeError:
-            rate = float(fx_resolver(currency, base_currency))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Transaction-date FX required for {currency}/{base_currency} on {period_start}"
+            ) from exc
         sector = _sector_for_symbol(symbol, positions)
         sector_values[sector] += abs(quantity * price * rate)
     total = sum(sector_values.values())

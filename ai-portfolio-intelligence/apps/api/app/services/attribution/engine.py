@@ -183,6 +183,12 @@ def _portfolio_sector_returns_from_reconstruction(
     }
 
 
+def _position_pnl_key(position: Position) -> str:
+    if position.con_id is not None:
+        return f"{position.symbol.upper()}:{position.con_id}"
+    return position.symbol.upper()
+
+
 def calculate_performance_attribution(
     positions: list[Position],
     history: list[PortfolioPnLSnapshot],
@@ -223,19 +229,24 @@ def calculate_performance_attribution(
             )
             if tax_lot_realized:
                 tax_lot_total = round(sum(tax_lot_realized.values()), 2)
-                tax_lot_status = "sufficient"
+                tax_lot_status = "lot_matching_complete"
 
-    security_selection: dict[str, float] = {}
-    sector_allocation: dict[str, float] = defaultdict(float)
-    asset_class_return: dict[str, float] = defaultdict(float)
+    security_selection_pnl: dict[str, float] = {}
+    sector_allocation_pnl: dict[str, float] = defaultdict(float)
+    asset_class_pnl: dict[str, float] = defaultdict(float)
     realized_val = 0.0
     unrealized_val = 0.0
 
     for pos in positions:
-        pnl = pos.unrealized_pnl
-        security_selection[pos.symbol] = round(pnl, 2)
+        rate = fx_resolver(pos.currency, base_currency)
+        pnl = pos.unrealized_pnl * rate
+        key = _position_pnl_key(pos)
+        security_selection_pnl[key] = round(
+            security_selection_pnl.get(key, 0.0) + pnl,
+            2,
+        )
         sector_name = pos.sector or "Unknown"
-        sector_allocation[sector_name] += pnl
+        sector_allocation_pnl[sector_name] += pnl
 
         aclass = "Single Stock"
         if pos.is_etf:
@@ -244,16 +255,16 @@ def calculate_performance_attribution(
             aclass = "Options"
         elif "BND" in pos.asset_class or "BOND" in pos.asset_class:
             aclass = "Bonds"
-        asset_class_return[aclass] += pnl
+        asset_class_pnl[aclass] += pnl
 
-        realized_val += pos.realized_pnl
-        unrealized_val += pos.unrealized_pnl
+        realized_val += pos.realized_pnl * rate
+        unrealized_val += pos.unrealized_pnl * rate
 
-    sector_allocation_rounded = {key: round(value, 2) for key, value in sector_allocation.items()}
-    asset_class_rounded = {key: round(value, 2) for key, value in asset_class_return.items()}
+    sector_allocation_rounded = {key: round(value, 2) for key, value in sector_allocation_pnl.items()}
+    asset_class_rounded = {key: round(value, 2) for key, value in asset_class_pnl.items()}
 
     benchmark_relative_alpha = None
-    data_quality_benchmark = "missing"
+    data_quality_benchmark = "withheld_modeled_alpha"
     allow_mock = "pytest" in sys.modules
 
     allocation_effect = None
@@ -262,8 +273,9 @@ def calculate_performance_attribution(
     total_active_return = None
     brinson_by_sector: dict[str, dict[str, float]] = {}
     methodology = (
-        "Current realized and unrealized P&L grouped by security, sector, and asset class. "
-        "Brinson effects are withheld unless period-aligned portfolio sector returns are available."
+        "Current unrealized P&L grouped by security, sector, and asset class in base currency. "
+        "These fields are dollar P&L contributions, not return percentages. "
+        "Brinson effects are withheld while attribution remains experimental."
     )
 
     if positions:
@@ -282,11 +294,7 @@ def calculate_performance_attribution(
             data_timestamp=utc_now(),
         )
 
-        from app.services.risk.history_reconstructor import (
-            calculate_covariance,
-            calculate_variance,
-            reconstruct_portfolio_history,
-        )
+        from app.services.risk.history_reconstructor import reconstruct_portfolio_history
 
         recon = None
         portfolio_sector_returns = None
@@ -321,27 +329,8 @@ def calculate_performance_attribution(
             if portfolio_sector_returns is None and recon is not None:
                 portfolio_sector_returns = _portfolio_sector_returns_from_reconstruction(positions, recon)
 
-        if recon is not None:
-            port_returns = recon.get("port_returns") or []
-            spy_returns = recon.get("spy_returns") or []
-            var_spy = calculate_variance(spy_returns)
-            if var_spy > 0 and port_returns:
-                beta_spy = calculate_covariance(port_returns, spy_returns) / var_spy
-                nav_series = recon.get("portfolio_nav") or []
-                if nav_series and spy_returns and nav_series[0] > 0:
-                    p_ret = (nav_series[-1] - nav_series[0]) / nav_series[0]
-                    spy_compounded = 1.0
-                    for daily_return in spy_returns:
-                        spy_compounded *= 1.0 + daily_return
-                    spy_ret = spy_compounded - 1.0
-                    from app.core.config import settings
-
-                    rf = float(getattr(settings, "risk_free_rate_annual", 0.0))
-                    alpha = p_ret - (rf + beta_spy * (spy_ret - rf))
-                    benchmark_relative_alpha = round(alpha * 100.0, 2)
-                    data_quality_benchmark = "modeled_current_holdings_alpha"
-
-        alloc, sel, inter, active, by_sector, brinson_methodology = calculate_brinson_attribution(
+        # Brinson numerics withheld while methodology remains experimental.
+        _alloc, _sel, _inter, _active, _by_sector, brinson_methodology = calculate_brinson_attribution(
             positions,
             base_currency,
             fx_resolver,
@@ -351,13 +340,7 @@ def calculate_performance_attribution(
             period_start=period_start,
             period_end=period_end,
         )
-        if by_sector:
-            allocation_effect = alloc
-            selection_effect = sel
-            interaction_effect = inter
-            total_active_return = active
-            brinson_by_sector = by_sector
-            methodology = brinson_methodology
+        methodology = brinson_methodology
 
     cash_flow_status = "missing"
     if account_id:
@@ -372,9 +355,9 @@ def calculate_performance_attribution(
                 cash_flow_status = "partial_execution_only"
 
     return PerformanceAttribution(
-        security_selection_return=security_selection,
-        sector_allocation_return=sector_allocation_rounded,
-        asset_class_return=asset_class_rounded,
+        security_selection_pnl=security_selection_pnl,
+        sector_allocation_pnl=sector_allocation_rounded,
+        asset_class_pnl=asset_class_rounded,
         realized_vs_unrealized={
             "realized": round(realized_val, 2),
             "unrealized": round(unrealized_val, 2),
@@ -390,7 +373,7 @@ def calculate_performance_attribution(
         data_quality={
             "benchmark_data": data_quality_benchmark,
             "cash_flow_adjustment": cash_flow_status,
-            "brinson_attribution": "experimental" if brinson_by_sector else "insufficient",
+            "brinson_attribution": "experimental_withheld",
             "tax_lot_realized": tax_lot_status,
         },
         methodology=methodology,
