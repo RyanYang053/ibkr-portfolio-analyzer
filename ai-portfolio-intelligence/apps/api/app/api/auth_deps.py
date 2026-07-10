@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from app.api.user_store import get_user
 from app.core.config import settings
+from app.core.request_context import bind_actor
 from app.core.security import decode_access_token, token_is_revoked
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -35,7 +36,9 @@ def _principal_for_email(email: str) -> Principal:
         raise HTTPException(status_code=401, detail="User not found")
     role = user.get("role", "viewer")
     scopes = OWNER_SCOPES if role == "owner" else VIEWER_SCOPES
-    return Principal(user_id=email, role=role, scopes=scopes)
+    principal = Principal(user_id=email, role=role, scopes=scopes)
+    bind_actor(principal.user_id, tenant_id=principal.user_id)
+    return principal
 
 
 def auth_enforcement_active() -> bool:
@@ -51,7 +54,9 @@ def get_current_principal(
         bootstrap = settings.bootstrap_owner_email
         if bootstrap and get_user(bootstrap):
             return _principal_for_email(bootstrap)
-        return Principal(user_id="local-dev", role="owner", scopes=OWNER_SCOPES)
+        principal = Principal(user_id="local-dev", role="owner", scopes=OWNER_SCOPES)
+        bind_actor(principal.user_id, tenant_id=principal.user_id)
+        return principal
 
     if credentials is None or not credentials.credentials:
         raise HTTPException(status_code=401, detail="Authentication required")

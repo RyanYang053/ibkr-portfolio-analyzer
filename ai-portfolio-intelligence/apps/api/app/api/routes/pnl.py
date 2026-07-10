@@ -81,6 +81,8 @@ def create_pnl_snapshot(
             action="pnl_snapshot_recorded",
             object_type="portfolio",
             object_id="all",
+            actor_id=principal.user_id,
+            account_id="all",
             metadata={"net_liquidation": summary.net_liquidation},
         )
         return res
@@ -95,6 +97,8 @@ def create_pnl_snapshot(
             action="pnl_snapshot_recorded",
             object_type="portfolio",
             object_id=active_id,
+            actor_id=principal.user_id,
+            account_id=active_id,
             metadata={"net_liquidation": summary.net_liquidation},
         )
         return res

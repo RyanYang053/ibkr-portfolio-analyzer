@@ -62,7 +62,9 @@ def configure_readonly(
         action="broker_configured",
         object_type="configuration",
         object_id=payload.mode,
-        metadata={"host": payload.host, "port": payload.port, "client_id": payload.client_id, "account_id": payload.account_id}
+        actor_id=principal.user_id,
+        account_id=payload.account_id,
+        metadata={"host": payload.host, "port": payload.port, "client_id": payload.client_id, "account_id": payload.account_id},
     )
     if payload.account_id:
         grant_account_access(principal.user_id, payload.account_id)

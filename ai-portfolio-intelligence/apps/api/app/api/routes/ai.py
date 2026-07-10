@@ -116,7 +116,10 @@ def ai_status() -> dict[str, object]:
 
 
 @router.post("/configure", dependencies=[Depends(require_scope("configuration:write"))])
-def configure_ai(payload: AIConfigureRequest) -> dict[str, object]:
+def configure_ai(
+    payload: AIConfigureRequest,
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, object]:
     if settings.environment != "development":
         raise HTTPException(
             status_code=403,
@@ -127,7 +130,8 @@ def configure_ai(payload: AIConfigureRequest) -> dict[str, object]:
     log_audit_action(
         action="ai_configured",
         object_type="configuration",
-        object_id=payload.model
+        object_id=payload.model,
+        actor_id=principal.user_id,
     )
     return {
         "provider": "gemini",
@@ -155,13 +159,18 @@ def get_schedule(adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[s
 
 
 @router.put("/schedule", dependencies=[Depends(require_scope("configuration:write"))])
-def update_schedule(payload: AIScheduleSettings, adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[str, object]:
+def update_schedule(
+    payload: AIScheduleSettings,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, object]:
     settings = payload.model_dump()
     _save_settings(settings)
     log_audit_action(
         action="ai_schedule_updated",
         object_type="configuration",
-        metadata=settings
+        actor_id=principal.user_id,
+        metadata=settings,
     )
     return {
         "settings": settings,
@@ -194,7 +203,8 @@ def write_thesis(
     log_audit_action(
         action="thesis_updated",
         object_type="security",
-        object_id=symbol.upper()
+        object_id=symbol.upper(),
+        actor_id=principal.user_id,
     )
     return res
 
@@ -224,7 +234,9 @@ def analyze_stock(
             action="ai_analysis_triggered",
             object_type="security",
             object_id=symbol.upper(),
-            metadata={"provider": res.get("provider")}
+            actor_id=principal.user_id,
+            account_id=active_id,
+            metadata={"provider": res.get("provider")},
         )
         return gate_professional_response(adapter, principal, active_id, res)
     raise HTTPException(status_code=404, detail="Symbol not found in portfolio")
@@ -262,7 +274,9 @@ def analyze_portfolio(
         log_audit_action(
             action="ai_analysis_triggered",
             object_type="portfolio",
-            metadata={"provider": res.get("provider")}
+            actor_id=principal.user_id,
+            account_id=active_id,
+            metadata={"provider": res.get("provider")},
         )
         return res
     except Exception as exc:

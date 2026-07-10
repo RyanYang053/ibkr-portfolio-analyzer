@@ -41,6 +41,7 @@ def create_watchlist_item(payload: WatchlistItem, principal: Principal = Depends
         action="watchlist_item_added",
         object_type="security",
         object_id=payload.symbol.upper(),
+        actor_id=principal.user_id,
         metadata=payload.model_dump(),
     )
     return item
@@ -62,6 +63,7 @@ def update_watchlist_item(
                 action="watchlist_item_updated",
                 object_type="security",
                 object_id=payload.symbol.upper(),
+                actor_id=principal.user_id,
                 metadata=payload.model_dump(),
             )
             return item
@@ -83,5 +85,6 @@ def delete_watchlist_item(item_id: int, principal: Principal = Depends(get_curre
         action="watchlist_item_removed",
         object_type="security",
         object_id=symbol.upper(),
+        actor_id=principal.user_id,
     )
     return {"status": "deleted"}

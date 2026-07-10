@@ -190,6 +190,9 @@ Write a concise Markdown review with evidence from the supplied fields.
         action="ai_scheduled_run",
         object_type="portfolio",
         object_id=period,
+        actor_id=actor.actor_id,
+        actor_type="system",
+        account_id=active_id,
         metadata={"account_id": active_id, "actor_id": actor.actor_id},
     )
     return new_run

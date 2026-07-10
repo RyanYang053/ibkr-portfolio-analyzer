@@ -19,6 +19,7 @@ from app.services.data_quality.validation import (
 )
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
 from app.services.tenant_scope import tenant_user_id
+from app.core.audit import log_audit_action
 
 router = APIRouter(
     prefix="/portfolio",
@@ -543,6 +544,14 @@ def update_profile(
     from app.services.suitability.engine import save_investor_profile
 
     save_investor_profile(profile, active_id, user_id=tenant_user_id(principal))
+    log_audit_action(
+        action="investor_profile_updated",
+        object_type="profile",
+        object_id=active_id,
+        actor_id=principal.user_id,
+        account_id=active_id,
+        after=profile.model_dump(),
+    )
     return {"status": "success", "message": "Investor profile updated successfully"}
 
 
@@ -569,6 +578,14 @@ def update_policy(
     from app.services.policy.engine import save_portfolio_policy
 
     save_portfolio_policy(policy, active_id, user_id=tenant_user_id(principal))
+    log_audit_action(
+        action="portfolio_policy_updated",
+        object_type="policy",
+        object_id=active_id,
+        actor_id=principal.user_id,
+        account_id=active_id,
+        after=policy.model_dump(),
+    )
     return {"status": "success", "message": "Investment Policy Statement updated successfully"}
 
 

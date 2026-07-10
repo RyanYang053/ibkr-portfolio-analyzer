@@ -2,10 +2,28 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncio
+import uuid
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from app.api.routes import admin, ai, alerts, analysis, auth, broker, chat, health, pnl, portfolio, reports, stocks, watchlist
 from app.core.config import settings, validate_production_settings
+from app.core.request_context import activate_request_context, clear_request_context
 from app.services.scheduler import run_background_scheduler
+
+
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        source_ip = request.client.host if request.client else None
+        activate_request_context(request_id=request_id, source_ip=source_ip)
+        try:
+            response = await call_next(request)
+        finally:
+            clear_request_context()
+        response.headers["X-Request-ID"] = request_id
+        return response
 
 
 @asynccontextmanager
@@ -33,6 +51,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
