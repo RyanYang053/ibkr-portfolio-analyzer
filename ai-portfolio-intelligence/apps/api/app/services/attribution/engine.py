@@ -52,7 +52,7 @@ def _portfolio_sector_weights(positions: list[Position], base_currency: str, fx_
     return {sector: weight / total for sector, weight in grouped.items()}
 
 
-def _benchmark_sector_weights(period_start: date | None = None, *, allow_mock: bool = False) -> dict[str, float]:
+def _benchmark_sector_weights(period_start: date | None = None, *, allow_mock: bool = False) -> dict[str, float] | None:
     from app.services.attribution.benchmark_weights import benchmark_sector_weights_as_of
 
     if period_start is None:
@@ -82,6 +82,15 @@ def calculate_brinson_attribution(
 
     portfolio_weights = portfolio_sector_weights or _portfolio_sector_weights(positions, base_currency, fx_resolver)
     benchmark_weights = _benchmark_sector_weights(period_start, allow_mock=allow_mock)
+    if not benchmark_weights:
+        return (
+            None,
+            None,
+            None,
+            None,
+            {},
+            "Brinson attribution withheld: licensed or documented benchmark sector weights are unavailable.",
+        )
     sectors = sorted(set(portfolio_weights) | set(benchmark_weights))
 
     if period_start is None or period_end is None:
@@ -133,7 +142,8 @@ def calculate_brinson_attribution(
     total_active = allocation + selection + interaction
     methodology = (
         "Brinson-Fachler attribution uses beginning portfolio sector weights and value-weighted period "
-        "portfolio sector returns versus date-aware benchmark sector ETF proxy weights and ETF total returns."
+        "portfolio sector returns versus documented static benchmark sector weights (demo/testing only) "
+        "and ETF total returns."
     )
     if portfolio_sector_weights is not None:
         methodology += " Beginning weights are reconstructed from the transaction ledger."
@@ -346,7 +356,7 @@ def calculate_performance_attribution(
             total_active_return = _active
             brinson_by_sector = _by_sector
             brinson_status = "ledger_backed"
-        elif _by_sector:
+        elif _by_sector and allow_mock:
             brinson_status = "experimental_modeled"
 
     cash_flow_status = "missing"

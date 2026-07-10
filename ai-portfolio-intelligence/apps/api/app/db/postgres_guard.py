@@ -17,3 +17,8 @@ def require_postgres_persistence(operation: str, *, table_available: bool) -> No
             "message": f"Postgres persistence is required but unavailable for {operation}.",
         },
     )
+
+
+def require_postgres_read(operation: str, *, table_available: bool) -> None:
+    """Fail closed when Postgres is configured but the backing table is unavailable."""
+    require_postgres_persistence(operation, table_available=table_available)

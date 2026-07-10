@@ -28,8 +28,8 @@ def _latest_daily_snapshots(history: list[PortfolioPnLSnapshot]) -> list[Portfol
 
 def _flow_weight(trade_date: date, interval_start: date, interval_end: date) -> float:
     total_days = max((interval_end - interval_start).days, 1)
-    elapsed = max((trade_date - interval_start).days, 0)
-    return min(max(elapsed / total_days, 0.0), 1.0)
+    remaining = max((interval_end - trade_date).days, 0)
+    return min(max(remaining / total_days, 0.0), 1.0)
 
 
 def _modified_dietz_interval_return(
@@ -97,6 +97,9 @@ def _subperiod_twr_interval_return(
     if date.fromisoformat(snapshots[0].date) != interval_start or date.fromisoformat(snapshots[-1].date) != interval_end:
         return None
     if not all(flow_date in nav_by_date for flow_date in flow_dates):
+        return None
+    # A same-day NAV cannot bracket a flow; exact subperiod linking requires pre/post-flow valuations.
+    if any(flow_date in {interval_start, interval_end} for flow_date in flow_dates):
         return None
 
     boundaries = [interval_start, *flow_dates, interval_end]

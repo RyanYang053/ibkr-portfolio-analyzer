@@ -260,8 +260,13 @@ def record_pnl_snapshot(
         from app.db.daily_position_repo import upsert_daily_positions
 
         upsert_daily_positions(active_account_id, date.fromisoformat(today), positions)
-    except Exception:
-        pass
+    except Exception as exc:
+        from app.core.config import settings
+
+        if settings.persistence_backend == "postgres" and not is_demo:
+            raise
+        logger = __import__("logging").getLogger("pnl_tracker")
+        logger.warning("Daily position snapshot write failed for %s: %s", active_account_id, exc)
 
     history.append(snapshot)
     store_key = "demo" if is_demo else active_account_id

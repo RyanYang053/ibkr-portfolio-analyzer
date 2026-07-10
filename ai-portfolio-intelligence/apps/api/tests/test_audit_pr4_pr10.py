@@ -179,6 +179,8 @@ def test_pnl_decomposition_reports_known_cash_flows(monkeypatch, tmp_path):
         lambda _a, _b: 1.0,
     )
     assert result.dividend_income_total == 25.0
+    assert result.price_effect_total is None
+    assert result.reconciliation_status == "provisional_cash_flow_inventory"
     assert result.calculation_run["calculation_run_id"]
 
 

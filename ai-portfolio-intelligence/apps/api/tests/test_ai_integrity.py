@@ -361,7 +361,7 @@ def test_live_fx_failure_never_uses_hardcoded_rate(monkeypatch):
 
 
 def test_scheduler_does_not_backfill_missed_analysis_slots(monkeypatch):
-    monkeypatch.setattr(scheduler, "_load_settings", lambda: {
+    monkeypatch.setattr("app.api.routes.ai._load_settings", lambda: {
         "enabled": True,
         "morning_time": "09:30",
         "midday_time": "12:30",

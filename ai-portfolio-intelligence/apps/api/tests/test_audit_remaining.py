@@ -56,7 +56,7 @@ def test_brinson_emits_sector_effects_with_mock_returns():
     assert by_sector
     assert alloc is not None
     assert active is not None
-    assert "date-aware" in methodology
+    assert "static benchmark" in methodology
 
 
 def test_broker_sync_batch_roundtrip(tmp_path, monkeypatch):

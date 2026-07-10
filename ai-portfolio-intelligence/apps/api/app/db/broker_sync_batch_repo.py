@@ -98,7 +98,10 @@ def create_broker_sync_batch(
 
 
 def read_broker_sync_batch(account_id: str, batch_id: str) -> BrokerSyncBatch | None:
-    if settings.persistence_backend == "postgres" and _table_available():
+    if settings.persistence_backend == "postgres":
+        from app.db.postgres_guard import require_postgres_read
+
+        require_postgres_read("broker sync batch read", table_available=_table_available())
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:

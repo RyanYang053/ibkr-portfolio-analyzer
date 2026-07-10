@@ -15,6 +15,7 @@ COMPANY_TYPE_CONCEPTS: dict[str, list[str]] = {
         "SalesRevenueNet",
         "OperatingIncomeLoss",
         "NetCashProvidedByUsedInOperatingActivities",
+        "PaymentsToAcquirePropertyPlantAndEquipment",
         "GrossProfit",
     ],
     "bank": [
@@ -80,12 +81,21 @@ def _point_in_time_values(facts: dict[str, Any], concept: str) -> list[dict[str,
                     "fp": row.get("fp"),
                 }
             )
-    return sorted(rows, key=lambda item: str(item.get("end", "")), reverse=True)
+    return sorted(
+        rows,
+        key=lambda item: (str(item.get("filed", "")), str(item.get("end", ""))),
+        reverse=True,
+    )
 
 
-def _latest_us_gaap_value(facts: dict[str, Any], concept: str) -> float | None:
+def _latest_filed_value(facts: dict[str, Any], concept: str) -> tuple[float | None, str | None]:
     rows = _point_in_time_values(facts, concept)
-    return rows[0]["value"] if rows else None
+    if not rows:
+        return None, None
+    latest = rows[0]
+    filed = latest.get("filed")
+    report_date = date.fromisoformat(filed) if filed else None
+    return float(latest["value"]), report_date.isoformat() if report_date else None
 
 
 def fetch_company_facts_payload(symbol: str) -> dict[str, Any] | None:
@@ -121,34 +131,41 @@ def fetch_edgar_fundamental_snapshot(symbol: str, *, company_type: str = "genera
     if not payload:
         return None
 
-    revenue = _latest_us_gaap_value(payload, "Revenues")
+    revenue, revenue_filed = _latest_filed_value(payload, "Revenues")
     if revenue is None:
-        revenue = _latest_us_gaap_value(payload, "SalesRevenueNet")
-    operating_income = _latest_us_gaap_value(payload, "OperatingIncomeLoss")
-    cash = _latest_us_gaap_value(payload, "CashAndCashEquivalentsAtCarryingValue") or 0.0
-    debt = _latest_us_gaap_value(payload, "LongTermDebtNoncurrent") or 0.0
-    operating_cash_flow = _latest_us_gaap_value(payload, "NetCashProvidedByUsedInOperatingActivities") or 0.0
-    gross_profit = _latest_us_gaap_value(payload, "GrossProfit")
-    equity = _latest_us_gaap_value(payload, "StockholdersEquity")
+        revenue, revenue_filed = _latest_filed_value(payload, "SalesRevenueNet")
+    operating_income, _ = _latest_filed_value(payload, "OperatingIncomeLoss")
+    cash, _ = _latest_filed_value(payload, "CashAndCashEquivalentsAtCarryingValue")
+    debt, _ = _latest_filed_value(payload, "LongTermDebtNoncurrent")
+    operating_cash_flow, _ = _latest_filed_value(payload, "NetCashProvidedByUsedInOperatingActivities")
+    capex, _ = _latest_filed_value(payload, "PaymentsToAcquirePropertyPlantAndEquipment")
+    gross_profit, _ = _latest_filed_value(payload, "GrossProfit")
+    equity, _ = _latest_filed_value(payload, "StockholdersEquity")
     if revenue is None or revenue <= 0:
         return None
 
-    gross_margin = (gross_profit / revenue) if gross_profit is not None and revenue > 0 else 0.0
-    operating_margin = (operating_income / revenue) if operating_income is not None else 0.0
-    fcf_yield = (operating_cash_flow / revenue) if revenue > 0 else 0.0
+    report_date = date.fromisoformat(revenue_filed) if revenue_filed else date.today()
+    gross_margin = (gross_profit / revenue) if gross_profit is not None and revenue > 0 else None
+    operating_margin = (operating_income / revenue) if operating_income is not None else None
+    free_cash_flow = None
+    if operating_cash_flow is not None and capex is not None:
+        free_cash_flow = operating_cash_flow - abs(capex)
+    elif operating_cash_flow is not None:
+        free_cash_flow = operating_cash_flow
+
     return FundamentalSnapshot(
         symbol=symbol.upper(),
         period="TTM",
-        report_date=date.today(),
+        report_date=report_date,
         revenue_growth_yoy=0.0,
-        gross_margin=round(gross_margin, 4),
-        operating_margin=round(operating_margin, 4),
-        free_cash_flow=operating_cash_flow,
-        cash=cash,
-        total_debt=debt,
-        pe_forward=0.0,
-        ev_sales=0.0,
-        fcf_yield=round(fcf_yield, 4),
+        gross_margin=round(gross_margin, 4) if gross_margin is not None else 0.0,
+        operating_margin=round(operating_margin, 4) if operating_margin is not None else 0.0,
+        free_cash_flow=free_cash_flow if free_cash_flow is not None else 0.0,
+        cash=cash if cash is not None else 0.0,
+        total_debt=debt if debt is not None else 0.0,
+        pe_forward=None,
+        ev_sales=None,
+        fcf_yield=None,
         return_on_equity=round((operating_income / equity), 4) if operating_income is not None and equity else None,
         source="sec_edgar_companyfacts",
     )

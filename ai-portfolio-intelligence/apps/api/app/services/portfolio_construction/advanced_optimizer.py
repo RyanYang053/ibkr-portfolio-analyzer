@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import math
-from statistics import fmean
 from typing import Any
 
 import numpy as np
+from scipy.cluster.hierarchy import leaves_list, linkage
+from scipy.spatial.distance import squareform
 
 
 def _correlation_matrix(covariance: np.ndarray) -> np.ndarray:
@@ -13,48 +13,64 @@ def _correlation_matrix(covariance: np.ndarray) -> np.ndarray:
     return covariance / np.clip(outer, 1e-12, None)
 
 
+def _inverse_variance_portfolio(covariance: np.ndarray) -> np.ndarray:
+    diag = np.clip(np.diag(covariance), 1e-12, None)
+    weights = 1.0 / diag
+    total = float(weights.sum())
+    if total <= 0:
+        return np.ones(covariance.shape[0]) / max(covariance.shape[0], 1)
+    return weights / total
+
+
+def _cluster_variance(covariance: np.ndarray, indices: list[int]) -> float:
+    if not indices:
+        return 0.0
+    sub = covariance[np.ix_(indices, indices)]
+    weights = _inverse_variance_portfolio(sub).reshape(-1, 1)
+    return float((weights.T @ sub @ weights).item())
+
+
 def hierarchical_risk_parity_weights(covariance: list[list[float]]) -> list[float] | None:
     matrix = np.array(covariance, dtype=float)
     size = matrix.shape[0]
     if size == 0:
         return None
-    correlation = _correlation_matrix(matrix)
-    distance = np.sqrt(0.5 * (1.0 - correlation))
-    order = list(range(size))
-    clusters = [order[:]]
+    if size == 1:
+        return [1.0]
 
-    while len(clusters) > 1:
-        minimum = math.inf
-        merge = (0, 1)
-        for left_index in range(len(clusters)):
-            for right_index in range(left_index + 1, len(clusters)):
-                left = clusters[left_index]
-                right = clusters[right_index]
-                distances = [distance[i, j] for i in left for j in right]
-                average = fmean(distances)
-                if average < minimum:
-                    minimum = average
-                    merge = (left_index, right_index)
-        left_cluster = clusters.pop(merge[1])
-        clusters[merge[0]].extend(left_cluster)
+    correlation = _correlation_matrix(matrix)
+    distance = np.sqrt(np.clip(0.5 * (1.0 - correlation), 0.0, None))
+    np.fill_diagonal(distance, 0.0)
+    condensed = squareform(distance, checks=False)
+    link_matrix = linkage(condensed, method="single")
+    sorted_indices = leaves_list(link_matrix).tolist()
 
     weights = np.ones(size, dtype=float)
-    for cluster in clusters:
-        if len(cluster) <= 1:
-            continue
-        midpoint = len(cluster) // 2
-        left = cluster[:midpoint]
-        right = cluster[midpoint:]
-        left_var = sum(matrix[i, i] for i in left)
-        right_var = sum(matrix[i, i] for i in right)
-        if left_var + right_var <= 0:
-            continue
-        right_scale = left_var / (left_var + right_var)
-        left_scale = 1.0 - right_scale
-        for index in left:
-            weights[index] *= left_scale
-        for index in right:
-            weights[index] *= right_scale
+    clusters: list[list[int]] = [sorted_indices]
+    while clusters:
+        next_clusters: list[list[int]] = []
+        for cluster in clusters:
+            if len(cluster) <= 1:
+                continue
+            midpoint = len(cluster) // 2
+            left = cluster[:midpoint]
+            right = cluster[midpoint:]
+            left_var = _cluster_variance(matrix, left)
+            right_var = _cluster_variance(matrix, right)
+            if left_var + right_var <= 0:
+                alpha = 0.5
+            else:
+                alpha = 1.0 - left_var / (left_var + right_var)
+            for index in left:
+                weights[index] *= alpha
+            for index in right:
+                weights[index] *= 1.0 - alpha
+            if len(left) > 1:
+                next_clusters.append(left)
+            if len(right) > 1:
+                next_clusters.append(right)
+        clusters = next_clusters
+
     total = float(weights.sum())
     if total <= 0:
         return None
@@ -116,12 +132,11 @@ def solve_cvar_weights(
     weights = cp.Variable(assets, nonneg=True)
     portfolio_returns = matrix @ weights
     var = cp.Variable()
+    tail_losses = cp.Variable(scenarios, nonneg=True)
     losses = -portfolio_returns
-    tail = cp.Variable(scenarios, nonneg=True)
     constraints = [
         cp.sum(weights) == sleeve_budget,
-        tail >= losses - var,
-        cp.sum(tail) <= (1.0 - alpha) * scenarios,
+        tail_losses >= losses - var,
     ]
     if current_weights is not None and turnover_budget is not None:
         current = np.array(current_weights, dtype=float)
@@ -130,7 +145,10 @@ def solve_cvar_weights(
         for index, cap in enumerate(liquidity_caps):
             constraints.append(weights[index] <= cap)
 
-    problem = cp.Problem(cp.Minimize(var + (1.0 / ((1.0 - alpha) * scenarios)) * cp.sum(tail)), constraints)
+    problem = cp.Problem(
+        cp.Minimize(var + (1.0 / ((1.0 - alpha) * scenarios)) * cp.sum(tail_losses)),
+        constraints,
+    )
     try:
         problem.solve(solver=cp.OSQP, warm_start=True)
     except Exception:

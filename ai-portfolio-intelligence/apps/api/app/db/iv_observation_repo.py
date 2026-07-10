@@ -72,7 +72,10 @@ def record_iv_observation(symbol: str, implied_volatility: float, *, source: str
 
 
 def read_iv_history(symbol: str, *, limit: int = 252) -> list[float]:
-    if settings.persistence_backend == "postgres" and _table_available():
+    if settings.persistence_backend == "postgres":
+        from app.db.postgres_guard import require_postgres_read
+
+        require_postgres_read("iv observation read", table_available=_table_available())
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:

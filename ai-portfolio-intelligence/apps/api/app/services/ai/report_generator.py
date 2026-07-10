@@ -158,7 +158,7 @@ def generate_stock_research_report(
                 "mock_fallback_data": is_mock_fallback,
                 "web_grounded_context": gemini.last_grounding_used
             }
-            sanitized = _sanitize_ai_report(report, position, score, recommendation, context)
+            sanitized = _sanitize_ai_report(report, position, score, recommendation, context, user_id=user_id)
             set_cached_report(
                 position.symbol,
                 sanitized,
@@ -167,7 +167,7 @@ def generate_stock_research_report(
             )
             return sanitized
         except Exception as exc:
-            fallback = _fallback_stock_report(position, score, recommendation, context)
+            fallback = _fallback_stock_report(position, score, recommendation, context, user_id=user_id)
             fallback["provider_error"] = str(exc)
             fallback["provenance"] = {
                 "live_portfolio_data": is_live_portfolio,
@@ -184,7 +184,7 @@ def generate_stock_research_report(
             )
             return fallback
 
-    fallback = _fallback_stock_report(position, score, recommendation, context)
+    fallback = _fallback_stock_report(position, score, recommendation, context, user_id=user_id)
     fallback["provenance"] = {
         "live_portfolio_data": is_live_portfolio,
         "live_market_data": is_live_market,
@@ -307,13 +307,13 @@ def generate_ai_portfolio_memo(
     return fallback
 
 
-def _fallback_stock_report(position: Position, score, recommendation, context: dict[str, Any]) -> dict[str, Any]:
+def _fallback_stock_report(position: Position, score, recommendation, context: dict[str, Any], *, user_id: str) -> dict[str, Any]:
     limits = evaluate_confidence_limits(context)
     action = limits["action_override"] or recommendation.action
     
     from app.services.suitability.engine import get_investor_profile, check_position_suitability
     from app.services.guardrails.engine import apply_recommendation_guardrails, append_compliance_disclaimer
-    profile = get_investor_profile(position.account_id, user_id="local-dev")
+    profile = get_investor_profile(position.account_id, user_id=user_id)
     suitability_warnings = check_position_suitability(profile, position)
     action, override_reason = apply_recommendation_guardrails(action, position.symbol, suitability_warnings)
     
@@ -399,11 +399,19 @@ def _fallback_stock_report(position: Position, score, recommendation, context: d
     return append_compliance_disclaimer(res)
 
 
-def _sanitize_ai_report(report: dict[str, Any], position: Position, score, recommendation, context: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_ai_report(
+    report: dict[str, Any],
+    position: Position,
+    score,
+    recommendation,
+    context: dict[str, Any],
+    *,
+    user_id: str,
+) -> dict[str, Any]:
     forbidden_terms = ["must buy", "must sell", "guaranteed profit", "risk-free", "execute this trade", "order submitted"]
     serialized = str(report).lower()
     if any(term in serialized for term in forbidden_terms):
-        fallback = _fallback_stock_report(position, score, recommendation, context)
+        fallback = _fallback_stock_report(position, score, recommendation, context, user_id=user_id)
         fallback["provider"] = "deterministic_fallback_policy_violation"
         return fallback
     limits = evaluate_confidence_limits(context)
@@ -417,7 +425,7 @@ def _sanitize_ai_report(report: dict[str, Any], position: Position, score, recom
     # Apply suitability override if needed
     from app.services.suitability.engine import get_investor_profile, check_position_suitability
     from app.services.guardrails.engine import apply_recommendation_guardrails, append_compliance_disclaimer
-    profile = get_investor_profile(position.account_id, user_id="local-dev")
+    profile = get_investor_profile(position.account_id, user_id=user_id)
     suitability_warnings = check_position_suitability(profile, position)
     action, override_reason = apply_recommendation_guardrails(action, position.symbol, suitability_warnings)
     report["action"] = action

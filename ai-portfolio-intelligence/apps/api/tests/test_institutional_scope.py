@@ -99,20 +99,27 @@ def test_company_type_valuation_models():
         pe_forward=12.0,
         ev_sales=3.0,
         fcf_yield=0.05,
+        price_to_tangible_book=1.2,
         return_on_equity=0.14,
         source="test",
     )
-    bank = run_scenario_valuation(bank_snapshot, sector="Financials", stock_type="financials_heuristic", market_price=150.0)
+    bank = run_scenario_valuation(
+        bank_snapshot,
+        sector="Financials",
+        stock_type="financials_heuristic",
+        market_price=150.0,
+    )
     assert bank.company_type == "bank"
+    assert bank.valuation_status == "available"
     assert bank.fair_value_mid is not None
 
-    reit_snapshot = bank_snapshot.model_copy(update={"symbol": "O", "ffo_per_share": 4.0, "affo_per_share": 3.6})
+    reit_snapshot = bank_snapshot.model_copy(update={"symbol": "O", "affo_per_share": 3.6})
     reit = run_scenario_valuation(reit_snapshot, sector="Real Estate", stock_type="reit_heuristic", market_price=60.0)
     assert reit.company_type == "reit"
+    assert reit.valuation_status == "available"
 
-    utility_snapshot = bank_snapshot.model_copy(update={"symbol": "DUK", "rate_base_growth": 0.04, "allowed_roe": 0.095})
-    utility = run_scenario_valuation(utility_snapshot, sector="Utilities", stock_type="utilities_heuristic", market_price=100.0)
-    assert utility.company_type == "utility"
+    missing_price = run_scenario_valuation(bank_snapshot, sector="Financials", stock_type="financials_heuristic")
+    assert missing_price.valuation_status == "unavailable"
 
 
 def test_quantlib_benchmark_compare_or_skip():

@@ -111,18 +111,16 @@ def calculate_pnl_decomposition(
     external_total = 0.0
 
     for txn in interval_txns:
-        notional = _signed_notional(txn)
-        converted = _convert_amount(notional, txn.currency, base_currency, txn.trade_date, fx_resolver)
         if txn.action == "dividend":
-            dividend_total += abs(converted)
-        elif txn.action in {"fee"}:
-            fee_total += abs(converted)
+            dividend_total += abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
+        elif txn.action == "fee":
+            fee_total += abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
         elif txn.action in {"buy", "sell"}:
-            fee_total += abs(_convert_amount(txn.commission, txn.currency, base_currency, txn.trade_date, fx_resolver))
+            fee_total += abs(_convert_amount(float(txn.commission or 0.0), txn.currency, base_currency, txn.trade_date, fx_resolver))
         elif txn.action == "interest":
-            interest_total += abs(converted)
+            interest_total += abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
         elif txn.action == "corporate_action":
-            corporate_total += converted
+            corporate_total += _convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver)
         external_total += _convert_amount(
             external_cash_flow_amount(txn),
             txn.currency,
@@ -131,11 +129,11 @@ def calculate_pnl_decomposition(
             fx_resolver,
         )
 
-    price_effect_total = sum(position.unrealized_pnl for position in positions)
+    price_effect_total = None
     position_rows = [
         PositionPnLDecomposition(
             symbol=position.symbol,
-            price_effect=round(position.unrealized_pnl, 2),
+            price_effect=None,
             dividend_income=round(
                 sum(
                     abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
@@ -146,9 +144,14 @@ def calculate_pnl_decomposition(
             ),
             fee_expense=round(
                 sum(
+                    abs(_convert_amount(float(txn.commission or 0.0), txn.currency, base_currency, txn.trade_date, fx_resolver))
+                    for txn in interval_txns
+                    if txn.symbol == position.symbol and txn.action in {"buy", "sell"}
+                )
+                + sum(
                     abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
                     for txn in interval_txns
-                    if txn.symbol == position.symbol and txn.action in {"fee", "buy", "sell"}
+                    if txn.symbol == position.symbol and txn.action == "fee"
                 ),
                 2,
             ),
@@ -156,30 +159,25 @@ def calculate_pnl_decomposition(
         for position in positions
     ]
 
-    explained = (
-        price_effect_total
-        + dividend_total
-        + interest_total
-        - fee_total
-        + corporate_total
-        - external_total
-    )
-    residual_total = account_value_change - explained
+    investment_pnl = account_value_change - external_total
+    explained = dividend_total + interest_total - fee_total + corporate_total
+    residual_total = investment_pnl - explained
     tolerance_amount = abs(beginning_nav) * (RECONCILIATION_TOLERANCE_BPS / 10_000.0)
     reconciliation_status = "withheld_incomplete_ledger"
     if covers_period:
-        reconciliation_status = (
-            "reconciled_within_tolerance"
-            if abs(residual_total) <= max(tolerance_amount, 1.0)
-            else "reconciliation_gap_exceeds_tolerance"
-        )
+        reconciliation_status = "provisional_cash_flow_inventory"
 
     exclusions: list[str] = []
     if not covers_period:
         exclusions.append("ledger_incomplete")
-    exclusions.append("fx_translation_withheld")
-    exclusions.append("trade_quantity_effect_withheld")
-    exclusions.append("option_greek_effect_withheld")
+    exclusions.extend(
+        [
+            "price_effect_withheld",
+            "fx_translation_withheld",
+            "trade_quantity_effect_withheld",
+            "option_greek_effect_withheld",
+        ]
+    )
 
     snapshot_ids = [f"{row.date}:{row.timestamp}" for row in ordered]
     run = create_calculation_run(
@@ -195,9 +193,10 @@ def calculate_pnl_decomposition(
     )
 
     methodology = (
-        "PnL decomposition allocates known ledger cash flows (dividends, fees, interest, corporate actions) and "
-        "current unrealized price effect. FX translation, trade timing, and option Greeks are withheld until "
-        f"lot-level accounting is complete. Reconciliation tolerance is {RECONCILIATION_TOLERANCE_BPS} bps of opening NAV."
+        "Provisional cash-flow inventory: dividends, commissions/fees, interest, corporate actions, and external "
+        "cash flows are inventoried for the selected period. Price, FX, trade-timing, and option effects are withheld "
+        "until opening/closing lot-level accounting is complete. Investment PnL equals account value change minus "
+        "net external flow."
     )
     if not covers_period:
         methodology += " Results are provisional because the activity ledger does not cover the full period."
@@ -208,7 +207,7 @@ def calculate_pnl_decomposition(
         period_end=period_end,
         reporting_currency=base_currency,
         account_value_change=round(account_value_change, 2),
-        price_effect_total=round(price_effect_total, 2),
+        price_effect_total=None,
         fx_translation_total=None,
         trade_quantity_total=None,
         dividend_income_total=round(dividend_total, 2),

@@ -223,6 +223,11 @@ def generate_portfolio_optimization(
         raise ValueError("Supported objectives: min_variance, risk_parity, hrp, black_litterman, cvar")
 
     allow_mock = summary.account_id.startswith("MOCK")
+    experimental_objectives = {"hrp", "black_litterman", "cvar"}
+    if objective in experimental_objectives and not allow_mock:
+        raise ValueError(
+            f"Objective '{objective}' is experimental and withheld outside mock/demo portfolios."
+        )
     total_value = float(summary.net_liquidation)
     if total_value <= 0:
         raise ValueError("Net liquidation must be positive before optimization")
@@ -270,8 +275,13 @@ def generate_portfolio_optimization(
 
     covariance = _shrink_covariance(covariance)
 
+    optimizable_current_weight = sum(converted_values.get(symbol, 0.0) for symbol in covariance_symbols) / total_value
     current_sleeve_weights = [
-        converted_values.get(symbol, 0.0) / total_value
+        (
+            converted_values.get(symbol, 0.0) / total_value / optimizable_current_weight
+            if optimizable_current_weight > 0
+            else 0.0
+        )
         for symbol in covariance_symbols
     ]
     liquidity_caps = [settings.optimization_liquidity_cap] * len(covariance_symbols)
@@ -413,7 +423,7 @@ def generate_portfolio_optimization(
                 proposed_trade_qty=round(trade_qty, 6),
                 action=action,
                 reason=(
-                    f"Minimum-variance sleeve target {target_weight:.2f}% "
+                    f"{objective.replace('_', ' ')} sleeve target {target_weight:.2f}% "
                     f"versus current {current_weight:.2f}%."
                 ),
             )

@@ -6,10 +6,11 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from app.api.deps import get_broker_adapter
-from app.api.routes.ai import ScheduledAnalyzeRequest, _load_settings, trigger_scheduled_analysis
 from app.core.config import settings
-from app.db.scheduler_store import complete_job, job_already_completed, renew_job_lease, try_acquire_job
+from app.db.scheduler_store import complete_job, job_already_completed, try_acquire_job
+from app.services.ai.scheduled_analysis_service import run_scheduled_analysis
 from app.services.portfolio.pnl_tracker import get_pnl_history, record_pnl_snapshot
+from app.services.scheduler_lease import SchedulerLeaseHeartbeat
 
 logger = logging.getLogger("scheduler")
 
@@ -55,6 +56,8 @@ def _record_scheduled_score_snapshots(positions) -> None:
 
 
 def _run_scheduler_sync(now: datetime | None = None) -> None:
+    from app.api.routes.ai import _load_settings
+
     schedule_settings = _load_settings()
     if not schedule_settings.get("enabled"):
         return
@@ -87,12 +90,13 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
         logger.info("Triggering scheduled %s analysis", period)
         try:
             adapter = adapter or get_broker_adapter()
-            renew_job_lease("scheduled_analysis", None, business_date, period)
-            trigger_scheduled_analysis(
-                ScheduledAnalyzeRequest(period=period),
-                account_id=settings.ibkr_account_id,
-                adapter=adapter,
-            )
+            with SchedulerLeaseHeartbeat("scheduled_analysis", None, business_date, period):
+                run_scheduled_analysis(
+                    period=period,
+                    account_id=settings.ibkr_account_id,
+                    adapter=adapter,
+                    principal_user_id="scheduler-system",
+                )
             complete_job("scheduled_analysis", None, business_date, period, status="completed")
         except Exception as exc:
             logger.error("Failed %s analysis: %s", period, exc)
@@ -154,7 +158,8 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
 
                         logger.info("Triggering scheduled daily consolidated snapshot")
                         try:
-                            summary, positions = _get_consolidated_summary_and_positions(adapter)
+                            account_ids = [account.id for account in accounts]
+                            summary, positions = _get_consolidated_summary_and_positions(adapter, account_ids)
                             from app.services.data_quality.validation import validate_and_gate_snapshot
 
                             validate_and_gate_snapshot(summary, positions)
