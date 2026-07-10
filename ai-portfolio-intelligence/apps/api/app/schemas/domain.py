@@ -202,6 +202,8 @@ class TechnicalIndicators(BaseModel):
     macd_signal: float
     macd_histogram: float
     atr_14: Optional[float]
+    atr_percent: Optional[float] = None
+    realized_volatility_20d: Optional[float] = None
     beta: Optional[float]
     volume_ratio: Optional[float]
     relative_strength_spy: Optional[float]
@@ -333,6 +335,7 @@ class StressScenario(BaseModel):
 class AdvancedRiskMetrics(BaseModel):
     max_drawdown: Optional[float]
     volatility: Optional[float]
+    ewma_volatility: Optional[float] = None
     portfolio_beta_spy: Optional[float]
     portfolio_beta_qqq: Optional[float]
     value_at_risk_95: Optional[float]
@@ -344,11 +347,19 @@ class AdvancedRiskMetrics(BaseModel):
     jensens_alpha: Optional[float] = None
     tracking_error: Optional[float] = None
     information_ratio: Optional[float] = None
+    calmar_ratio: Optional[float] = None
+    ulcer_index: Optional[float] = None
+    max_drawdown_duration_days: Optional[int] = None
+    recovery_duration_days: Optional[int] = None
+    risk_contribution: dict[str, float] = Field(default_factory=dict)
+    marginal_volatility: dict[str, float] = Field(default_factory=dict)
     correlation_matrix: dict[str, dict[str, float]]
     factor_exposures: dict[str, float]
+    factor_diagnostics: dict[str, object] = Field(default_factory=dict)
     stress_tests: list[StressScenario]
     data_quality: dict[str, str]
     methodology: dict[str, str]
+    calculation_run_id: Optional[str] = None
 
 
 class PerformanceAttribution(BaseModel):
@@ -373,6 +384,9 @@ class PerformanceAttribution(BaseModel):
 class PerformanceReturns(BaseModel):
     time_weighted_return: Optional[float]
     time_weighted_return_annualized: Optional[float]
+    modified_dietz_return: Optional[float] = None
+    modified_dietz_return_annualized: Optional[float] = None
+    return_methodology: str = "withheld"
     xirr: Optional[float]
     period_days: int
     observation_count: int
@@ -380,6 +394,7 @@ class PerformanceReturns(BaseModel):
     benchmark_comparison: dict[str, float | str | None] = Field(default_factory=dict)
     data_quality: dict[str, str]
     methodology: str
+    calculation_run_id: Optional[str] = None
 
 
 class TaxLot(BaseModel):
@@ -459,6 +474,39 @@ class ScoreCalibrationObservation(BaseModel):
     input_sources: list[str] = Field(default_factory=list)
     synthetic_demo: bool = False
 
+
+class SourceRecord(BaseModel):
+    source_id: str
+    source_type: str
+    label: str
+    as_of: Optional[datetime] = None
+    url: Optional[str] = None
+
+
+class DataQualityContext(BaseModel):
+    ledger_status: str
+    performance_status: str
+    risk_status: str
+    attribution_status: str
+    notes: list[str] = Field(default_factory=list)
+
+
+class PortfolioResearchContext(BaseModel):
+    user_id: str
+    account_id: str
+    as_of: datetime
+    reporting_currency: str
+    performance_summary: dict[str, object] = Field(default_factory=dict)
+    attribution_summary: dict[str, object] = Field(default_factory=dict)
+    risk_summary: dict[str, object] = Field(default_factory=dict)
+    exposure_summary: dict[str, object] = Field(default_factory=dict)
+    holdings: list[dict[str, object]] = Field(default_factory=list)
+    events: list[dict[str, object]] = Field(default_factory=list)
+    policy_summary: dict[str, object] = Field(default_factory=dict)
+    suitability_summary: dict[str, object] = Field(default_factory=dict)
+    data_quality: DataQualityContext
+    sources: list[SourceRecord] = Field(default_factory=list)
+    calculation_run_ids: list[str] = Field(default_factory=list)
 
 
 def utc_now() -> datetime:

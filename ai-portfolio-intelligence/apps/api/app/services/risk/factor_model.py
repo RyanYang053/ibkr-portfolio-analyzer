@@ -42,52 +42,105 @@ def _fetch_factor_return_series(
     return result
 
 
-def _matrix_ols(y: list[float], factors: list[list[float]]) -> tuple[list[float], float | None, float | None]:
+def _matrix_ols(
+    y: list[float],
+    factors: list[list[float]],
+) -> tuple[list[float], float | None, float | None, dict[str, Any]]:
     if len(y) < MIN_FACTOR_OBSERVATIONS or not factors or len(factors[0]) != len(y):
-        return [], None, None
+        return [], None, None, {}
 
     count = len(factors)
     length = len(y)
-    augmented = []
-    for row_index in range(length):
-        augmented.append([1.0, *[factor[row_index] for factor in factors], y[row_index]])
+    design = [[1.0, *[factor[row_index] for factor in factors]] for row_index in range(length)]
 
     size = count + 1
-    normal = [[0.0 for _ in range(size + 1)] for _ in range(size + 1)]
-    for row in augmented:
-        for i in range(size + 1):
-            for j in range(size + 1):
+    normal = [[0.0 for _ in range(size)] for _ in range(size)]
+    xty = [0.0 for _ in range(size)]
+    for row_index, row in enumerate(design):
+        target = y[row_index]
+        for i in range(size):
+            xty[i] += row[i] * target
+            for j in range(size):
                 normal[i][j] += row[i] * row[j]
 
+    inverse = [[0.0 for _ in range(size)] for _ in range(size)]
+    augmented = [normal[row][:] + [1.0 if index == row else 0.0 for index in range(size)] for row in range(size)]
     for pivot in range(size):
-        diag = normal[pivot][pivot]
+        diag = augmented[pivot][pivot]
         if abs(diag) < 1e-12:
-            return [], None, None
-        for col in range(size + 1):
-            normal[pivot][col] /= diag
+            return [], None, None, {}
+        for col in range(2 * size):
+            augmented[pivot][col] /= diag
         for row in range(size):
             if row == pivot:
                 continue
-            factor = normal[row][pivot]
+            factor = augmented[row][pivot]
             if factor == 0:
                 continue
-            for col in range(size + 1):
-                normal[row][col] -= factor * normal[pivot][col]
+            for col in range(2 * size):
+                augmented[row][col] -= factor * augmented[pivot][col]
+    inverse = [row[size:] for row in augmented]
+    coefficients = [sum(inverse[index][col] * xty[col] for col in range(size)) for index in range(size)]
 
-    coefficients = [normal[index][size] for index in range(size)]
     fitted = []
-    for row_index in range(length):
-        prediction = coefficients[0]
-        for factor_index, factor in enumerate(factors):
-            prediction += coefficients[factor_index + 1] * factor[row_index]
+    for row in design:
+        prediction = sum(coeff * value for coeff, value in zip(coefficients, row))
         fitted.append(prediction)
 
     y_mean = fmean(y)
     ss_tot = sum((value - y_mean) ** 2 for value in y)
     ss_res = sum((actual - predicted) ** 2 for actual, predicted in zip(y, fitted))
     r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else None
-    residual_std = math.sqrt(ss_res / max(length - size - 1, 1)) if length > size + 1 else None
-    return coefficients, r_squared, residual_std
+    dof = max(length - size, 1)
+    residual_std = math.sqrt(ss_res / dof) if length > size else None
+
+    diagnostics: dict[str, Any] = {
+        "model_label": "ETF-proxy exposure model",
+        "observation_count": length,
+        "r_squared": round(r_squared, 4) if r_squared is not None else None,
+        "adjusted_r_squared": (
+            round(1.0 - (1.0 - r_squared) * (length - 1) / max(length - size - 1, 1), 4)
+            if r_squared is not None and length > size + 1
+            else None
+        ),
+        "residual_volatility": round(residual_std, 6) if residual_std is not None else None,
+    }
+
+    if residual_std and residual_std > 0:
+        coefficient_stats = []
+        for index, coefficient in enumerate(coefficients):
+            standard_error = residual_std * math.sqrt(max(inverse[index][index], 0.0))
+            t_stat = coefficient / standard_error if standard_error > 0 else None
+            coefficient_stats.append(
+                {
+                    "coefficient": round(coefficient, 6),
+                    "standard_error": round(standard_error, 6) if standard_error > 0 else None,
+                    "t_statistic": round(t_stat, 4) if t_stat is not None and math.isfinite(t_stat) else None,
+                }
+            )
+        diagnostics["coefficients"] = coefficient_stats
+
+    condition_number = None
+    max_diag = max(abs(normal[i][i]) for i in range(size)) or 1.0
+    min_diag = min(abs(normal[i][i]) for i in range(size)) or 1.0
+    if min_diag > 0:
+        condition_number = max_diag / min_diag
+    if condition_number is not None:
+        diagnostics["condition_number"] = round(condition_number, 2)
+
+    vif_values: list[float] = []
+    for factor_index in range(1, size):
+        target = [row[factor_index] for row in design]
+        others = [[row[col] for row in design] for col in range(size) if col != factor_index]
+        if not others:
+            continue
+        _, helper_r2, _, _ = _matrix_ols(target, others)
+        if helper_r2 is not None and helper_r2 < 1.0:
+            vif_values.append(1.0 / max(1.0 - helper_r2, 1e-6))
+    if vif_values:
+        diagnostics["vif_max"] = round(max(vif_values), 2)
+
+    return coefficients, r_squared, residual_std, diagnostics
 
 
 def compute_measured_factor_exposures(
@@ -120,7 +173,7 @@ def compute_measured_factor_exposures(
             [series[proxy][day] - series["SPY"][day] for day in common_dates]
         )
 
-    coefficients, r_squared, residual_std = _matrix_ols(aligned_portfolio, factor_matrix)
+    coefficients, r_squared, residual_std, diagnostics = _matrix_ols(aligned_portfolio, factor_matrix)
     if not coefficients:
         return {}, "regression_failed", {}
 
@@ -132,10 +185,11 @@ def compute_measured_factor_exposures(
     if not exposures:
         return {}, "regression_failed", {}
 
-    metadata = {
+    metadata: dict[str, Any] = {
         "observation_count": len(common_dates),
         "r_squared": round(r_squared, 4) if r_squared is not None else None,
         "residual_volatility": round(residual_std, 6) if residual_std is not None else None,
         "history_end": history_end.isoformat(),
+        "diagnostics": diagnostics,
     }
     return exposures, "experimental", metadata

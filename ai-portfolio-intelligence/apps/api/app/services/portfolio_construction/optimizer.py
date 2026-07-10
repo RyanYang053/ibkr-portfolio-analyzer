@@ -101,6 +101,32 @@ def _covariance_matrix(returns_by_symbol: dict[str, list[float]]) -> tuple[list[
     return symbols, matrix
 
 
+def _shrink_covariance(matrix: list[list[float]], shrinkage: float = 0.2) -> list[list[float]]:
+    size = len(matrix)
+    if size == 0:
+        return matrix
+    average_variance = sum(matrix[index][index] for index in range(size)) / size
+    return [
+        [
+            (1.0 - shrinkage) * matrix[i][j] + (shrinkage * average_variance if i == j else 0.0)
+            for j in range(size)
+        ]
+        for i in range(size)
+    ]
+
+
+def _risk_parity_weights(covariance: list[list[float]]) -> list[float] | None:
+    size = len(covariance)
+    if size == 0:
+        return None
+    volatilities = [math.sqrt(max(covariance[index][index], 1e-12)) for index in range(size)]
+    inverse = [1.0 / volatility for volatility in volatilities]
+    total = sum(inverse)
+    if total <= 0:
+        return None
+    return [value / total for value in inverse]
+
+
 def _annualized_means(returns_by_symbol: dict[str, list[float]], symbols: list[str]) -> list[float]:
     return [sum(returns_by_symbol[symbol]) / len(returns_by_symbol[symbol]) * TRADING_DAYS for symbol in symbols]
 
@@ -162,8 +188,8 @@ def generate_portfolio_optimization(
     from app.services.broker.ibkr_readonly import get_exchange_rate
     from app.services.market_data.mock_provider import MockMarketDataProvider
 
-    if objective != "min_variance":
-        raise ValueError("Only min_variance is implemented")
+    if objective not in {"min_variance", "risk_parity"}:
+        raise ValueError("Supported objectives: min_variance, risk_parity")
 
     allow_mock = summary.account_id.startswith("MOCK")
     total_value = float(summary.net_liquidation)
@@ -211,18 +237,26 @@ def generate_portfolio_optimization(
     if not covariance_symbols:
         raise ValueError("Insufficient return history to optimize portfolio weights")
 
-    inverse = _invert_matrix(covariance)
-    if inverse is None:
-        raise ValueError("Covariance matrix is not invertible")
+    covariance = _shrink_covariance(covariance)
 
-    ones = [1.0 for _ in covariance_symbols]
-    inv_ones = [
-        sum(inverse[row][col] * ones[col] for col in range(len(covariance_symbols)))
-        for row in range(len(covariance_symbols))
-    ]
-    denominator = sum(ones[index] * inv_ones[index] for index in range(len(covariance_symbols)))
-    if denominator <= 0:
-        raise ValueError("Unable to solve minimum-variance weights")
+    if objective == "risk_parity":
+        raw_weights = _risk_parity_weights(covariance)
+        if raw_weights is None:
+            raise ValueError("Unable to solve risk-parity weights")
+    else:
+        inverse = _invert_matrix(covariance)
+        if inverse is None:
+            raise ValueError("Covariance matrix is not invertible")
+
+        ones = [1.0 for _ in covariance_symbols]
+        inv_ones = [
+            sum(inverse[row][col] * ones[col] for col in range(len(covariance_symbols)))
+            for row in range(len(covariance_symbols))
+        ]
+        denominator = sum(ones[index] * inv_ones[index] for index in range(len(covariance_symbols)))
+        if denominator <= 0:
+            raise ValueError("Unable to solve minimum-variance weights")
+        raw_weights = [value / denominator for value in inv_ones]
 
     cash_target = policy.target_cash_percent / 100.0
     modeled_keys = {
@@ -242,7 +276,6 @@ def generate_portfolio_optimization(
     if sleeve_budget <= 0:
         raise ValueError("No optimizable sleeve remains after reserving cash and fixed holdings")
 
-    raw_weights = [value / denominator for value in inv_ones]
     sleeve_weights = _project_weights(covariance_symbols, raw_weights, policy, sectors, etf_symbols)
     sleeve_sum = sum(sleeve_weights)
     if sleeve_sum <= 0:
@@ -343,10 +376,10 @@ def generate_portfolio_optimization(
         modeled_portfolio_coverage_percent=round(modeled_coverage, 2),
         constraints_applied=constraints,
         methodology=(
-            "Mean-variance optimization on date-aligned historical daily total returns. "
-            "Cash, derivatives, speculative holdings, restricted symbols, and positions without "
-            "return history are reserved outside the optimizable sleeve. Displayed metrics are "
-            "modeled-sleeve ex-ante estimates (w^T mu, sqrt(w^T Sigma w), Sharpe with risk-free rate). "
-            "Output is a review proposal only."
+            "Mean-variance or inverse-volatility risk-parity optimization on date-aligned historical daily total returns "
+            "with Ledoit-Wolf-style covariance shrinkage toward a diagonal target. Cash, derivatives, speculative "
+            "holdings, restricted symbols, and positions without return history are reserved outside the optimizable "
+            "sleeve. Displayed metrics are modeled-sleeve ex-ante estimates (w^T mu, sqrt(w^T Sigma w), Sharpe with "
+            "risk-free rate). Output is a review proposal only."
         ),
     )

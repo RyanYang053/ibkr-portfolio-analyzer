@@ -370,6 +370,93 @@ def _stress_tests(positions: list[Position], summary: Any, total_value: float) -
     return results, sorted(set(excluded))
 
 
+def _ewma_volatility(returns: list[float], decay: float = 0.94) -> float | None:
+    if len(returns) < MIN_RISK_RETURNS:
+        return None
+    variance = returns[0] ** 2
+    for value in returns[1:]:
+        variance = decay * variance + (1.0 - decay) * (value ** 2)
+    return math.sqrt(max(variance, 0.0)) * math.sqrt(TRADING_DAYS) * 100.0
+
+
+def _drawdown_analytics(returns: list[float]) -> dict[str, float | int | None]:
+    if not returns:
+        return {
+            "max_drawdown_duration_days": None,
+            "recovery_duration_days": None,
+            "calmar_ratio": None,
+            "ulcer_index": None,
+        }
+    wealth = 1.0
+    peak = 1.0
+    drawdowns: list[float] = []
+    max_depth = 0.0
+    current_depth = 0.0
+    duration = 0
+    max_duration = 0
+    recovery_duration = 0
+    in_recovery = False
+    for value in returns:
+        if value <= -1.0 or not math.isfinite(value):
+            return {
+                "max_drawdown_duration_days": None,
+                "recovery_duration_days": None,
+                "calmar_ratio": None,
+                "ulcer_index": None,
+            }
+        wealth *= 1.0 + value
+        if wealth >= peak:
+            if in_recovery:
+                recovery_duration = max(recovery_duration, duration)
+            peak = wealth
+            current_depth = 0.0
+            duration = 0
+            in_recovery = False
+        else:
+            current_depth = max(current_depth, (peak - wealth) / peak)
+            duration += 1
+            in_recovery = True
+        max_depth = max(max_depth, current_depth)
+        max_duration = max(max_duration, duration)
+        drawdowns.append(current_depth)
+    compounded = 1.0
+    for value in returns:
+        compounded *= 1.0 + value
+    annualized_return = compounded ** (TRADING_DAYS / len(returns)) - 1.0 if len(returns) else 0.0
+    calmar = None
+    if max_depth > 0:
+        calmar = annualized_return / max_depth
+    ulcer = math.sqrt(fmean([value * value for value in drawdowns])) if drawdowns else None
+    return {
+        "max_drawdown_duration_days": max_duration,
+        "recovery_duration_days": recovery_duration or None,
+        "calmar_ratio": calmar,
+        "ulcer_index": ulcer,
+    }
+
+
+def _risk_contribution(weights: dict[str, float], covariance: list[list[float]], symbols: list[str]) -> tuple[dict[str, float], dict[str, float]]:
+    if not symbols or not covariance:
+        return {}, {}
+    weight_vector = [weights.get(symbol, 0.0) for symbol in symbols]
+    portfolio_variance = 0.0
+    sigma_w = [0.0 for _ in symbols]
+    for i, left in enumerate(symbols):
+        for j, right in enumerate(symbols):
+            contribution = weight_vector[i] * covariance[i][j] * weight_vector[j]
+            portfolio_variance += contribution
+            sigma_w[i] += covariance[i][j] * weight_vector[j]
+    portfolio_vol = math.sqrt(max(portfolio_variance, 0.0))
+    if portfolio_vol <= 0:
+        return {}, {}
+    marginal = {symbol: sigma_w[index] / portfolio_vol for index, symbol in enumerate(symbols)}
+    component = {
+        symbol: weight_vector[index] * sigma_w[index] / portfolio_vol
+        for index, symbol in enumerate(symbols)
+    }
+    return marginal, component
+
+
 def calculate_advanced_risk_metrics(
     positions: list[Position],
     summary: Any,
@@ -427,6 +514,7 @@ def calculate_advanced_risk_metrics(
     measured_exposures: dict[str, float] = {}
     factor_quality = "heuristic_current_exposure"
     factor_metadata: dict[str, str] = {}
+    factor_diagnostics: dict[str, object] = {}
     if enough_history and account_returns_by_date:
         from app.services.risk.factor_model import compute_measured_factor_exposures
 
@@ -436,9 +524,51 @@ def calculate_advanced_risk_metrics(
             end_date=end_date,
             allow_mock=allow_mock,
         )
+        factor_diagnostics = factor_metadata.get("diagnostics", {}) if isinstance(factor_metadata, dict) else {}
     if measured_exposures and factor_quality == "experimental":
         factor_exposures = measured_exposures
     stress_tests, stress_excluded = _stress_tests(positions, summary, total_value)
+
+    ewma_volatility = _ewma_volatility(account_returns) if enough_history else None
+    drawdown_stats = _drawdown_analytics(account_returns) if enough_history else {}
+    risk_contribution: dict[str, float] = {}
+    marginal_volatility: dict[str, float] = {}
+    if reconstruction is not None:
+        symbols = list(reconstruction.get("modeled_symbols", []))
+        asset_returns = reconstruction.get("asset_returns", {})
+        if symbols and asset_returns:
+            from app.services.portfolio_construction.optimizer import _covariance_matrix
+
+            _, covariance = _covariance_matrix(asset_returns)
+            if covariance:
+                weights = {}
+                modeled_value = 0.0
+                for position in positions:
+                    if position.symbol not in symbols:
+                        continue
+                    rate = 1.0
+                    if position.currency != summary.base_currency:
+                        from app.services.broker.ibkr_readonly import get_exchange_rate
+
+                        rate = get_exchange_rate(position.currency, summary.base_currency)
+                    weights[position.symbol] = abs(position.market_value * rate)
+                    modeled_value += abs(position.market_value * rate)
+                if modeled_value > 0:
+                    normalized = {symbol: weights.get(symbol, 0.0) / modeled_value for symbol in symbols}
+                    marginal_volatility, risk_contribution = _risk_contribution(normalized, covariance, symbols)
+
+    from app.services.analytics.calculation_run import create_calculation_run
+
+    run = create_calculation_run(
+        run_type="advanced_risk",
+        account_id=str(getattr(summary, "account_id", "") or "default"),
+        input_snapshot_ids=[f"{item.date}:{item.timestamp}" for item in _latest_daily_snapshots(history)],
+        exclusions=list(modeled_excluded),
+        coverage={
+            "historical_metrics": "sufficient" if enough_history else "insufficient",
+            "cash_flow_ledger": ledger_status,
+        },
+    )
 
     current_holdings_quality = (
         "sufficient_modeled_current_holdings"
@@ -460,7 +590,11 @@ def calculate_advanced_risk_metrics(
         "stress_fx_excluded_symbols": ",".join(sorted(set(stress_excluded))) or "none",
         "factor_fx_excluded_symbols": ",".join(sorted(set(factor_excluded))) or "none",
         "factor_model": factor_quality,
-        **{f"factor_{key}": str(value) for key, value in factor_metadata.items()},
+        **{
+            f"factor_{key}": str(value)
+            for key, value in factor_metadata.items()
+            if key != "diagnostics"
+        },
     }
 
     methodology = {
@@ -496,6 +630,7 @@ def calculate_advanced_risk_metrics(
     return AdvancedRiskMetrics(
         max_drawdown=rounded("max_drawdown"),
         volatility=rounded("volatility"),
+        ewma_volatility=round(ewma_volatility, 2) if ewma_volatility is not None else None,
         portfolio_beta_spy=rounded("portfolio_beta_spy"),
         portfolio_beta_qqq=round(beta_qqq, 2) if beta_qqq is not None else None,
         value_at_risk_95=rounded("value_at_risk_95"),
@@ -507,9 +642,25 @@ def calculate_advanced_risk_metrics(
         jensens_alpha=rounded("jensens_alpha"),
         tracking_error=rounded("tracking_error"),
         information_ratio=rounded("information_ratio"),
+        calmar_ratio=(
+            round(float(drawdown_stats["calmar_ratio"]), 2)
+            if drawdown_stats.get("calmar_ratio") is not None
+            else None
+        ),
+        ulcer_index=(
+            round(float(drawdown_stats["ulcer_index"]) * 100.0, 2)
+            if drawdown_stats.get("ulcer_index") is not None
+            else None
+        ),
+        max_drawdown_duration_days=drawdown_stats.get("max_drawdown_duration_days"),
+        recovery_duration_days=drawdown_stats.get("recovery_duration_days"),
+        risk_contribution={key: round(value * 100.0, 2) for key, value in risk_contribution.items()},
+        marginal_volatility={key: round(value * 100.0, 4) for key, value in marginal_volatility.items()},
         correlation_matrix=correlation_matrix,
         factor_exposures=factor_exposures,
+        factor_diagnostics=factor_diagnostics,
         stress_tests=stress_tests,
         data_quality=data_quality,
         methodology=methodology,
+        calculation_run_id=run.calculation_run_id,
     )

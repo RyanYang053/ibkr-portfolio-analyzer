@@ -198,7 +198,13 @@ def run_score_calibration(
                 }
             )
 
-    if non_demo_count >= MIN_EXPERIMENTAL_OBSERVATIONS:
+    if non_demo_count >= 100 and information_coefficient is not None and information_coefficient >= 0.05:
+        status = "validated"
+    elif non_demo_count >= MIN_EXPERIMENTAL_OBSERVATIONS and information_coefficient is not None and information_coefficient < 0:
+        status = "degraded"
+    elif non_demo_count == 0 and len(usable) >= MIN_EXPERIMENTAL_OBSERVATIONS:
+        status = "retired"
+    elif non_demo_count >= MIN_EXPERIMENTAL_OBSERVATIONS:
         status = "experimental"
     elif len(usable) >= MIN_EXPERIMENTAL_OBSERVATIONS:
         status = "experimental"

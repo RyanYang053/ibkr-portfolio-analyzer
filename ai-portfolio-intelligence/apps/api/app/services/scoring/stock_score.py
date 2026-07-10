@@ -296,7 +296,12 @@ def _weighted_score(sub_scores: dict[str, float], weights: dict[str, float]) -> 
     return _clamp(score), available_weight / total_model_weight
 
 
-def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockScore:
+def score_stock(
+    position: Position,
+    allow_mock: Optional[bool] = None,
+    *,
+    record_observations: bool = False,
+) -> StockScore:
     from app.core.config import settings
 
     if allow_mock is None:
@@ -462,7 +467,7 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
 
     evidence.append(f"Model coverage: {coverage * 100:.1f}%")
 
-    if final_score is not None:
+    if final_score is not None and record_observations:
         import hashlib
         import json
 

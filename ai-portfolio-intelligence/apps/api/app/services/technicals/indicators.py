@@ -173,7 +173,9 @@ def calculate_technical_indicators_from_bars(symbol: str, bars: list[dict[str, f
         hlc_closes = [float(bar["close"]) for bar in hlc_bars]
         atr = _wilder_atr(highs, lows, hlc_closes)
         if atr is not None:
-            return indicators.model_copy(update={"atr_14": round(atr, 4)})
+            last_close = hlc_closes[-1]
+            atr_percent = round((atr / last_close) * 100.0, 4) if last_close > 0 else None
+            return indicators.model_copy(update={"atr_14": round(atr, 4), "atr_percent": atr_percent})
     return indicators
 
 
@@ -194,6 +196,16 @@ def calculate_technical_indicators(
     macd, macd_signal, macd_histogram = _macd(cleaned)
     high_52w = max(cleaned[-252:])
     drawdown = (cleaned[-1] / high_52w - 1.0) * 100.0
+    recent_returns = [
+        (cleaned[index] / cleaned[index - 1]) - 1.0
+        for index in range(max(len(cleaned) - 20, 1), len(cleaned))
+        if cleaned[index - 1] > 0
+    ]
+    realized_volatility_20d = None
+    if len(recent_returns) >= 10:
+        mean_return = sum(recent_returns) / len(recent_returns)
+        variance = sum((value - mean_return) ** 2 for value in recent_returns) / max(len(recent_returns) - 1, 1)
+        realized_volatility_20d = round(math.sqrt(max(variance, 0.0)) * math.sqrt(252) * 100.0, 4)
 
     return TechnicalIndicators(
         symbol=symbol.upper().strip(),
@@ -211,6 +223,8 @@ def calculate_technical_indicators(
         # These metrics require high/low, volume, and aligned benchmark returns.
         # A close-only series cannot calculate them accurately.
         atr_14=None,
+        atr_percent=None,
+        realized_volatility_20d=realized_volatility_20d,
         beta=None,
         volume_ratio=None,
         relative_strength_spy=None,

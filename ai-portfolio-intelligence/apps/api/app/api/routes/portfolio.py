@@ -304,7 +304,11 @@ def performance(
             "daily_return": returns.daily_returns[-1]["investment_return_percent"] if returns.daily_returns else None,
             "time_weighted_return": returns.time_weighted_return,
             "time_weighted_return_annualized": returns.time_weighted_return_annualized,
+            "modified_dietz_return": returns.modified_dietz_return,
+            "modified_dietz_return_annualized": returns.modified_dietz_return_annualized,
+            "return_methodology": returns.return_methodology,
             "xirr": returns.xirr,
+            "calculation_run_id": returns.calculation_run_id,
             "benchmark_comparison": returns.benchmark_comparison,
             "account_value_change": latest.daily_pnl if latest else None,
             "account_value_change_percent": latest.daily_pnl_percent if latest else None,
@@ -315,6 +319,140 @@ def performance(
         account_positions,
         validation,
     )
+
+
+@router.get("/pnl-decomposition")
+def pnl_decomposition(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    from app.services.market_data.fx_store import make_transaction_fx_resolver
+    from app.services.portfolio.account_scope import require_single_account_id
+    from app.services.portfolio.pnl_decomposition import calculate_pnl_decomposition
+    from app.services.portfolio.pnl_tracker import get_pnl_history
+
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
+    active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
+    history = get_pnl_history(active_id)
+    result = calculate_pnl_decomposition(
+        active_id,
+        history,
+        account_positions,
+        account_summary.base_currency,
+        make_transaction_fx_resolver(),
+    )
+    return prepare_professional_response(result.model_dump(), account_summary, account_positions, validation)
+
+
+@router.get("/reconciliation")
+def reconciliation(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    from app.services.market_data.fx_store import make_transaction_fx_resolver
+    from app.services.portfolio.account_scope import require_single_account_id
+    from app.services.portfolio.pnl_decomposition import calculate_pnl_decomposition
+    from app.services.portfolio.pnl_tracker import get_pnl_history
+
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
+    active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
+    history = get_pnl_history(active_id)
+    decomposition = calculate_pnl_decomposition(
+        active_id,
+        history,
+        account_positions,
+        account_summary.base_currency,
+        make_transaction_fx_resolver(),
+    )
+    payload = {
+        "account_id": active_id,
+        "reconciliation_status": decomposition.reconciliation_status,
+        "reconciliation_gap": decomposition.reconciliation_gap,
+        "account_value_change": decomposition.account_value_change,
+        "explained_components": {
+            "price_effect_total": decomposition.price_effect_total,
+            "dividend_income_total": decomposition.dividend_income_total,
+            "fee_expense_total": decomposition.fee_expense_total,
+            "interest_income_total": decomposition.interest_income_total,
+            "corporate_action_total": decomposition.corporate_action_total,
+            "external_cash_flow_total": decomposition.external_cash_flow_total,
+            "residual_total": decomposition.residual_total,
+        },
+        "calculation_run": decomposition.calculation_run,
+        "methodology": decomposition.methodology,
+    }
+    return prepare_professional_response(payload, account_summary, account_positions, validation)
+
+
+@router.get("/research-context")
+def research_context(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    from app.core.config import settings
+    from app.schemas.domain import DataQualityContext, SourceRecord
+    from app.services.ai.portfolio_research import build_portfolio_research_context
+    from app.services.attribution.engine import calculate_performance_attribution
+    from app.services.market_data.fx_store import make_transaction_fx_resolver
+    from app.services.policy.engine import get_portfolio_policy
+    from app.services.portfolio.account_scope import require_single_account_id
+    from app.services.portfolio.performance_returns import calculate_performance_returns
+    from app.services.portfolio.pnl_tracker import get_pnl_history
+    from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
+    from app.services.suitability.engine import get_investor_profile
+
+    account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
+    validation = validate_and_gate_snapshot(account_summary, account_positions)
+    active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
+    history = get_pnl_history(active_id)
+    allow_mock = settings.broker_mode == "mock_ibkr_readonly"
+    performance = calculate_performance_returns(
+        active_id,
+        history,
+        account_summary.base_currency,
+        make_transaction_fx_resolver(),
+        allow_mock=allow_mock,
+    )
+    attribution = calculate_performance_attribution(
+        account_positions,
+        history,
+        base_currency=account_summary.base_currency,
+        fx_resolver=make_transaction_fx_resolver(),
+    )
+    risk = calculate_advanced_risk_metrics(account_positions, account_summary, history)
+    policy = get_portfolio_policy(active_id, user_id=tenant_user_id(principal))
+    profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
+    run_ids = [
+        value
+        for value in [performance.calculation_run_id, risk.calculation_run_id]
+        if value
+    ]
+    context = build_portfolio_research_context(
+        user_id=tenant_user_id(principal),
+        account_id=active_id,
+        reporting_currency=account_summary.base_currency,
+        performance=performance.model_dump(),
+        attribution=attribution.model_dump(),
+        risk=risk.model_dump(),
+        exposures=_group_percent(account_positions, account_summary.base_currency, "sector"),
+        holdings=[position.model_dump() for position in account_positions],
+        policy=policy.model_dump(),
+        suitability=profile.model_dump(),
+        data_quality=DataQualityContext(
+            ledger_status=performance.data_quality.get("ledger_status", "unknown"),
+            performance_status=performance.return_methodology,
+            risk_status=risk.data_quality.get("historical_metrics", "unknown"),
+            attribution_status=attribution.data_quality.get("brinson_attribution", "unknown"),
+        ),
+        sources=[SourceRecord(source_id="broker_snapshot", source_type="broker", label="IBKR read-only snapshot")],
+        calculation_run_ids=run_ids,
+    )
+    return prepare_professional_response(context.model_dump(), account_summary, account_positions, validation)
 
 
 @router.get("/score-calibration")
@@ -543,6 +681,7 @@ def rebalance_proposal(
 @router.get("/optimization-proposal")
 def optimize_portfolio(
     account_id: Optional[str] = None,
+    objective: str = "min_variance",
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
@@ -556,7 +695,13 @@ def optimize_portfolio(
     active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
     policy = get_portfolio_policy(active_id, user_id=tenant_user_id(principal))
     profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
-    result = generate_portfolio_optimization(account_positions, account_summary, policy, profile)
+    result = generate_portfolio_optimization(
+        account_positions,
+        account_summary,
+        policy,
+        profile,
+        objective=objective,
+    )
     return prepare_professional_response(result, account_summary, account_positions, validation)
 
 

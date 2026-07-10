@@ -40,6 +40,20 @@ def _ensure_timezone(current_time: datetime) -> datetime:
     return current_time
 
 
+def _record_scheduled_score_snapshots(positions) -> None:
+    from app.services.scoring.score_snapshot_store import save_daily_score_snapshot
+    from app.services.scoring.stock_score import score_stock
+
+    for position in positions:
+        if position.quantity <= 0:
+            continue
+        try:
+            score = score_stock(position, record_observations=True)
+            save_daily_score_snapshot("scheduler", score)
+        except Exception as exc:
+            logger.warning("Skipping scheduled score snapshot for %s: %s", position.symbol, exc)
+
+
 def _run_scheduler_sync(now: datetime | None = None) -> None:
     schedule_settings = _load_settings()
     if not schedule_settings.get("enabled"):
@@ -118,6 +132,7 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
 
                 validate_and_gate_snapshot(summary, positions)
                 record_pnl_snapshot(summary, positions, account.id)
+                _record_scheduled_score_snapshots(positions)
                 complete_job("pnl_snapshot", account.id, business_date, slot, status="completed")
             except Exception as exc:
                 complete_job(
