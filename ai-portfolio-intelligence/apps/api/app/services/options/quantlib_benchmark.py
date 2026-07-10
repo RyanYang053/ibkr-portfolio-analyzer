@@ -21,6 +21,7 @@ def benchmark_option_price(
     risk_free_rate: float,
     volatility: float,
     right: str = "C",
+    dividend_yield: float = 0.0,
 ) -> dict[str, Any] | None:
     """Independent QuantLib Black-Scholes benchmark for internal validation."""
     if not quantlib_available():
@@ -31,7 +32,7 @@ def benchmark_option_price(
     expiry = today + int(days_to_expiry)
     spot_handle = ql.QuoteHandle(ql.SimpleQuote(spot))
     risk_free_ts = ql.YieldTermStructureHandle(ql.FlatForward(today, risk_free_rate, ql.Actual365Fixed()))
-    dividend_ts = ql.YieldTermStructureHandle(ql.FlatForward(today, 0.0, ql.Actual365Fixed()))
+    dividend_ts = ql.YieldTermStructureHandle(ql.FlatForward(today, dividend_yield, ql.Actual365Fixed()))
     flat_vol = ql.BlackVolTermStructureHandle(ql.BlackConstantVol(today, ql.NullCalendar(), volatility, ql.Actual365Fixed()))
     process = ql.BlackScholesMertonProcess(spot_handle, dividend_ts, risk_free_ts, flat_vol)
     payoff = ql.PlainVanillaPayoff(ql.Option.Call if right.upper() == "C" else ql.Option.Put, strike)
@@ -64,11 +65,16 @@ def compare_with_internal_bs(
     volatility: float,
     right: str = "C",
     tolerance: float = 0.05,
+    dividend_yield: float = 0.0,
 ) -> dict[str, Any]:
     from app.services.options.engine import calculate_bs_greeks, calculate_bs_price
 
-    internal_price = calculate_bs_price(spot, strike, days_to_expiry / 365.0, risk_free_rate, volatility, right)
-    internal_greeks = calculate_bs_greeks(spot, strike, days_to_expiry / 365.0, risk_free_rate, volatility, right)
+    internal_price = calculate_bs_price(
+        spot, strike, days_to_expiry / 365.0, risk_free_rate, volatility, right, dividend_yield=dividend_yield
+    )
+    internal_greeks = calculate_bs_greeks(
+        spot, strike, days_to_expiry / 365.0, risk_free_rate, volatility, right, dividend_yield=dividend_yield
+    )
     benchmark = benchmark_option_price(
         spot=spot,
         strike=strike,
@@ -76,6 +82,7 @@ def compare_with_internal_bs(
         risk_free_rate=risk_free_rate,
         volatility=volatility,
         right=right,
+        dividend_yield=dividend_yield,
     )
     if benchmark is None:
         return {

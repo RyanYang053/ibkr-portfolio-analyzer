@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from bisect import bisect_right
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, timedelta
 from statistics import fmean
 from typing import Any
@@ -328,28 +329,119 @@ def _factor_exposures(positions: list[Position], summary: Any) -> tuple[dict[str
     return {key: round(value / total * 100.0, 2) for key, value in sorted(buckets.items())}, excluded
 
 
-def _option_stress_loss(position: Position, spot_shock_pct: float) -> float | None:
+@dataclass(frozen=True)
+class OptionStressResult:
+    loss: float | None
+    status: str
+    exclusions: list[str]
+    methodology: str
+
+
+def _resolve_underlying_spot(
+    option_position: Position,
+    positions: list[Position],
+) -> tuple[float | None, str]:
+    stock_positions = {
+        position.con_id: position
+        for position in positions
+        if position.asset_class not in {"OPT", "FOP"} and position.con_id is not None
+    }
+    for candidate in positions:
+        if candidate.asset_class in {"OPT", "FOP"}:
+            continue
+        if candidate.symbol.upper() == option_position.symbol.upper() and candidate.market_price > 0:
+            return candidate.market_price, "underlying_position"
+    return None, "underlying_unavailable"
+
+
+def _option_stress_loss(
+    position: Position,
+    *,
+    underlying_spot: float | None,
+    underlying_spot_source: str,
+    implied_volatility: float,
+    risk_free_rate: float,
+    dividend_yield: float,
+    spot_shock_pct: float,
+    volatility_shock_points: float,
+    days_forward: int,
+    positions: list[Position],
+) -> OptionStressResult:
     """Reprice listed options with Black-Scholes when contract metadata is available."""
     if position.asset_class not in {"OPT", "FOP"}:
-        return None
-    from app.services.options.engine import calculate_bs_price
+        return OptionStressResult(None, "withheld", ["not_option_position"], "option_stress")
+
+    if underlying_spot is None or underlying_spot <= 0:
+        resolved, source = _resolve_underlying_spot(position, positions)
+        underlying_spot = resolved
+        underlying_spot_source = source
+    if underlying_spot is None or underlying_spot <= 0:
+        return OptionStressResult(
+            None,
+            "withheld",
+            ["underlying_spot_unavailable"],
+            "European Black-Scholes approximation; underlying spot withheld",
+        )
 
     local_symbol = (position.local_symbol or position.symbol or "").replace(" ", "")
     if len(local_symbol) < 15:
-        return None
+        return OptionStressResult(
+            None,
+            "withheld",
+            ["option_contract_metadata_unavailable"],
+            "European Black-Scholes approximation",
+        )
     try:
         right = local_symbol[-9]
         strike = int(local_symbol[-8:]) / 1000.0
         expiry_code = local_symbol[-15:-9]
         expiration = date.fromisoformat(f"20{expiry_code[:2]}-{expiry_code[2:4]}-{expiry_code[4:6]}")
     except (TypeError, ValueError):
-        return None
-    days = max((expiration - date.today()).days, 1)
-    spot = max(float(position.avg_cost or position.market_price), 1.0)
-    shocked_spot = spot * (1.0 + spot_shock_pct / 100.0)
+        return OptionStressResult(
+            None,
+            "withheld",
+            ["option_contract_metadata_unavailable"],
+            "European Black-Scholes approximation",
+        )
+
+    days = max((expiration - date.today()).days - days_forward, 1)
+    shocked_spot = underlying_spot * (1.0 + spot_shock_pct / 100.0)
+    shocked_vol = max(implied_volatility + volatility_shock_points, 0.01)
     current = float(position.market_price)
-    repriced = calculate_bs_price(shocked_spot, strike, days / 365.0, 0.045, 0.30, right)
-    return float(position.quantity) * position.multiplier * (repriced - current)
+    from app.services.options.engine import calculate_bs_price
+
+    repriced = calculate_bs_price(
+        shocked_spot,
+        strike,
+        days / 365.0,
+        risk_free_rate,
+        shocked_vol,
+        right,
+        dividend_yield=dividend_yield,
+    )
+    loss = float(position.quantity) * position.multiplier * (repriced - current)
+    return OptionStressResult(
+        loss,
+        "available",
+        [],
+        f"European Black-Scholes repricing using {underlying_spot_source}",
+    )
+
+
+def _legacy_option_stress_loss(position: Position, spot_shock_pct: float, positions: list[Position]) -> float | None:
+    result = _option_stress_loss(
+        position,
+        underlying_spot=None,
+        underlying_spot_source="withheld",
+        implied_volatility=0.30,
+        risk_free_rate=0.045,
+        dividend_yield=0.0,
+        spot_shock_pct=spot_shock_pct,
+        volatility_shock_points=0.0,
+        days_forward=0,
+        positions=positions,
+    )
+    return result.loss
 
 
 def _stress_tests(positions: list[Position], summary: Any, total_value: float) -> tuple[list[StressScenario], list[str]]:
@@ -372,10 +464,11 @@ def _stress_tests(positions: list[Position], summary: Any, total_value: float) -
                 excluded.append(position.symbol)
                 continue
             if position.asset_class in {"OPT", "FOP"}:
-                repriced_loss = _option_stress_loss(position, market_shock)
+                repriced_loss = _legacy_option_stress_loss(position, market_shock, positions)
                 if repriced_loss is not None:
                     shock_value += repriced_loss * get_exchange_rate(position.currency, summary.base_currency)
                     continue
+                excluded.append(f"{position.symbol}:underlying_spot_unavailable")
                 shock = option_shock
             elif position.is_speculative:
                 shock = speculative_shock

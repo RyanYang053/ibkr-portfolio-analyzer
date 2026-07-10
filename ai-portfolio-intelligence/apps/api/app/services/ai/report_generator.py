@@ -733,15 +733,26 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
         report = gemini.generate_json(prompt, response_schema=OPTIONS_STRATEGY_RESPONSE_SCHEMA)
         
         contract_by_symbol = {contract.symbol: contract for contract in chain}
+        from app.services.options.contract_filters import OptionLiquidityPolicy, is_liquid
+        from datetime import datetime, timezone
+
+        liquidity_policy = OptionLiquidityPolicy()
+        now = datetime.now(timezone.utc)
         validated_strategies = []
         for strat in report.get("strategies", []):
             contract_symbols = strat.get("target_contract_symbols", [])
+            if not contract_symbols:
+                continue
             selected_contracts = [
                 contract_by_symbol[symbol]
                 for symbol in contract_symbols
                 if symbol in contract_by_symbol
             ]
+            if not selected_contracts:
+                continue
             if len(selected_contracts) != len(contract_symbols):
+                continue
+            if not all(is_liquid(contract, liquidity_policy, now=now) for contract in selected_contracts):
                 continue
 
             strat_name = strat.get("name", "")
@@ -863,8 +874,21 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             from app.db.iv_observation_repo import append_iv_history_json, iv_percentile
             from app.services.options.quantlib_benchmark import compare_with_internal_bs
 
-            append_iv_history_json(position.symbol, atm_iv, source=chain_source)
-            iv_pct = iv_percentile(position.symbol, atm_iv)
+            append_iv_history_json(
+                position.symbol,
+                atm_iv,
+                source=chain_source,
+                option_right=atm_contract.right,
+                days_to_expiry=days,
+                delta=atm_contract.delta,
+                moneyness=round(position.market_price / atm_contract.strike, 4) if atm_contract.strike else None,
+            )
+            iv_pct = iv_percentile(
+                position.symbol,
+                atm_iv,
+                option_right=atm_contract.right,
+                days_to_expiry=days,
+            )
             quantlib_check = compare_with_internal_bs(
                 spot=position.market_price,
                 strike=atm_contract.strike,

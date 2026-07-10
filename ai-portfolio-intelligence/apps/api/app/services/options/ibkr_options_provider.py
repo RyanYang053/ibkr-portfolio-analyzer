@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, timedelta
+from datetime import date, datetime, timezone
 from typing import Any
 
 from app.services.options.engine import OptionContract, calculate_bs_greeks, calculate_bs_price
@@ -65,6 +65,12 @@ def fetch_ibkr_options_chain(symbol: str, current_price: float, *, max_contracts
                 greeks = calculate_bs_greeks(current_price, strike, time_to_expiry, risk_free, sigma, right)
                 quote_time = getattr(ticker, "time", None)
                 quote_timestamp = quote_time.isoformat() if hasattr(quote_time, "isoformat") else None
+                quote_age_seconds = None
+                if quote_time is not None and hasattr(quote_time, "timestamp"):
+                    quote_age_seconds = max(
+                        0.0,
+                        datetime.now(timezone.utc).timestamp() - quote_time.timestamp(),
+                    )
                 contracts.append(
                     OptionContract(
                         symbol=getattr(contract, "localSymbol", None) or f"{symbol.upper()}{expiration.strftime('%y%m%d')}{right}{int(strike * 1000):08d}",
@@ -84,14 +90,19 @@ def fetch_ibkr_options_chain(symbol: str, current_price: float, *, max_contracts
                         volume=int(ticker.volume or 0) or None,
                         con_id=getattr(contract, "conId", None),
                         underlying_con_id=underlying.conId,
+                        underlying_symbol=symbol.upper(),
                         local_symbol=getattr(contract, "localSymbol", None),
+                        trading_class=getattr(contract, "tradingClass", None),
+                        last_trade_date_or_contract_month=getattr(contract, "lastTradeDateOrContractMonth", None),
                         exchange=getattr(contract, "exchange", exchange),
                         currency=getattr(contract, "currency", "USD"),
                         multiplier=float(getattr(contract, "multiplier", 100) or 100),
                         quote_timestamp=quote_timestamp,
-                        quote_age_seconds=None,
-                        exercise_style=getattr(contract, "right", None),
-                        settlement_type="physical",
+                        quote_age_seconds=quote_age_seconds,
+                        market_data_type=str(getattr(ticker, "marketDataType", "")) or None,
+                        provider="IBKR",
+                        exercise_style=None,
+                        settlement_type=None,
                     )
                 )
                 ib.cancelMktData(contract)

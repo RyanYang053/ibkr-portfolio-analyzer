@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 from app.services.market_data.http_client import request_with_retry
@@ -82,6 +82,11 @@ def fetch_live_options_chain(symbol: str, current_price: float, *, max_expiratio
                         rho=greeks["rho"],
                         open_interest=int(row.get("openInterest") or 0) or None,
                         volume=int(row.get("volume") or 0) or None,
+                        underlying_symbol=symbol.upper(),
+                        multiplier=100.0,
+                        quote_timestamp=datetime.now(timezone.utc).isoformat(),
+                        quote_age_seconds=0.0,
+                        provider="LiveYahooOptions",
                     )
                 )
 

@@ -144,6 +144,20 @@ def read_iv_history(
     return []
 
 
+def bucket_days_to_expiry(days: int) -> int:
+    if days <= 14:
+        return 7
+    if days <= 30:
+        return 22
+    if days <= 60:
+        return 45
+    if days <= 90:
+        return 75
+    if days <= 180:
+        return 135
+    return 270
+
+
 def append_iv_history_json(
     symbol: str,
     implied_volatility: float,
@@ -155,6 +169,8 @@ def append_iv_history_json(
     moneyness: float | None = None,
     quote_timestamp: datetime | None = None,
 ) -> None:
+    if days_to_expiry is not None:
+        days_to_expiry = bucket_days_to_expiry(days_to_expiry)
     if settings.persistence_backend == "postgres":
         record_iv_observation(
             symbol,
@@ -194,6 +210,8 @@ def iv_percentile(
     option_right: str | None = None,
     days_to_expiry: int | None = None,
 ) -> float | None:
+    if days_to_expiry is not None:
+        days_to_expiry = bucket_days_to_expiry(days_to_expiry)
     history = read_iv_history(symbol, option_right=option_right, days_to_expiry=days_to_expiry)
     if len(history) < 20:
         return None
