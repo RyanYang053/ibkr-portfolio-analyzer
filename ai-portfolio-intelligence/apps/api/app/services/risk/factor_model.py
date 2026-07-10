@@ -109,20 +109,6 @@ def _matrix_ols(
         "residual_volatility": round(residual_std, 6) if residual_std is not None else None,
     }
 
-    if residual_std and residual_std > 0:
-        coefficient_stats = []
-        for index, coefficient in enumerate(coefficients):
-            standard_error = residual_std * math.sqrt(max(inverse[index][index], 0.0))
-            t_stat = coefficient / standard_error if standard_error > 0 else None
-            coefficient_stats.append(
-                {
-                    "coefficient": round(coefficient, 6),
-                    "standard_error": round(standard_error, 6) if standard_error > 0 else None,
-                    "t_statistic": round(t_stat, 4) if t_stat is not None and math.isfinite(t_stat) else None,
-                }
-            )
-        diagnostics["coefficients"] = coefficient_stats
-
     condition_number = None
     try:
         import numpy as np
@@ -138,9 +124,14 @@ def _matrix_ols(
         diagnostics["condition_number"] = round(condition_number, 2)
 
     vif_values: list[float] = []
-    for factor_index in range(1, size):
-        target = [row[factor_index] for row in design]
-        others = [[row[col] for row in design] for col in range(size) if col != factor_index]
+    raw_factors = factors
+    for target_index in range(len(raw_factors)):
+        target = raw_factors[target_index]
+        others = [
+            raw_factors[index]
+            for index in range(len(raw_factors))
+            if index != target_index
+        ]
         if not others:
             continue
         _, helper_r2, _, _ = _matrix_ols(target, others, min_observations=5)
@@ -148,6 +139,21 @@ def _matrix_ols(
             vif_values.append(1.0 / max(1.0 - helper_r2, 1e-6))
     if vif_values:
         diagnostics["vif_max"] = round(max(vif_values), 2)
+
+    residuals = [actual - predicted for actual, predicted in zip(y, fitted)]
+    from app.services.risk.regression_diagnostics import build_regression_diagnostics
+
+    diagnostics.update(
+        build_regression_diagnostics(
+            coefficients=coefficients,
+            design=design,
+            residuals=residuals,
+            r_squared=r_squared,
+            observation_count=length,
+            vif_max=diagnostics.get("vif_max"),
+            condition_number=diagnostics.get("condition_number"),
+        )
+    )
 
     return coefficients, r_squared, residual_std, diagnostics
 

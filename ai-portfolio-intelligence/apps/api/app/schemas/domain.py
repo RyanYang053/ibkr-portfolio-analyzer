@@ -360,7 +360,15 @@ class AdvancedRiskMetrics(BaseModel):
     marginal_volatility: dict[str, float] = Field(default_factory=dict)
     correlation_matrix: dict[str, dict[str, float]]
     factor_exposures: dict[str, float]
+    measured_factor_exposures: dict[str, float] = Field(default_factory=dict)
+    heuristic_style_classification: dict[str, float] = Field(default_factory=dict)
+    factor_model_status: str = "withheld"
     factor_diagnostics: dict[str, object] = Field(default_factory=dict)
+    component_volatility_daily: dict[str, float] = Field(default_factory=dict)
+    component_volatility_annualized: dict[str, float] = Field(default_factory=dict)
+    contribution_to_variance_percent: dict[str, float] = Field(default_factory=dict)
+    marginal_volatility_daily: dict[str, float] = Field(default_factory=dict)
+    marginal_volatility_annualized: dict[str, float] = Field(default_factory=dict)
     stress_tests: list[StressScenario]
     data_quality: dict[str, str]
     methodology: dict[str, str]

@@ -662,6 +662,7 @@ def calculate_advanced_risk_metrics(
     benchmark_sufficient = enough_history and len(spy_returns) == len(account_returns)
 
     factor_exposures, factor_excluded = _factor_exposures(positions, summary)
+    heuristic_style_classification = factor_exposures
     measured_exposures: dict[str, float] = {}
     factor_quality = "heuristic_current_exposure"
     factor_metadata: dict[str, str] = {}
@@ -676,8 +677,8 @@ def calculate_advanced_risk_metrics(
             allow_mock=allow_mock,
         )
         factor_diagnostics = factor_metadata.get("diagnostics", {}) if isinstance(factor_metadata, dict) else {}
-    if measured_exposures and factor_quality == "experimental":
-        factor_exposures = measured_exposures
+    factor_model_status = factor_quality
+    reported_factor_exposures = measured_exposures if measured_exposures else {}
     stress_tests, stress_excluded = _stress_tests(positions, summary, total_value)
 
     ewma_volatility = _ewma_volatility(account_returns) if enough_history else None
@@ -685,6 +686,10 @@ def calculate_advanced_risk_metrics(
     risk_contribution: dict[str, float] = {}
     marginal_volatility: dict[str, float] = {}
     risk_contribution_pct: dict[str, float] = {}
+    component_volatility_daily: dict[str, float] = {}
+    component_volatility_annualized: dict[str, float] = {}
+    marginal_volatility_daily: dict[str, float] = {}
+    marginal_volatility_annualized: dict[str, float] = {}
     if reconstruction is not None:
         symbols = list(reconstruction.get("modeled_symbols", []))
         asset_returns = reconstruction.get("asset_returns", {})
@@ -708,6 +713,20 @@ def calculate_advanced_risk_metrics(
                 if modeled_value > 0:
                     normalized = {symbol: weights.get(symbol, 0.0) / modeled_value for symbol in symbols}
                     marginal_volatility, risk_contribution = _risk_contribution(normalized, covariance, symbols)
+                    component_volatility_daily = {
+                        symbol: round(value, 6) for symbol, value in risk_contribution.items()
+                    }
+                    marginal_volatility_daily = {
+                        symbol: round(value, 6) for symbol, value in marginal_volatility.items()
+                    }
+                    component_volatility_annualized = {
+                        symbol: round(value * math.sqrt(TRADING_DAYS), 6)
+                        for symbol, value in component_volatility_daily.items()
+                    }
+                    marginal_volatility_annualized = {
+                        symbol: round(value * math.sqrt(TRADING_DAYS), 6)
+                        for symbol, value in marginal_volatility_daily.items()
+                    }
                     component_sum = sum(risk_contribution.values())
                     if component_sum > 0:
                         risk_contribution_pct = {
@@ -823,9 +842,17 @@ def calculate_advanced_risk_metrics(
         recovery_duration_days=drawdown_stats.get("recovery_duration_days"),
         risk_contribution={key: round(value * 100.0, 2) for key, value in risk_contribution.items()},
         risk_contribution_pct=risk_contribution_pct,
+        contribution_to_variance_percent=risk_contribution_pct,
         marginal_volatility={key: round(value * 100.0, 4) for key, value in marginal_volatility.items()},
+        component_volatility_daily=component_volatility_daily,
+        component_volatility_annualized=component_volatility_annualized,
+        marginal_volatility_daily=marginal_volatility_daily,
+        marginal_volatility_annualized=marginal_volatility_annualized,
         correlation_matrix=correlation_matrix,
-        factor_exposures=factor_exposures,
+        factor_exposures=reported_factor_exposures,
+        measured_factor_exposures=measured_exposures,
+        heuristic_style_classification=heuristic_style_classification,
+        factor_model_status=factor_model_status,
         factor_diagnostics=factor_diagnostics,
         stress_tests=stress_tests,
         data_quality=data_quality,
