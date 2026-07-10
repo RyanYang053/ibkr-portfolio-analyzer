@@ -109,6 +109,74 @@ def black_litterman_posterior_returns(
     return [float(value) for value in posterior]
 
 
+def verify_weight_constraints(
+    weights: list[float],
+    *,
+    sleeve_budget: float,
+    current_weights: list[float] | None = None,
+    turnover_budget: float | None = None,
+    liquidity_caps: list[float] | None = None,
+    max_weight: float | None = None,
+    sector_labels: list[str] | None = None,
+    sector_cap: float | None = None,
+    fixed_sector_exposure: dict[str, float] | None = None,
+    sleeve_portfolio_fraction: float = 1.0,
+    tolerance: float = 1e-4,
+) -> dict[str, Any]:
+    violations: list[str] = []
+    slack: dict[str, float] = {}
+    total = sum(weights)
+    slack["budget"] = round(sleeve_budget - total, 6)
+    if abs(slack["budget"]) > tolerance:
+        violations.append("budget")
+    if current_weights is not None and turnover_budget is not None:
+        turnover = sum(abs(left - right) for left, right in zip(weights, current_weights))
+        slack["turnover"] = round(turnover_budget - turnover, 6)
+        if turnover > turnover_budget + tolerance:
+            violations.append("turnover")
+    if liquidity_caps is not None:
+        for index, cap in enumerate(liquidity_caps):
+            slack[f"liquidity_{index}"] = round(cap - weights[index], 6)
+            if weights[index] > cap + tolerance:
+                violations.append(f"liquidity_{index}")
+    if max_weight is not None:
+        for index, weight in enumerate(weights):
+            if weight > max_weight + tolerance:
+                violations.append(f"max_weight_{index}")
+    if sector_labels and sector_cap is not None:
+        fixed_sector_exposure = fixed_sector_exposure or {}
+        sector_totals: dict[str, float] = {}
+        for index, label in enumerate(sector_labels):
+            sector_totals[label] = sector_totals.get(label, 0.0) + weights[index]
+        for sector, optimized in sector_totals.items():
+            combined = optimized * sleeve_portfolio_fraction + fixed_sector_exposure.get(sector, 0.0)
+            slack[f"sector_{sector}"] = round(sector_cap - combined, 6)
+            if combined > sector_cap + tolerance:
+                violations.append(f"sector_{sector}")
+    return {"feasible": not violations, "violations": violations, "slack": slack}
+
+
+def _apply_sector_constraints(
+    constraints: list,
+    weights,
+    *,
+    sector_labels: list[str] | None,
+    sector_cap: float | None,
+    fixed_sector_exposure: dict[str, float] | None,
+    sleeve_portfolio_fraction: float = 1.0,
+) -> None:
+    if not sector_labels or sector_cap is None:
+        return
+    import cvxpy as cp
+
+    fixed_sector_exposure = fixed_sector_exposure or {}
+    sectors = sorted(set(sector_labels))
+    for sector in sectors:
+        indices = [index for index, label in enumerate(sector_labels) if label == sector]
+        optimized = cp.sum(weights[indices])
+        constraints.append(fixed_sector_exposure.get(sector, 0.0) + sleeve_portfolio_fraction * optimized <= sector_cap)
+
+
 def solve_cvar_weights(
     returns_by_symbol: dict[str, list[float]],
     symbols: list[str],
@@ -118,6 +186,10 @@ def solve_cvar_weights(
     current_weights: list[float] | None = None,
     turnover_budget: float | None = None,
     liquidity_caps: list[float] | None = None,
+    sector_labels: list[str] | None = None,
+    sector_cap: float | None = None,
+    fixed_sector_exposure: dict[str, float] | None = None,
+    sleeve_portfolio_fraction: float = 1.0,
 ) -> tuple[list[float] | None, dict[str, Any]]:
     try:
         import cvxpy as cp
@@ -144,6 +216,14 @@ def solve_cvar_weights(
     if liquidity_caps is not None:
         for index, cap in enumerate(liquidity_caps):
             constraints.append(weights[index] <= cap)
+    _apply_sector_constraints(
+        constraints,
+        weights,
+        sector_labels=sector_labels,
+        sector_cap=sector_cap,
+        fixed_sector_exposure=fixed_sector_exposure,
+        sleeve_portfolio_fraction=sleeve_portfolio_fraction,
+    )
 
     problem = cp.Problem(
         cp.Minimize(var + (1.0 / ((1.0 - alpha) * scenarios)) * cp.sum(tail_losses)),
@@ -160,7 +240,22 @@ def solve_cvar_weights(
     if total <= 0:
         return None, {"status": "zero_weights"}
     normalized = [value / total * sleeve_budget for value in values]
-    return normalized, {"status": problem.status, "objective": float(problem.value) if problem.value is not None else None}
+    feasibility = verify_weight_constraints(
+        normalized,
+        sleeve_budget=sleeve_budget,
+        current_weights=current_weights,
+        turnover_budget=turnover_budget,
+        liquidity_caps=liquidity_caps,
+        sector_labels=sector_labels,
+        sector_cap=sector_cap,
+        fixed_sector_exposure=fixed_sector_exposure,
+        sleeve_portfolio_fraction=sleeve_portfolio_fraction,
+    )
+    return normalized, {
+        "status": problem.status,
+        "objective": float(problem.value) if problem.value is not None else None,
+        "feasibility": feasibility,
+    }
 
 
 def solve_mean_variance_with_constraints(
@@ -172,6 +267,10 @@ def solve_mean_variance_with_constraints(
     turnover_budget: float | None = None,
     liquidity_caps: list[float] | None = None,
     max_weight: float | None = None,
+    sector_labels: list[str] | None = None,
+    sector_cap: float | None = None,
+    fixed_sector_exposure: dict[str, float] | None = None,
+    sleeve_portfolio_fraction: float = 1.0,
 ) -> tuple[list[float] | None, dict[str, Any]]:
     try:
         import cvxpy as cp
@@ -190,6 +289,14 @@ def solve_mean_variance_with_constraints(
             constraints.append(weights[index] <= cap)
     if max_weight is not None:
         constraints.append(weights <= max_weight)
+    _apply_sector_constraints(
+        constraints,
+        weights,
+        sector_labels=sector_labels,
+        sector_cap=sector_cap,
+        fixed_sector_exposure=fixed_sector_exposure,
+        sleeve_portfolio_fraction=sleeve_portfolio_fraction,
+    )
     problem = cp.Problem(cp.Maximize(mu @ weights - 0.5 * cp.quad_form(weights, sigma)), constraints)
     try:
         problem.solve(solver=cp.OSQP, warm_start=True)
@@ -201,4 +308,17 @@ def solve_mean_variance_with_constraints(
     total = sum(values)
     if total <= 0:
         return None, {"status": "zero_weights"}
-    return [value / total * sleeve_budget for value in values], {"status": problem.status}
+    normalized = [value / total * sleeve_budget for value in values]
+    feasibility = verify_weight_constraints(
+        normalized,
+        sleeve_budget=sleeve_budget,
+        current_weights=current_weights,
+        turnover_budget=turnover_budget,
+        liquidity_caps=liquidity_caps,
+        max_weight=max_weight,
+        sector_labels=sector_labels,
+        sector_cap=sector_cap,
+        fixed_sector_exposure=fixed_sector_exposure,
+        sleeve_portfolio_fraction=sleeve_portfolio_fraction,
+    )
+    return normalized, {"status": problem.status, "feasibility": feasibility}

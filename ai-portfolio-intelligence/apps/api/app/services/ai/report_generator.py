@@ -149,7 +149,7 @@ def generate_stock_research_report(
 ) -> dict[str, Any]:
     score = score_stock(position)
     recommendation = build_recommendation(position)
-    context = _build_context(position, score, recommendation)
+    context = _build_context(position, score, recommendation, user_id=user_id)
     gemini = client or GeminiClient()
     prompt = build_stock_analysis_prompt(position=context, score=None, recommendation=None)
 
@@ -233,7 +233,13 @@ def generate_ai_portfolio_memo(
     risk = analyze_portfolio_risk(summary, positions)
     recommendations = [build_recommendation(position) for position in positions]
     gemini = client or GeminiClient()
-    prompt = build_portfolio_memo_prompt(summary=summary, positions=positions, risk=risk, recommendations=recommendations)
+    prompt = build_portfolio_memo_prompt(
+        summary=summary,
+        positions=positions,
+        risk=risk,
+        recommendations=recommendations,
+        user_id=user_id,
+    )
     
     from app.services.ai.report_cache import set_cached_report
     from app.core.config import settings
@@ -491,7 +497,7 @@ def _sanitize_ai_report(
     return append_compliance_disclaimer(report)
 
 
-def _build_context(position: Position, score, recommendation) -> dict[str, Any]:
+def _build_context(position: Position, score, recommendation, *, user_id: str = "local-dev") -> dict[str, Any]:
     from app.core.config import settings
     import sys
     allow_mock = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
@@ -540,6 +546,7 @@ def _build_context(position: Position, score, recommendation) -> dict[str, Any]:
         valuation=valuation,
         catalysts=catalysts,
         portfolio_timestamp=position.updated_at,
+        user_id=user_id,
     )
 
 

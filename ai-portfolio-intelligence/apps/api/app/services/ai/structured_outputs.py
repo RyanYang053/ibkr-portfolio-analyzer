@@ -36,6 +36,7 @@ def build_structured_stock_context(
     valuation: dict[str, Any] | None,
     catalysts: list[dict[str, Any]] | None,
     portfolio_timestamp: datetime | None,
+    user_id: str = "local-dev",
 ) -> dict[str, Any]:
     now = utc_now()
     position_payload = _safe_position_payload(position)
@@ -108,7 +109,7 @@ def build_structured_stock_context(
             "valuation": valuation,
             "catalysts": catalysts,
         },
-        user_id="local-dev",
+        user_id=user_id,
     )
     rule_engine = build_rule_engine_summary(position, score, recommendation, technicals, fundamentals, valuation, data_quality, thesis)
     evidence = [

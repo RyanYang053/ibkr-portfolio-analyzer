@@ -692,7 +692,7 @@ def calculate_advanced_risk_metrics(
         "sortino_ratio": "Daily excess return Sortino: sqrt(252) * mean(excess) / downside deviation of excess returns.",
         "jensens_alpha": "Daily CAPM intercept from excess portfolio and market returns, geometrically annualized.",
         "tracking_error": "Annualized sample standard deviation of actual account active returns versus SPY.",
-        "information_ratio": "sqrt(252) * mean(active return) / annualized tracking error.",
+        "information_ratio": "sqrt(252) * mean(daily active return) / (sqrt(252) * daily tracking error standard deviation).",
     }
 
     def rounded(name: str, digits: int = 2):

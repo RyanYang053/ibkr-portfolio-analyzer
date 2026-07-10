@@ -168,7 +168,14 @@ def build_stock_analysis_prompt(*, position: Position, score: Any, recommendatio
     )
 
 
-def build_portfolio_memo_prompt(*, summary: Any, positions: list[Position], risk: Any, recommendations: Any) -> str:
+def build_portfolio_memo_prompt(
+    *,
+    summary: Any,
+    positions: list[Position],
+    risk: Any,
+    recommendations: Any,
+    user_id: str = "local-dev",
+) -> str:
     payload = {
         "summary": {
             "net_liquidation": summary.net_liquidation,
@@ -224,9 +231,18 @@ def build_portfolio_memo_prompt(*, summary: Any, positions: list[Position], risk
         from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
 
         active_id = getattr(summary, "account_id", "default")
-        profile = get_investor_profile(active_id, user_id="local-dev")
-        policy = get_portfolio_policy(active_id, user_id="local-dev")
-        drift = analyze_policy_drift(positions, summary.cash, summary.net_liquidation, policy)
+        from app.services.broker.ibkr_readonly import get_exchange_rate
+
+        profile = get_investor_profile(active_id, user_id=user_id)
+        policy = get_portfolio_policy(active_id, user_id=user_id)
+        drift = analyze_policy_drift(
+            positions,
+            summary.cash,
+            summary.net_liquidation,
+            policy,
+            base_currency=getattr(summary, "base_currency", "USD"),
+            fx_resolver=get_exchange_rate,
+        )
 
         suitability_warnings = []
         for pos in positions:

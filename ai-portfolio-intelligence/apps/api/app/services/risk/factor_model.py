@@ -124,11 +124,17 @@ def _matrix_ols(
         diagnostics["coefficients"] = coefficient_stats
 
     condition_number = None
-    max_diag = max(abs(normal[i][i]) for i in range(size)) or 1.0
-    min_diag = min(abs(normal[i][i]) for i in range(size)) or 1.0
-    if min_diag > 0:
-        condition_number = max_diag / min_diag
-    if condition_number is not None:
+    try:
+        import numpy as np
+
+        normal_array = np.array(normal, dtype=float)
+        condition_number = float(np.linalg.cond(normal_array))
+    except Exception:
+        max_diag = max(abs(normal[i][i]) for i in range(size)) or 1.0
+        min_diag = min(abs(normal[i][i]) for i in range(size)) or 1.0
+        if min_diag > 0:
+            condition_number = max_diag / min_diag
+    if condition_number is not None and math.isfinite(condition_number):
         diagnostics["condition_number"] = round(condition_number, 2)
 
     vif_values: list[float] = []

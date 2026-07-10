@@ -187,15 +187,8 @@ def calculate_pnl_decomposition(
     residual_total = investment_pnl - explained
     tolerance_amount = abs(beginning_nav) * (RECONCILIATION_TOLERANCE_BPS / 10_000.0)
     reconciliation_status = "withheld_incomplete_ledger"
-    if covers_period:
-        if price_effect_total is not None and trade_quantity_total is not None:
-            reconciliation_status = (
-                "reconciled_within_tolerance"
-                if abs(residual_total) <= max(tolerance_amount, 1.0)
-                else "reconciliation_gap_exceeds_tolerance"
-            )
-        else:
-            reconciliation_status = "provisional_cash_flow_inventory"
+    has_option_positions = any(position.asset_class in {"OPT", "FOP"} for position in positions)
+    has_foreign_positions = any(position.currency.upper() != base_currency.upper() for position in positions)
 
     exclusions: list[str] = []
     if not covers_period:
@@ -205,13 +198,27 @@ def calculate_pnl_decomposition(
     if trade_quantity_total is None:
         exclusions.append("trade_quantity_effect_withheld")
     exclusions.extend(period_exclusions)
-    exclusions.extend(
-        [
-            "fx_translation_withheld",
-            "option_greek_effect_withheld",
-        ]
-    )
+    if has_foreign_positions and "fx_translation_withheld" in period_exclusions:
+        exclusions.append("fx_translation_withheld")
+    if has_option_positions:
+        exclusions.append("option_greek_effect_withheld")
     exclusions = list(dict.fromkeys(exclusions))
+
+    core_effects_complete = (
+        price_effect_total is not None
+        and trade_quantity_total is not None
+        and "fx_translation_withheld" not in exclusions
+        and "option_greek_effect_withheld" not in exclusions
+    )
+    if covers_period:
+        if core_effects_complete:
+            reconciliation_status = (
+                "reconciled_within_tolerance"
+                if abs(residual_total) <= max(tolerance_amount, 1.0)
+                else "reconciliation_gap_exceeds_tolerance"
+            )
+        else:
+            reconciliation_status = "provisional_cash_flow_inventory"
 
     snapshot_ids = [f"{row.date}:{row.timestamp}" for row in ordered]
     run = create_calculation_run(

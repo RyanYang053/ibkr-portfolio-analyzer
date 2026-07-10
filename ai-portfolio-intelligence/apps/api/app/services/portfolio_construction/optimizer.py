@@ -17,6 +17,10 @@ MINIMUM_TRADE_VALUE = 100.0
 TRADING_DAYS = 252
 
 
+def _instrument_key(position: Position) -> str:
+    return f"{position.symbol.upper()}:{position.con_id if position.con_id is not None else -1}"
+
+
 def _position_key(position: Position) -> tuple[str, int | None]:
     return position.symbol.upper(), position.con_id
 
@@ -275,6 +279,26 @@ def generate_portfolio_optimization(
 
     covariance = _shrink_covariance(covariance)
 
+    cash_target = policy.target_cash_percent / 100.0
+    modeled_keys = {
+        _position_key(position)
+        for position in optimizable_positions
+        if position.symbol in covariance_symbols
+    }
+    fixed_weight = 0.0
+    fixed_sector_exposure: dict[str, float] = defaultdict(float)
+    for position in positions:
+        if _position_key(position) in modeled_keys:
+            continue
+        rate = get_exchange_rate(position.currency, summary.base_currency)
+        position_weight = abs(position.market_value * rate) / total_value
+        fixed_weight += position_weight
+        fixed_sector_exposure[position.sector or "Unknown"] += position_weight
+
+    sleeve_budget = max(0.0, 1.0 - cash_target - fixed_weight)
+    if sleeve_budget <= 0:
+        raise ValueError("No optimizable sleeve remains after reserving cash and fixed holdings")
+
     optimizable_current_weight = sum(converted_values.get(symbol, 0.0) for symbol in covariance_symbols) / total_value
     current_sleeve_weights = [
         (
@@ -284,6 +308,8 @@ def generate_portfolio_optimization(
         )
         for symbol in covariance_symbols
     ]
+    sector_labels = [sectors.get(symbol, "Unknown") for symbol in covariance_symbols]
+    sector_cap = policy.max_sector_weight / 100.0
     liquidity_caps = [settings.optimization_liquidity_cap] * len(covariance_symbols)
     turnover_budget = settings.optimization_turnover_budget
     if profile.account_type == "Taxable":
@@ -317,6 +343,10 @@ def generate_portfolio_optimization(
             turnover_budget=turnover_budget,
             liquidity_caps=liquidity_caps,
             max_weight=policy.max_single_stock_weight / 100.0,
+            sector_labels=sector_labels,
+            sector_cap=sector_cap,
+            fixed_sector_exposure=dict(fixed_sector_exposure),
+            sleeve_portfolio_fraction=sleeve_budget,
         )
         if raw_weights is None:
             raise ValueError("Black-Litterman optimization failed")
@@ -331,6 +361,10 @@ def generate_portfolio_optimization(
             current_weights=current_sleeve_weights,
             turnover_budget=turnover_budget,
             liquidity_caps=liquidity_caps,
+            sector_labels=sector_labels,
+            sector_cap=sector_cap,
+            fixed_sector_exposure=dict(fixed_sector_exposure),
+            sleeve_portfolio_fraction=sleeve_budget,
         )
         if raw_weights is None:
             raise ValueError("CVaR optimization failed")
@@ -355,24 +389,6 @@ def generate_portfolio_optimization(
             if denominator <= 0:
                 raise ValueError("Unable to solve minimum-variance weights")
             raw_weights = [value / denominator for value in inv_ones]
-
-    cash_target = policy.target_cash_percent / 100.0
-    modeled_keys = {
-        _position_key(position)
-        for position in optimizable_positions
-        if position.symbol in covariance_symbols
-    }
-    fixed_weight = 0.0
-    for position in positions:
-        if _position_key(position) in modeled_keys:
-            continue
-        rate = get_exchange_rate(position.currency, summary.base_currency)
-        fixed_weight += abs(position.market_value * rate) / total_value
-
-    optimizable_current_weight = sum(converted_values.get(symbol, 0.0) for symbol in covariance_symbols) / total_value
-    sleeve_budget = max(0.0, 1.0 - cash_target - fixed_weight)
-    if sleeve_budget <= 0:
-        raise ValueError("No optimizable sleeve remains after reserving cash and fixed holdings")
 
     if used_cvxpy_solver:
         sleeve_weights = [max(0.0, weight) for weight in raw_weights]
@@ -464,7 +480,7 @@ def generate_portfolio_optimization(
         f"optimizable_sleeve={sleeve_budget * 100.0:.2f}%",
         f"restricted_symbols={','.join(profile.restrictions) or 'none'}",
         f"turnover_budget={turnover_budget:.2f}",
-        f"liquidity_cap_per_name={settings.optimization_liquidity_cap:.2f}",
+        f"post_solve_feasible={solver_metadata.get('feasibility', {}).get('feasible', 'n/a')}",
     ]
     if profile.account_type == "Taxable":
         constraints.append("tax_aware_turnover_cap=true")
