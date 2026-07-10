@@ -219,8 +219,8 @@ def generate_portfolio_optimization(
     from app.services.broker.ibkr_readonly import get_exchange_rate
     from app.services.market_data.mock_provider import MockMarketDataProvider
 
-    if objective not in {"min_variance", "risk_parity"}:
-        raise ValueError("Supported objectives: min_variance, risk_parity")
+    if objective not in {"min_variance", "risk_parity", "hrp", "black_litterman", "cvar"}:
+        raise ValueError("Supported objectives: min_variance, risk_parity, hrp, black_litterman, cvar")
 
     allow_mock = summary.account_id.startswith("MOCK")
     total_value = float(summary.net_liquidation)
@@ -270,10 +270,59 @@ def generate_portfolio_optimization(
 
     covariance = _shrink_covariance(covariance)
 
+    current_sleeve_weights = [
+        converted_values.get(symbol, 0.0) / total_value
+        for symbol in covariance_symbols
+    ]
+    liquidity_caps = [settings.optimization_liquidity_cap] * len(covariance_symbols)
+    turnover_budget = settings.optimization_turnover_budget
+    if profile.account_type == "Taxable":
+        turnover_budget = min(turnover_budget, 0.15)
+    solver_metadata: dict[str, object] = {}
+
     if objective == "risk_parity":
         raw_weights = _risk_parity_weights(covariance)
         if raw_weights is None:
             raise ValueError("Unable to solve risk-parity weights")
+    elif objective == "hrp":
+        from app.services.portfolio_construction.advanced_optimizer import hierarchical_risk_parity_weights
+
+        raw_weights = hierarchical_risk_parity_weights(covariance)
+        if raw_weights is None:
+            raise ValueError("Unable to solve HRP weights")
+        solver_metadata["method"] = "hierarchical_risk_parity"
+    elif objective == "black_litterman":
+        from app.services.portfolio_construction.advanced_optimizer import (
+            black_litterman_posterior_returns,
+            solve_mean_variance_with_constraints,
+        )
+
+        posterior = black_litterman_posterior_returns(covariance, current_sleeve_weights)
+        raw_weights, solver_metadata = solve_mean_variance_with_constraints(
+            covariance,
+            posterior,
+            sleeve_budget=1.0,
+            current_weights=current_sleeve_weights,
+            turnover_budget=turnover_budget,
+            liquidity_caps=liquidity_caps,
+            max_weight=policy.max_single_stock_weight / 100.0,
+        )
+        if raw_weights is None:
+            raise ValueError("Black-Litterman optimization failed")
+        solver_metadata["method"] = "black_litterman"
+    elif objective == "cvar":
+        from app.services.portfolio_construction.advanced_optimizer import solve_cvar_weights
+
+        raw_weights, solver_metadata = solve_cvar_weights(
+            returns_by_symbol,
+            covariance_symbols,
+            current_weights=current_sleeve_weights,
+            turnover_budget=turnover_budget,
+            liquidity_caps=liquidity_caps,
+        )
+        if raw_weights is None:
+            raise ValueError("CVaR optimization failed")
+        solver_metadata["method"] = "cvar"
     else:
         cvxpy_weights = _solve_cvxpy_min_variance(covariance, sleeve_budget=1.0)
         if cvxpy_weights is not None:
@@ -389,13 +438,19 @@ def generate_portfolio_optimization(
 
     constraints = [
         f"objective={objective}",
+        f"solver={solver_metadata.get('method', objective)}",
+        f"solver_status={solver_metadata.get('status', 'analytic')}",
         f"max_single_stock_weight={policy.max_single_stock_weight:.2f}% (stocks only)",
         f"max_sector_weight={policy.max_sector_weight:.2f}%",
         f"target_cash={policy.target_cash_percent:.2f}%",
         f"fixed_sleeve_reserved={fixed_weight * 100.0:.2f}%",
         f"optimizable_sleeve={sleeve_budget * 100.0:.2f}%",
         f"restricted_symbols={','.join(profile.restrictions) or 'none'}",
+        f"turnover_budget={turnover_budget:.2f}",
+        f"liquidity_cap_per_name={settings.optimization_liquidity_cap:.2f}",
     ]
+    if profile.account_type == "Taxable":
+        constraints.append("tax_aware_turnover_cap=true")
     if drift.get("rebalance_triggered"):
         constraints.append("policy_drift_triggered=true")
 

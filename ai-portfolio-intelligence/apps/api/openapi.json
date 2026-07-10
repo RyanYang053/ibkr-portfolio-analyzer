@@ -4896,6 +4896,77 @@
         ]
       }
     },
+    "/stocks/{symbol}/xbrl-facts": {
+      "get": {
+        "operationId": "xbrl_facts_stocks__symbol__xbrl_facts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "company_type",
+            "required": false,
+            "schema": {
+              "default": "general_operating",
+              "title": "Company Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Xbrl Facts",
+        "tags": [
+          "stocks"
+        ]
+      }
+    },
     "/watchlist": {
       "get": {
         "operationId": "list_watchlist_watchlist_get",

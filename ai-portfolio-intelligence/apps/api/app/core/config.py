@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     scheduler_timezone: str = "America/New_York"
     scheduler_max_attempts: int = 3
     scheduler_lease_minutes: int = 30
+    sec_edgar_user_agent: str = "PortfolioIntelligence/1.0 contact@example.com"
+    optimization_turnover_budget: float = 0.25
+    optimization_liquidity_cap: float = 0.15
 
 
 settings = Settings()

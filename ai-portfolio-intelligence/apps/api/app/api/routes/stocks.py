@@ -230,15 +230,64 @@ def valuation(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
+    from app.services.broker.securities import classify_security
+    from app.services.fundamentals.providers import build_scenario_valuation
+
     is_demo = demo_mode_enabled()
     if not is_demo and not _is_held(symbol, adapter, principal, account_id):
         raise data_provider_not_configured_error("Valuation")
     allow_mock = is_demo
+    sec_info = classify_security(symbol.upper())
+    market_price = None
+    if _is_held(symbol, adapter, principal, account_id):
+        position = _authorized_position(symbol, adapter, principal, account_id)
+        market_price = position.market_price
     try:
-        data = get_fundamental_provider(allow_mock=allow_mock).get_fundamentals(symbol.upper())
-        return {"symbol": symbol.upper(), "pe_forward": data.pe_forward, "ev_sales": data.ev_sales, "fcf_yield": data.fcf_yield}
+        result = build_scenario_valuation(
+            symbol.upper(),
+            sector=sec_info.get("sector", "Unknown"),
+            stock_type=sec_info.get("stock_type", "universal"),
+            market_price=market_price,
+            allow_mock=allow_mock,
+        )
+        if result is None:
+            raise ValueError("valuation inputs unavailable")
+        return result
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Valuation data not found for {symbol.upper()}: {exc}") from exc
+
+
+@router.get("/{symbol}/xbrl-facts")
+def xbrl_facts(
+    symbol: str,
+    company_type: str = "general_operating",
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    from app.services.fundamentals.providers.edgar_provider import extract_xbrl_facts
+
+    is_demo = demo_mode_enabled()
+    if not is_demo and not _is_held(symbol, adapter, principal, account_id):
+        raise data_provider_not_configured_error("XBRL facts")
+    if is_demo:
+        return {
+            "symbol": symbol.upper(),
+            "company_type": company_type,
+            "facts": [],
+            "source": "mock_demo",
+            "synthetic_demo": True,
+        }
+    facts = extract_xbrl_facts(symbol.upper(), company_type=company_type)
+    if not facts:
+        raise HTTPException(status_code=404, detail=f"XBRL facts not found for {symbol.upper()}")
+    return {
+        "symbol": symbol.upper(),
+        "company_type": company_type,
+        "facts": facts,
+        "source": "sec_edgar_companyfacts",
+        "synthetic_demo": False,
+    }
 
 
 @router.get("/{symbol}/news")

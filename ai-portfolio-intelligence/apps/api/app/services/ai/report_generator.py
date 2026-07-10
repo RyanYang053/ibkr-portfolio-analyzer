@@ -602,12 +602,13 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
 
     # Deterministic or live option chain
     chain = []
+    chain_source = "Mock"
     live_chain_unavailable = False
     if is_live_market:
         try:
-            from app.services.options.chain_provider import fetch_live_options_chain
+            from app.services.options.ibkr_options_provider import resolve_options_chain
 
-            chain = fetch_live_options_chain(position.symbol, position.market_price)
+            chain, chain_source = resolve_options_chain(position.symbol, position.market_price)
             is_mock_fallback = False
         except Exception:
             live_chain_unavailable = True
@@ -775,16 +776,31 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
         atm_contract = min(chain, key=lambda item: abs(item.strike - position.market_price)) if chain else None
         implied_move = None
         implied_move_horizon_days = None
+        iv_pct = None
+        quantlib_check = None
         if not is_demo and atm_iv is not None and atm_contract is not None:
             days = max((atm_contract.expiration - date.today()).days, 1)
             time_to_expiry = days / 365.0
             implied_move = round(atm_iv * math.sqrt(time_to_expiry) * 100.0, 2)
             implied_move_horizon_days = days
+            from app.db.iv_observation_repo import append_iv_history_json, iv_percentile
+            from app.services.options.quantlib_benchmark import compare_with_internal_bs
+
+            append_iv_history_json(position.symbol, atm_iv, source=chain_source)
+            iv_pct = iv_percentile(position.symbol, atm_iv)
+            quantlib_check = compare_with_internal_bs(
+                spot=position.market_price,
+                strike=atm_contract.strike,
+                days_to_expiry=days,
+                risk_free_rate=0.045,
+                volatility=atm_iv,
+                right=atm_contract.right,
+            )
         return {
             "symbol": position.symbol,
             "stock_price": position.market_price,
             "implied_volatility": 0.30 if is_demo else atm_iv,
-            "iv_percentile": 50 if is_demo else None,
+            "iv_percentile": 50 if is_demo else iv_pct,
             "implied_move_percent": implied_move if implied_move is not None else (5.0 if is_demo else None),
             "implied_move_horizon_days": implied_move_horizon_days,
             "strategies": validated_strategies,
@@ -793,7 +809,7 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             "disclaimer": report.get("disclaimer", "Disclaimer: This options analysis is for educational purposes only."),
             "provider": f"gemini:{gemini.model}",
             "asOf": utc_now().isoformat(),
-            "dataSource": "Mock" if is_demo else ("LiveYahooOptions" if not live_chain_unavailable else "Unavailable"),
+            "dataSource": "Mock" if is_demo else (chain_source if not live_chain_unavailable else "Unavailable"),
             "isMock": is_demo,
             "quoteDelaySeconds": None if is_demo else None,
             "warnings": warnings,
@@ -802,7 +818,9 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
                 "live_market_data": is_live_market,
                 "cached_data": False,
                 "mock_fallback_data": is_mock_fallback,
-                "web_grounded_context": gemini.last_grounding_used
+                "web_grounded_context": gemini.last_grounding_used,
+                "options_chain_source": chain_source if not is_demo else "Mock",
+                "quantlib_benchmark": quantlib_check,
             }
         }
     except Exception as exc:
