@@ -11,15 +11,16 @@ from app.services.scheduler import run_background_scheduler
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_production_settings()
-    # Start background scheduler daemon
-    scheduler_task = asyncio.create_task(run_background_scheduler())
+    scheduler_task = None
+    if settings.scheduler_enabled and settings.scheduler_run_in_api:
+        scheduler_task = asyncio.create_task(run_background_scheduler())
     yield
-    # Cancel background task on shutdown
-    scheduler_task.cancel()
-    try:
-        await scheduler_task
-    except asyncio.CancelledError:
-        pass
+    if scheduler_task is not None:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(

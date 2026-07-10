@@ -8,6 +8,8 @@
   "scripts": {
     "web:dev": "npm --workspace apps/web run dev",
     "web:build": "npm --workspace apps/web run build",
-    "api:test": "cd apps/api && ../../.venv/bin/python -m pytest tests"
+    "api:test": "cd apps/api && ../../.venv/bin/python -m pytest tests",
+    "api:openapi": "cd apps/api && python scripts/export_openapi.py",
+    "api:openapi:check": "cd apps/api && python scripts/check_openapi_schema.py"
   }
 }

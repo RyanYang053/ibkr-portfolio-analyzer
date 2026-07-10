@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from app.api.deps import get_broker_adapter
-from app.api.routes.ai import ScheduledAnalyzeRequest, _load_runs, _load_settings, trigger_scheduled_analysis
+from app.api.routes.ai import ScheduledAnalyzeRequest, _load_settings, trigger_scheduled_analysis
+from app.core.config import settings
+from app.db.scheduler_store import complete_job, job_already_completed, try_acquire_job
 from app.services.portfolio.pnl_tracker import get_pnl_history, record_pnl_snapshot
 
 logger = logging.getLogger("scheduler")
@@ -14,26 +17,36 @@ SCHEDULER_INTERVAL_SECONDS = 60
 RUN_WINDOW_MINUTES = 10
 
 
+def _market_timezone() -> ZoneInfo:
+    try:
+        return ZoneInfo(settings.scheduler_timezone)
+    except Exception:
+        return ZoneInfo("America/New_York")
+
+
 def _parse_time(value: str) -> time:
     return time.fromisoformat(value)
 
 
-def _slot_is_due(now: datetime, scheduled_time: time, already_ran: bool) -> bool:
-    if already_ran:
-        return False
-    scheduled_at = datetime.combine(now.date(), scheduled_time)
+def _slot_is_due(now: datetime, scheduled_time: time) -> bool:
+    scheduled_at = datetime.combine(now.date(), scheduled_time, tzinfo=now.tzinfo)
     elapsed = now - scheduled_at
     return timedelta(0) <= elapsed <= timedelta(minutes=RUN_WINDOW_MINUTES)
 
 
+def _ensure_timezone(current_time: datetime) -> datetime:
+    if current_time.tzinfo is None:
+        return current_time.replace(tzinfo=_market_timezone())
+    return current_time
+
+
 def _run_scheduler_sync(now: datetime | None = None) -> None:
-    settings = _load_settings()
-    if not settings.get("enabled"):
+    schedule_settings = _load_settings()
+    if not schedule_settings.get("enabled"):
         return
 
-    current_time = now or datetime.now()
-    today_str = current_time.date().isoformat()
-    runs = _load_runs()
+    current_time = _ensure_timezone(now or datetime.now(_market_timezone()))
+    business_date = current_time.date()
     adapter = None
 
     for period, setting_name, default_time in (
@@ -41,61 +54,99 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
         ("midday", "midday_time", "12:30"),
         ("night", "night_time", "20:00"),
     ):
-        already_ran = any(
-            run.get("timestamp", "").startswith(today_str) and run.get("period") == period
-            for run in runs
-        )
+        if job_already_completed("scheduled_analysis", None, business_date, period):
+            continue
         try:
             due = _slot_is_due(
                 current_time,
-                _parse_time(str(settings.get(setting_name, default_time))),
-                already_ran,
+                _parse_time(str(schedule_settings.get(setting_name, default_time))),
             )
         except ValueError:
-            logger.error("Skipping invalid %s schedule value: %r", period, settings.get(setting_name))
+            logger.error("Skipping invalid %s schedule value: %r", period, schedule_settings.get(setting_name))
             continue
 
         if not due:
+            continue
+        if not try_acquire_job("scheduled_analysis", None, business_date, period):
             continue
 
         logger.info("Triggering scheduled %s analysis", period)
         try:
             adapter = adapter or get_broker_adapter()
-            trigger_scheduled_analysis(ScheduledAnalyzeRequest(period=period), adapter)
+            trigger_scheduled_analysis(
+                ScheduledAnalyzeRequest(period=period),
+                account_id=settings.ibkr_account_id,
+                adapter=adapter,
+            )
+            complete_job("scheduled_analysis", None, business_date, period, status="completed")
         except Exception as exc:
             logger.error("Failed %s analysis: %s", period, exc)
+            complete_job(
+                "scheduled_analysis",
+                None,
+                business_date,
+                period,
+                status="failed",
+                error_message=str(exc),
+            )
 
     if current_time.weekday() >= 5:
         return
 
-    snapshot_due = _slot_is_due(
-        current_time,
-        time(16, 0),
-        already_ran=False,
-    )
-    if not snapshot_due:
+    if not _slot_is_due(current_time, time(16, 0)):
         return
 
     try:
         adapter = adapter or get_broker_adapter()
         accounts = adapter.get_accounts()
         for account in accounts:
+            slot = f"snapshot:{account.id}"
+            if job_already_completed("pnl_snapshot", account.id, business_date, slot):
+                continue
             history = get_pnl_history(account.id)
-            if any(entry.date == today_str for entry in history):
+            if any(entry.date == business_date.isoformat() for entry in history):
+                complete_job("pnl_snapshot", account.id, business_date, slot, status="completed")
+                continue
+            if not try_acquire_job("pnl_snapshot", account.id, business_date, slot):
                 continue
             logger.info("Triggering scheduled daily snapshot for account %s", account.id)
-            summary = adapter.get_account_summary(account.id)
-            positions = adapter.get_positions(account.id)
-            record_pnl_snapshot(summary, positions, account.id)
+            try:
+                summary = adapter.get_account_summary(account.id)
+                positions = adapter.get_positions(account.id)
+                record_pnl_snapshot(summary, positions, account.id)
+                complete_job("pnl_snapshot", account.id, business_date, slot, status="completed")
+            except Exception as exc:
+                complete_job(
+                    "pnl_snapshot",
+                    account.id,
+                    business_date,
+                    slot,
+                    status="failed",
+                    error_message=str(exc),
+                )
 
         if len(accounts) > 1:
-            consolidated_history = get_pnl_history("all")
-            if not any(entry.date == today_str for entry in consolidated_history):
-                from app.api.routes.portfolio import _get_consolidated_summary_and_positions
+            slot = "snapshot:all"
+            if not job_already_completed("pnl_snapshot", "all", business_date, slot):
+                consolidated_history = get_pnl_history("all")
+                if not any(entry.date == business_date.isoformat() for entry in consolidated_history):
+                    if try_acquire_job("pnl_snapshot", "all", business_date, slot):
+                        from app.api.routes.portfolio import _get_consolidated_summary_and_positions
 
-                logger.info("Triggering scheduled daily consolidated snapshot")
-                summary, positions = _get_consolidated_summary_and_positions(adapter)
-                record_pnl_snapshot(summary, positions, "all")
+                        logger.info("Triggering scheduled daily consolidated snapshot")
+                        try:
+                            summary, positions = _get_consolidated_summary_and_positions(adapter)
+                            record_pnl_snapshot(summary, positions, "all")
+                            complete_job("pnl_snapshot", "all", business_date, slot, status="completed")
+                        except Exception as exc:
+                            complete_job(
+                                "pnl_snapshot",
+                                "all",
+                                business_date,
+                                slot,
+                                status="failed",
+                                error_message=str(exc),
+                            )
     except Exception as exc:
         logger.error("Failed recording scheduled PnL snapshots: %s", exc)
 

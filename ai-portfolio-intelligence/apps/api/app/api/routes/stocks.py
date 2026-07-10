@@ -80,8 +80,8 @@ def _is_held(symbol: str, adapter: BrokerAdapter, account_id: Optional[str] = No
         pass
         
     # Check watchlist
-    from app.api.routes.watchlist import _WATCHLIST
-    if any(item["symbol"].upper() == symbol.upper() for item in _WATCHLIST):
+    from app.api.routes.watchlist import _load_watchlist
+    if any(item["symbol"].upper() == symbol.upper() for item in _load_watchlist()):
         return True
         
     return False

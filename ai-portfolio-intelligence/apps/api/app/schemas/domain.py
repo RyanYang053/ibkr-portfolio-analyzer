@@ -223,6 +223,14 @@ class FundamentalSnapshot(BaseModel):
     ev_sales: Optional[float]
     fcf_yield: Optional[float]
     source: str = "mock_fundamentals"
+    price_to_tangible_book: Optional[float] = None
+    return_on_equity: Optional[float] = None
+    net_interest_margin: Optional[float] = None
+    ffo_per_share: Optional[float] = None
+    affo_per_share: Optional[float] = None
+    occupancy_rate: Optional[float] = None
+    rate_base_growth: Optional[float] = None
+    allowed_roe: Optional[float] = None
 
 
 class AIReport(BaseModel):

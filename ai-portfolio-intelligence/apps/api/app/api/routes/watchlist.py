@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from app.api.auth_deps import get_current_principal, require_scope
 from app.core.audit import log_audit_action
+from app.db.legacy_bridge import read_json_with_legacy, write_json_state
 
 
 router = APIRouter(
@@ -13,7 +14,8 @@ router = APIRouter(
     tags=["watchlist"],
     dependencies=[Depends(get_current_principal)],
 )
-_WATCHLIST = [
+
+_DEFAULT_WATCHLIST = [
     {
         "id": 1,
         "symbol": "AAPL",
@@ -41,6 +43,18 @@ _WATCHLIST = [
 ]
 
 
+def _load_watchlist() -> list[dict]:
+    items = read_json_with_legacy("watchlist", "items", None, default=None)
+    if isinstance(items, list) and items:
+        return items
+    write_json_state("watchlist", "items", _DEFAULT_WATCHLIST)
+    return list(_DEFAULT_WATCHLIST)
+
+
+def _save_watchlist(items: list[dict]) -> None:
+    write_json_state("watchlist", "items", items)
+
+
 class WatchlistItem(BaseModel):
     symbol: str
     reason: str
@@ -50,13 +64,15 @@ class WatchlistItem(BaseModel):
 
 @router.get("")
 def list_watchlist():
-    return _WATCHLIST
+    return _load_watchlist()
 
 
 @router.post("", dependencies=[Depends(require_scope("portfolio:write"))])
 def create_watchlist_item(payload: WatchlistItem):
-    item = {"id": len(_WATCHLIST) + 1, **payload.model_dump(), "status": "watch"}
-    _WATCHLIST.append(item)
+    watchlist = _load_watchlist()
+    item = {"id": len(watchlist) + 1, **payload.model_dump(), "status": "watch"}
+    watchlist.append(item)
+    _save_watchlist(watchlist)
     log_audit_action(
         action="watchlist_item_added",
         object_type="security",
@@ -68,9 +84,11 @@ def create_watchlist_item(payload: WatchlistItem):
 
 @router.put("/{item_id}", dependencies=[Depends(require_scope("portfolio:write"))])
 def update_watchlist_item(item_id: int, payload: WatchlistItem):
-    for item in _WATCHLIST:
+    watchlist = _load_watchlist()
+    for item in watchlist:
         if item["id"] == item_id:
             item.update(payload.model_dump())
+            _save_watchlist(watchlist)
             log_audit_action(
                 action="watchlist_item_updated",
                 object_type="security",
@@ -83,13 +101,14 @@ def update_watchlist_item(item_id: int, payload: WatchlistItem):
 
 @router.delete("/{item_id}", dependencies=[Depends(require_scope("portfolio:write"))])
 def delete_watchlist_item(item_id: int):
-    global _WATCHLIST
+    watchlist = _load_watchlist()
     symbol = "UNKNOWN"
-    for item in _WATCHLIST:
+    for item in watchlist:
         if item["id"] == item_id:
             symbol = item["symbol"]
             break
-    _WATCHLIST = [item for item in _WATCHLIST if item["id"] != item_id]
+    watchlist = [item for item in watchlist if item["id"] != item_id]
+    _save_watchlist(watchlist)
     log_audit_action(
         action="watchlist_item_removed",
         object_type="security",

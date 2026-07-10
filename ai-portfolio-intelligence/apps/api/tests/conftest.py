@@ -4,3 +4,5 @@ import os
 # ensuring developer overrides in local .env do not fail base configuration tests.
 os.environ["BROKER_MODE"] = "ibkr_readonly"
 os.environ["DISABLE_AUTH_ENFORCEMENT"] = "true"
+os.environ["PERSISTENCE_BACKEND"] = "json"
+os.environ["SCHEDULER_RUN_IN_API"] = "false"

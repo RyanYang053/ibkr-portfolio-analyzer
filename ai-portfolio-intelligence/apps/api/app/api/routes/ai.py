@@ -51,21 +51,25 @@ class ScheduledAnalyzeRequest(BaseModel):
 
 
 def _load_settings() -> dict[str, Any]:
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
+    from app.db.legacy_bridge import read_json_with_legacy, write_json_state
+
+    default = {
         "enabled": False,
         "morning_time": "09:30",
         "midday_time": "12:30",
-        "night_time": "20:00"
+        "night_time": "20:00",
     }
+    data = read_json_with_legacy("ai_schedule", "settings", SETTINGS_FILE if os.path.exists(SETTINGS_FILE) else None, default=None)
+    if isinstance(data, dict):
+        return data
+    write_json_state("ai_schedule", "settings", default)
+    return default
 
 
 def _save_settings(settings: dict[str, Any]) -> None:
+    from app.db.legacy_bridge import write_json_state
+
+    write_json_state("ai_schedule", "settings", settings)
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2)
@@ -76,18 +80,20 @@ def _seed_initial_runs() -> list[dict[str, Any]]:
 
 
 def _load_runs() -> list[dict[str, Any]]:
-    if os.path.exists(RUNS_FILE):
-        try:
-            with open(RUNS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+    from app.db.legacy_bridge import read_json_with_legacy, write_json_state
+
+    data = read_json_with_legacy("ai_schedule", "runs", RUNS_FILE if os.path.exists(RUNS_FILE) else None, default=None)
+    if isinstance(data, list):
+        return data
     runs = _seed_initial_runs()
-    _save_runs(runs)
+    write_json_state("ai_schedule", "runs", runs)
     return runs
 
 
 def _save_runs(runs: list[dict[str, Any]]) -> None:
+    from app.db.legacy_bridge import write_json_state
+
+    write_json_state("ai_schedule", "runs", runs)
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(RUNS_FILE, "w", encoding="utf-8") as f:
         json.dump(runs, f, indent=2)

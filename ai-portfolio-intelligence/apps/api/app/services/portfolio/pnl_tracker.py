@@ -86,20 +86,22 @@ def get_pnl_history(account_id: Optional[str] = None) -> list[PortfolioPnLSnapsh
     """
 
     is_demo = _is_demo_mode()
+    store_key = "demo" if is_demo else (account_id or "default")
     history_file = _history_path(account_id, is_demo)
     if is_demo and not os.path.exists(history_file):
         _initialize_mock_history(history_file)
-    if not os.path.exists(history_file):
+
+    from app.db.legacy_bridge import read_json_with_legacy
+
+    raw = read_json_with_legacy("pnl_history", store_key, history_file if os.path.exists(history_file) else None, default=[])
+    if not raw:
         return []
 
     try:
-        with _FILE_LOCK, open(history_file, "r", encoding="utf-8") as handle:
-            raw = json.load(handle)
+        if not isinstance(raw, list):
+            raise RuntimeError(f"PnL history must contain a JSON array: {store_key}")
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"PnL history is unreadable: {history_file}") from exc
-
-    if not isinstance(raw, list):
-        raise RuntimeError(f"PnL history must contain a JSON array: {history_file}")
+        raise RuntimeError(f"PnL history is unreadable: {store_key}") from exc
 
     history = [PortfolioPnLSnapshot(**item) for item in raw]
     if not is_demo:
@@ -244,6 +246,10 @@ def record_pnl_snapshot(
     )
 
     history.append(snapshot)
+    store_key = "demo" if is_demo else active_account_id
+    from app.db.legacy_bridge import write_json_state
+
+    write_json_state("pnl_history", store_key, [item.model_dump() for item in history])
     history_file = _history_path(None if is_demo else active_account_id, is_demo)
     _atomic_write(history_file, [item.model_dump() for item in history])
     return snapshot

@@ -13,17 +13,21 @@ MIN_EXPERIMENTAL_OBSERVATIONS = 20
 
 
 def _load_store() -> dict[str, list[dict[str, float | str | bool | list[str]]]]:
-    if not os.path.exists(CALIBRATION_FILE):
-        return {}
-    try:
-        with open(CALIBRATION_FILE, "r", encoding="utf-8") as handle:
-            raw = json.load(handle)
-        return raw if isinstance(raw, dict) else {}
-    except Exception:
-        return {}
+    from app.db.legacy_bridge import read_json_with_legacy
+
+    raw = read_json_with_legacy(
+        "score_calibration",
+        "observations",
+        CALIBRATION_FILE if os.path.exists(CALIBRATION_FILE) else None,
+        default={},
+    )
+    return raw if isinstance(raw, dict) else {}
 
 
 def _save_store(store: dict[str, list[dict[str, float | str | bool | list[str]]]]) -> None:
+    from app.db.legacy_bridge import write_json_state
+
+    write_json_state("score_calibration", "observations", store)
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(CALIBRATION_FILE, "w", encoding="utf-8") as handle:
         json.dump(store, handle, indent=2)

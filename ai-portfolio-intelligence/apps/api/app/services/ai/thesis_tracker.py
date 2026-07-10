@@ -12,17 +12,18 @@ import os
 THESES_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "theses.json")
 
 def _load_theses() -> dict[str, dict[str, Any]]:
-    if os.path.exists(THESES_FILE):
-        try:
-            with open(THESES_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+    from app.db.legacy_bridge import read_json_with_legacy
+
+    data = read_json_with_legacy("investment_theses", "all", THESES_FILE if os.path.exists(THESES_FILE) else None, default={})
+    return data if isinstance(data, dict) else {}
+
 
 _runtime_theses: dict[str, dict[str, Any]] = _load_theses()
 
 def _save_theses() -> None:
+    from app.db.legacy_bridge import write_json_state
+
+    write_json_state("investment_theses", "all", _runtime_theses)
     try:
         with open(THESES_FILE, "w", encoding="utf-8") as f:
             json.dump(_runtime_theses, f, indent=2)

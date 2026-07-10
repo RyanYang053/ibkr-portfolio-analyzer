@@ -359,17 +359,13 @@ def test_live_fx_failure_never_uses_hardcoded_rate(monkeypatch):
 
 
 def test_scheduler_does_not_backfill_missed_analysis_slots(monkeypatch):
-    monkeypatch.setattr(
-        scheduler,
-        "_load_settings",
-        lambda: {
-            "enabled": True,
-            "morning_time": "09:30",
-            "midday_time": "12:30",
-            "night_time": "20:00",
-        },
-    )
-    monkeypatch.setattr(scheduler, "_load_runs", lambda: [])
+    monkeypatch.setattr(scheduler, "_load_settings", lambda: {
+        "enabled": True,
+        "morning_time": "09:30",
+        "midday_time": "12:30",
+        "night_time": "20:00",
+    })
+    monkeypatch.setattr(scheduler, "try_acquire_job", lambda *args, **kwargs: False)
     monkeypatch.setattr(
         scheduler,
         "get_broker_adapter",

@@ -218,7 +218,7 @@ def snapshots(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends
     return [account_summary]
 
 
-@router.get("/positions")
+@router.get("/positions", response_model=list[Position])
 def positions(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
     _, account_positions = _resolve_account_data(adapter, account_id)
     return account_positions

@@ -20,29 +20,32 @@ DEFAULT_PROFILE = {
 
 def get_investor_profile(account_id: str = "default") -> InvestorProfile:
     """Load the investor profile, seeding defaults if not present."""
-    os.makedirs(DATA_DIR, exist_ok=True)
+    from app.db.legacy_bridge import read_json_with_legacy, write_json_state
+
     profile_path = PROFILE_FILE
     if account_id and account_id != "default":
         profile_path = os.path.join(DATA_DIR, f"investor_profile_{account_id}.json")
         if not os.path.exists(profile_path) and os.path.exists(PROFILE_FILE):
             profile_path = PROFILE_FILE
 
-    if not os.path.exists(profile_path):
-        # Save default
-        with open(profile_path, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_PROFILE, f, indent=2)
+    record_key = account_id or "default"
+    data = read_json_with_legacy("investor_profile", record_key, profile_path if os.path.exists(profile_path) else None, default=None)
+    if data is None:
+        write_json_state("investor_profile", record_key, DEFAULT_PROFILE)
         return InvestorProfile(**DEFAULT_PROFILE)
 
     try:
-        with open(profile_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return InvestorProfile(**data)
+        return InvestorProfile(**data)
     except Exception:
         return InvestorProfile(**DEFAULT_PROFILE)
 
 
 def save_investor_profile(profile: InvestorProfile, account_id: str = "default") -> None:
     """Save the investor profile."""
+    from app.db.legacy_bridge import write_json_state
+
+    record_key = account_id or "default"
+    write_json_state("investor_profile", record_key, profile.model_dump())
     os.makedirs(DATA_DIR, exist_ok=True)
     profile_path = os.path.join(DATA_DIR, f"investor_profile_{account_id}.json") if account_id and account_id != "default" else PROFILE_FILE
     with open(profile_path, "w", encoding="utf-8") as f:

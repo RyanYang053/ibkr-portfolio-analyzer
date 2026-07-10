@@ -157,33 +157,34 @@ def get_sector_norms(sector: str) -> SectorValuationNorms:
     return SECTOR_VALUATION_NORMS.get(sector, DEFAULT_NORMS)
 
 
-def score_fundamentals_for_sector(fundamentals: FundamentalSnapshot, sector: str) -> dict[str, float]:
+def _linear(value: float, low: float, high: float) -> float:
+    if high <= low:
+        return 50.0
+    return max(0.0, min(100.0, (value - low) / (high - low) * 100.0))
+
+
+def _score_universal_heuristic(fundamentals: FundamentalSnapshot, sector: str) -> dict[str, float]:
     from statistics import fmean
 
     norms = get_sector_norms(sector)
 
-    def linear(value: float, low: float, high: float) -> float:
-        if high <= low:
-            return 50.0
-        return max(0.0, min(100.0, (value - low) / (high - low) * 100.0))
-
     def pe_score(pe: float) -> float:
         if pe <= 0:
             return 20.0
-        return max(0.0, min(100.0, 110.0 - linear(pe, norms.pe_low, norms.pe_high)))
+        return max(0.0, min(100.0, 110.0 - _linear(pe, norms.pe_low, norms.pe_high)))
 
     scores: dict[str, float] = {}
     scores["business_quality"] = fmean(
         [
-            linear(fundamentals.gross_margin, norms.gross_margin_low, norms.gross_margin_high),
-            linear(fundamentals.operating_margin, norms.operating_margin_low, norms.operating_margin_high),
+            _linear(fundamentals.gross_margin, norms.gross_margin_low, norms.gross_margin_high),
+            _linear(fundamentals.operating_margin, norms.operating_margin_low, norms.operating_margin_high),
         ]
     )
-    scores["growth"] = linear(fundamentals.revenue_growth_yoy, norms.growth_low, norms.growth_high)
+    scores["growth"] = _linear(fundamentals.revenue_growth_yoy, norms.growth_low, norms.growth_high)
 
-    profitability_parts = [linear(fundamentals.operating_margin, norms.operating_margin_low, norms.operating_margin_high)]
+    profitability_parts = [_linear(fundamentals.operating_margin, norms.operating_margin_low, norms.operating_margin_high)]
     if fundamentals.fcf_yield is not None:
-        profitability_parts.append(linear(fundamentals.fcf_yield, norms.fcf_yield_low, norms.fcf_yield_high))
+        profitability_parts.append(_linear(fundamentals.fcf_yield, norms.fcf_yield_low, norms.fcf_yield_high))
     elif fundamentals.free_cash_flow != 0:
         profitability_parts.append(75.0 if fundamentals.free_cash_flow > 0 else 15.0)
     scores["profitability"] = fmean(profitability_parts)
@@ -197,12 +198,88 @@ def score_fundamentals_for_sector(fundamentals: FundamentalSnapshot, sector: str
     if fundamentals.pe_forward is not None and fundamentals.pe_forward > 0:
         valuation_parts.append(pe_score(fundamentals.pe_forward))
     if fundamentals.ev_sales is not None and fundamentals.ev_sales >= 0:
-        valuation_parts.append(max(0.0, min(100.0, 105.0 - linear(fundamentals.ev_sales, norms.ev_sales_low, norms.ev_sales_high))))
+        valuation_parts.append(max(0.0, min(100.0, 105.0 - _linear(fundamentals.ev_sales, norms.ev_sales_low, norms.ev_sales_high))))
     if fundamentals.fcf_yield is not None:
-        valuation_parts.append(linear(fundamentals.fcf_yield, norms.fcf_yield_low, norms.fcf_yield_high))
+        valuation_parts.append(_linear(fundamentals.fcf_yield, norms.fcf_yield_low, norms.fcf_yield_high))
     if valuation_parts:
         scores["valuation"] = fmean(valuation_parts)
+    return scores
 
+
+def score_fundamentals_for_sector(fundamentals: FundamentalSnapshot, sector: str) -> dict[str, float]:
+    sector_key = sector or "Unknown"
+    if sector_key == "Financials":
+        return _score_financials_sector(fundamentals)
+    if sector_key == "Real Estate":
+        return _score_reit_sector(fundamentals)
+    if sector_key == "Utilities":
+        return _score_utilities_sector(fundamentals)
+    return _score_universal_heuristic(fundamentals, sector_key)
+
+
+def _has_sector_inputs(fundamentals: FundamentalSnapshot, fields: list[str]) -> bool:
+    return any(getattr(fundamentals, field, None) is not None for field in fields)
+
+
+def _score_financials_sector(fundamentals: FundamentalSnapshot) -> dict[str, float]:
+    from statistics import fmean
+
+    required = ["price_to_tangible_book", "return_on_equity", "net_interest_margin"]
+    if not _has_sector_inputs(fundamentals, required):
+        return _score_universal_heuristic(fundamentals, "Financials")
+
+    scores: dict[str, float] = {}
+    scores["business_quality"] = fmean(
+        [
+            _linear(float(fundamentals.return_on_equity or 0.0), 0.08, 0.18),
+            _linear(float(fundamentals.net_interest_margin or 0.0), 0.02, 0.04),
+        ]
+    )
+    scores["growth"] = _linear(fundamentals.revenue_growth_yoy, -0.03, 0.10)
+    scores["profitability"] = _linear(float(fundamentals.return_on_equity or 0.0), 0.08, 0.18)
+    scores["balance_sheet"] = _linear((fundamentals.cash - fundamentals.total_debt) / max(abs(fundamentals.total_debt), 1.0), -0.5, 0.5)
+    scores["valuation"] = max(
+        0.0,
+        min(100.0, 110.0 - _linear(float(fundamentals.price_to_tangible_book or 1.5), 0.8, 2.5)),
+    )
+    return scores
+
+
+def _score_reit_sector(fundamentals: FundamentalSnapshot) -> dict[str, float]:
+    from statistics import fmean
+
+    required = ["ffo_per_share", "occupancy_rate"]
+    if not _has_sector_inputs(fundamentals, required):
+        return _score_universal_heuristic(fundamentals, "Real Estate")
+
+    scores: dict[str, float] = {}
+    scores["business_quality"] = _linear(float(fundamentals.occupancy_rate or 0.0), 0.88, 0.98)
+    scores["growth"] = _linear(fundamentals.revenue_growth_yoy, -0.02, 0.08)
+    ffo_metric = fundamentals.affo_per_share or fundamentals.ffo_per_share or 0.0
+    scores["profitability"] = _linear(float(ffo_metric), 1.0, 6.0)
+    scores["balance_sheet"] = _linear((fundamentals.cash - fundamentals.total_debt) / max(abs(fundamentals.total_debt), 1.0), -0.3, 0.3)
+    if fundamentals.fcf_yield is not None:
+        scores["valuation"] = _linear(fundamentals.fcf_yield, 0.03, 0.08)
+    elif fundamentals.pe_forward is not None and fundamentals.pe_forward > 0:
+        scores["valuation"] = max(0.0, min(100.0, 110.0 - _linear(fundamentals.pe_forward, 10.0, 25.0)))
+    return scores
+
+
+def _score_utilities_sector(fundamentals: FundamentalSnapshot) -> dict[str, float]:
+    from statistics import fmean
+
+    required = ["rate_base_growth", "allowed_roe"]
+    if not _has_sector_inputs(fundamentals, required):
+        return _score_universal_heuristic(fundamentals, "Utilities")
+    scores["growth"] = _linear(float(fundamentals.rate_base_growth or 0.0), 0.01, 0.05)
+    scores["profitability"] = _linear(fundamentals.operating_margin, 0.12, 0.28)
+    scores["balance_sheet"] = _linear((fundamentals.cash - fundamentals.total_debt) / max(abs(fundamentals.total_debt), 1.0), -0.2, 0.2)
+    scores["valuation"] = fmean(
+        [
+            max(0.0, min(100.0, 110.0 - _linear(float(fundamentals.pe_forward or 18.0), 12.0, 22.0))),
+            _linear(fundamentals.fcf_yield or 0.03, 0.02, 0.06),
+        ]
+    )
     return scores
 
 

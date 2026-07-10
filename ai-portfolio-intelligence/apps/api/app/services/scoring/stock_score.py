@@ -341,10 +341,9 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
         technicals = None
 
     try:
-        from app.services.market_data.mock_provider import MockMarketDataProvider
+        from app.services.market_data.news_service import fetch_scoring_news
 
-        if allow_mock:
-            news_list = MockMarketDataProvider(allow_mock=True).get_recent_news(position.symbol)
+        news_list = fetch_scoring_news(position.symbol, allow_mock=allow_mock)
     except Exception:
         news_list = []
 
@@ -478,7 +477,9 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
         if technicals is not None:
             input_sources.append(history_source)
         if news_list:
-            input_sources.append("news")
+            input_sources.append("news_live" if not allow_mock else "news_mock")
+            for item in news_list:
+                input_sources.append(str(item.get("source", "news")))
         elif not allow_mock:
             input_sources.append("news_unavailable_live")
         feature_snapshot_hash = hashlib.sha256(

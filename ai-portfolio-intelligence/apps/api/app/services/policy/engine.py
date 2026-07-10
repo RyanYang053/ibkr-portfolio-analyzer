@@ -27,27 +27,32 @@ DEFAULT_POLICY = {
 
 def get_portfolio_policy(account_id: str = "default") -> InvestmentPolicyStatement:
     """Load the IPS policy, seeding defaults if not present."""
-    os.makedirs(DATA_DIR, exist_ok=True)
+    from app.db.legacy_bridge import read_json_with_legacy, write_json_state
+
     policy_path = POLICY_FILE
     if account_id and account_id != "default":
         policy_path = os.path.join(DATA_DIR, f"portfolio_policy_{account_id}.json")
         if not os.path.exists(policy_path) and os.path.exists(POLICY_FILE):
             policy_path = POLICY_FILE
 
-    if not os.path.exists(policy_path):
-        with open(policy_path, "w", encoding="utf-8") as handle:
-            json.dump(DEFAULT_POLICY, handle, indent=2)
+    record_key = account_id or "default"
+    data = read_json_with_legacy("portfolio_policy", record_key, policy_path if os.path.exists(policy_path) else None, default=None)
+    if data is None:
+        write_json_state("portfolio_policy", record_key, DEFAULT_POLICY)
         return InvestmentPolicyStatement(**DEFAULT_POLICY)
 
     try:
-        with open(policy_path, "r", encoding="utf-8") as handle:
-            return InvestmentPolicyStatement(**json.load(handle))
+        return InvestmentPolicyStatement(**data)
     except Exception:
         return InvestmentPolicyStatement(**DEFAULT_POLICY)
 
 
 def save_portfolio_policy(policy: InvestmentPolicyStatement, account_id: str = "default") -> None:
     """Save the IPS policy."""
+    from app.db.legacy_bridge import write_json_state
+
+    record_key = account_id or "default"
+    write_json_state("portfolio_policy", record_key, policy.model_dump())
     os.makedirs(DATA_DIR, exist_ok=True)
     policy_path = (
         os.path.join(DATA_DIR, f"portfolio_policy_{account_id}.json")
