@@ -151,8 +151,18 @@ export function ProfessionalRiskDashboard({
           <ShieldAlert size={18} className="text-accent" />
           Risk-Adjusted Performance Indicators (Institutional Metrics)
         </h3>
+        {advancedRisk.data_quality?.historical_metrics !== "sufficient" && (
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            Historical portfolio metrics are withheld until actual account snapshots and a complete
+            external-cash-flow activity ledger cover the measurement period (
+            {advancedRisk.data_quality?.cash_flow_ledger ?? "ledger unavailable"}).
+            Security correlations below, when present, come from an ex-ante current-holdings model (
+            {advancedRisk.data_quality?.security_return_series ?? "unavailable"}), not realized account history.
+          </div>
+        )}
         <p className="text-xs text-zinc-500 mb-6 -mt-3">
-          Key metrics computed using historical NAV reconstruction and aligned daily returns against SPY as benchmark (annualized, assuming 4.0% risk-free rate threshold). Hover over the info indicators to see the methodology.
+          Metrics use cash-flow-adjusted account returns when the activity ledger is complete. Risk-free rate
+          comes from server configuration. Correlation diagnostics use today&apos;s holdings backcast separately.
         </p>
         
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -279,7 +289,7 @@ export function ProfessionalRiskDashboard({
         <div className="rounded-md border border-line bg-white p-4">
           <div className="text-xs font-semibold uppercase text-zinc-500">Historical Drawdown</div>
           <div className="mt-2 text-2xl font-bold text-danger">{formatPercent(advancedRisk.max_drawdown, true)}</div>
-          <div className="mt-1 text-xs text-zinc-500">Account-value series; not cash-flow adjusted</div>
+          <div className="mt-1 text-xs text-zinc-500">Cash-flow-adjusted account series when ledger is complete</div>
         </div>
         <div className="rounded-md border border-line bg-white p-4">
           <div className="text-xs font-semibold uppercase text-zinc-500">Annualized Volatility</div>

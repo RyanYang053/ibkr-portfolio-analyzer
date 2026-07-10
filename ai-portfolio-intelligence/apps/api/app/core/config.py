@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     # Explicit rather than a stale hard-coded market assumption. Configure from a
     # trusted source when risk-adjusted return metrics are required.
     risk_free_rate_annual: float = 0.0
+    # Strong Add requires validated walk-forward calibration evidence.
+    enable_strong_add_recommendations: bool = False
 
 
 settings = Settings()

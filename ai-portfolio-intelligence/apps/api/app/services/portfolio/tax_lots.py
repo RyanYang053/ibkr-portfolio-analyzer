@@ -123,18 +123,31 @@ def build_tax_lot_attribution(
 
     unmatched_total = round(sum(row.unmatched_sell_quantity for row in realized_rows), 6)
     has_unmatched = unmatched_total > 0
-    incomplete_opening_lots = has_unmatched or (bool(execution_rows) and buys_before_period == 0 and any(txn.action == "sell" for txn in execution_rows))
+    incomplete_opening_lots = has_unmatched
+    if period_start:
+        incomplete_opening_lots = incomplete_opening_lots or (
+            bool(execution_rows)
+            and buys_before_period == 0
+            and any(txn.action == "sell" for txn in execution_rows)
+        )
+
+    txn_currencies = {txn.currency.upper() for txn in execution_rows if txn.currency}
+    lot_currencies = {lot.currency.upper() for lots in open_lots.values() for lot in lots if lot.currency}
+    reporting = reporting_currency.upper()
+    mixed_currency = bool(txn_currencies - {reporting}) or bool(lot_currencies - {reporting})
 
     if incomplete_opening_lots or has_unmatched:
+        status = "incomplete"
+    elif mixed_currency:
         status = "incomplete"
     elif realized_rows or open_rows:
         status = "sufficient"
     else:
         status = "missing"
 
-    total_realized = round(sum(row.realized_gain_loss for row in realized_rows), 2)
-    total_short = round(sum(row.short_term_gain_loss or 0.0 for row in realized_rows), 2)
-    total_long = round(sum(row.long_term_gain_loss or 0.0 for row in realized_rows), 2)
+    total_realized = round(sum(row.realized_gain_loss for row in realized_rows), 2) if status == "sufficient" else 0.0
+    total_short = round(sum(row.short_term_gain_loss or 0.0 for row in realized_rows), 2) if status == "sufficient" else 0.0
+    total_long = round(sum(row.long_term_gain_loss or 0.0 for row in realized_rows), 2) if status == "sufficient" else 0.0
 
     methodology = (
         "Realized gains and losses are computed using FIFO tax lots from buy/sell executions only. "
@@ -143,6 +156,21 @@ def build_tax_lot_attribution(
     )
     if tax_labeling_jurisdiction != "US":
         methodology += " US short-term/long-term tax labels are omitted for non-US reporting."
+    if mixed_currency:
+        methodology += (
+            " Mixed-currency execution history requires transaction-date FX conversion into the "
+            f"reporting currency ({reporting}); totals are withheld until conversion is available."
+        )
+
+    data_quality = {
+        "tax_lot_method": "fifo",
+        "transaction_count": str(len(transactions)),
+        "execution_count": str(len(execution_rows)),
+        "status": status,
+        "tax_labeling_jurisdiction": tax_labeling_jurisdiction,
+    }
+    if mixed_currency:
+        data_quality["fx_conversion"] = "withheld_mixed_currency"
 
     return TaxLotAttributionReport(
         account_id=account_id,
@@ -155,13 +183,7 @@ def build_tax_lot_attribution(
         period_start=period_start,
         period_end=period_end,
         unmatched_sell_quantity=unmatched_total,
-        data_quality={
-            "tax_lot_method": "fifo",
-            "transaction_count": str(len(transactions)),
-            "execution_count": str(len(execution_rows)),
-            "status": status,
-            "tax_labeling_jurisdiction": tax_labeling_jurisdiction,
-        },
+        data_quality=data_quality,
         methodology=methodology,
     )
 

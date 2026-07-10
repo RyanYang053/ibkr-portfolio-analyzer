@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.core.config import settings
 from app.schemas.domain import Position, Provenance, Recommendation
 from app.services.scoring.stock_score import score_stock
 
@@ -9,7 +10,7 @@ def _action_for(score: float, position: Position) -> str:
     if position.is_speculative and absolute_weight > 3.0:
         return "Trim Review"
     if score >= 85.0 and absolute_weight < 8.0:
-        return "Strong Add"
+        return "Strong Add" if settings.enable_strong_add_recommendations else "Add"
     if score >= 70.0 and absolute_weight < 10.0:
         return "Add"
     if score >= 62.0:

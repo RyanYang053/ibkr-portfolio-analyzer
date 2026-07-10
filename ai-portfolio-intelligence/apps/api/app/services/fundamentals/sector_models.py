@@ -26,8 +26,8 @@ class SectorValuationNorms:
 SECTOR_MODEL_NAMES = frozenset(
     {
         "technology_growth",
-        "financials_pb_rotce",
-        "reit_affo_nav",
+        "financials_heuristic",
+        "reit_heuristic",
         "dividend_utility",
         "consumer_cyclical",
         "stable_consumer",
@@ -56,7 +56,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.10, operating_margin_high=0.45,
         growth_low=-0.05, growth_high=0.15,
         fcf_yield_low=0.01, fcf_yield_high=0.08,
-        model_name="financials_pb_rotce",
+        model_name="financials_heuristic",
     ),
     "Consumer Cyclical": SectorValuationNorms(
         pe_low=8.0, pe_high=30.0,
@@ -101,7 +101,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.10, operating_margin_high=0.45,
         growth_low=-0.05, growth_high=0.12,
         fcf_yield_low=0.02, fcf_yield_high=0.08,
-        model_name="reit_affo_nav",
+        model_name="reit_heuristic",
     ),
     "Energy": SectorValuationNorms(
         pe_low=5.0, pe_high=20.0,

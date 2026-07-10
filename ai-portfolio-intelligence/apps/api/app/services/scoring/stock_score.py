@@ -57,7 +57,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 6,
         "portfolio_fit": 8,
     },
-    "financials_pb_rotce": {
+    "financials_heuristic": {
         "business_quality": 14,
         "growth": 10,
         "profitability": 22,
@@ -67,7 +67,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 3,
         "portfolio_fit": 5,
     },
-    "reit_affo_nav": {
+    "reit_heuristic": {
         "business_quality": 12,
         "growth": 8,
         "profitability": 20,
