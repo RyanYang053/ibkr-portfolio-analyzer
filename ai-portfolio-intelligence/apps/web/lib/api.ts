@@ -29,6 +29,19 @@ async function buildRequestHeaders(initHeaders?: HeadersInit): Promise<Headers> 
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
+    const csrfToken = cookieStore.get("csrf_token")?.value;
+    if (csrfToken) {
+      headers.set("X-CSRF-Token", csrfToken);
+    }
+  } else {
+    const csrfToken = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("csrf_token="))
+      ?.split("=")[1];
+    if (csrfToken) {
+      headers.set("X-CSRF-Token", decodeURIComponent(csrfToken));
+    }
   }
   return headers;
 }
@@ -59,10 +72,39 @@ async function requireJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export function extractApiMessage(detail: unknown): string | null {
+  if (!detail || typeof detail !== "object") {
+    return null;
+  }
+
+  const root = detail as Record<string, unknown>;
+  const nested = root.detail;
+
+  if (typeof root.message === "string") {
+    return root.message;
+  }
+  if (typeof nested === "string") {
+    return nested;
+  }
+
+  if (nested && typeof nested === "object") {
+    const object = nested as Record<string, unknown>;
+    if (typeof object.message === "string") {
+      return object.message;
+    }
+    if (typeof object.code === "string") {
+      return object.code;
+    }
+  }
+
+  return null;
+}
+
 export function formatApiError(error: unknown): string {
   if (error instanceof ApiError) {
-    if (typeof error.detail === "object" && error.detail && "message" in (error.detail as object)) {
-      return String((error.detail as { message?: string }).message);
+    const message = extractApiMessage(error.detail);
+    if (message) {
+      return message;
     }
     if (error.status === 503) return "Broker or data provider is not configured.";
     if (error.status === 401) return "Authentication is required.";
@@ -140,8 +182,8 @@ export async function refreshAIStockReport(symbol: string): Promise<AIStockRepor
   return requireJson<AIStockReport>(`/ai/analyze-stock/${symbol}`, { method: "POST" });
 }
 
-export async function configureAI(apiKey: string, model: string): Promise<AIStatus & { api_key: string }> {
-  return requireJson<AIStatus & { api_key: string }>("/ai/configure", {
+export async function configureAI(apiKey: string, model: string): Promise<AIStatus> {
+  return requireJson<AIStatus>("/ai/configure", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ api_key: apiKey, model }),

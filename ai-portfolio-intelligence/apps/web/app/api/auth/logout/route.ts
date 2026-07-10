@@ -14,5 +14,6 @@ export async function POST() {
     }).catch(() => null);
   }
   cookieStore.delete("access_token");
+  cookieStore.delete("csrf_token");
   return NextResponse.json({ status: "session_closed" });
 }

@@ -25,9 +25,19 @@ export async function POST(request: Request) {
     maxAge: 60 * 60 * 12,
   });
 
+  const csrfToken = crypto.randomUUID();
+  cookieStore.set("csrf_token", csrfToken, {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 12,
+  });
+
   return NextResponse.json({
     email: payload.email,
     name: payload.name,
     role: payload.role,
+    csrf_token: csrfToken,
   });
 }

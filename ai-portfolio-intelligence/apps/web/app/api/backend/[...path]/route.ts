@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
+import { proxyBackendRequest } from "@/lib/backend-proxy";
+
 const BACKEND_URL = process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
@@ -11,6 +13,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
 
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
+  const csrfCookie = cookieStore.get("csrf_token")?.value;
 
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
@@ -31,14 +34,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     init.body = await request.text();
   }
 
-  const response = await fetch(backendUrl, init);
-  const body = await response.text();
-  return new NextResponse(body, {
-    status: response.status,
-    headers: {
-      "Content-Type": response.headers.get("Content-Type") ?? "application/json",
-    },
-  });
+  return proxyBackendRequest(request, backendUrl, init, token, csrfCookie);
 }
 
 export const GET = proxy;
