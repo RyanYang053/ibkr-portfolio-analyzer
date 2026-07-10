@@ -28,6 +28,7 @@ def generate_daily_portfolio_memo(
     positions: list[Position],
     *,
     user_id: str = "local-dev",
+    calculation_run_ids: list[str] | None = None,
 ) -> AIReport:
     risk = analyze_portfolio_risk(summary, positions)
     contributors = sorted(positions, key=lambda position: position.unrealized_pnl, reverse=True)[:3]
@@ -90,6 +91,7 @@ def generate_daily_portfolio_memo(
         ],
         "cash_deployment_view": f"Cash is {risk.cash_percent:.2f}% of portfolio value.",
         "overall_portfolio_risk": f"Risk score is {risk.risk_score:.1f}/100.",
+        "calculation_run_ids": calculation_run_ids or [],
         "provenance": provenance.model_dump()
     }
     
@@ -205,6 +207,7 @@ def generate_ai_portfolio_memo(
     client: GeminiClient | None = None,
     *,
     user_id: str = "local-dev",
+    calculation_run_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     risk = analyze_portfolio_risk(summary, positions)
     recommendations = [build_recommendation(position) for position in positions]
@@ -230,10 +233,19 @@ def generate_ai_portfolio_memo(
                 "live_market_data": is_live_market,
                 "cached_data": False,
                 "mock_fallback_data": is_mock_fallback,
-                "web_grounded_context": gemini.last_grounding_used
+                "web_grounded_context": gemini.last_grounding_used,
+                "calculation_run_ids": calculation_run_ids or [],
             }
             from app.services.guardrails.engine import append_compliance_disclaimer
             report = append_compliance_disclaimer(report)
+            from app.services.governance.decision_journal import record_journal_from_ai_report
+
+            record_journal_from_ai_report(
+                user_id=user_id,
+                account_id=summary.account_id or "all",
+                report=report,
+                calculation_run_ids=calculation_run_ids,
+            )
             set_cached_report(
                 "__PORTFOLIO__",
                 report,
@@ -243,7 +255,12 @@ def generate_ai_portfolio_memo(
             )
             return report
         except Exception as exc:
-            fallback = generate_daily_portfolio_memo(summary, positions).report_json
+            fallback = generate_daily_portfolio_memo(
+                summary,
+                positions,
+                user_id=user_id,
+                calculation_run_ids=calculation_run_ids,
+            ).report_json
             fallback["provenance"] = {
                 "live_portfolio_data": is_live_portfolio,
                 "live_market_data": is_live_market,
@@ -264,7 +281,12 @@ def generate_ai_portfolio_memo(
             )
             return fallback
 
-    fallback = generate_daily_portfolio_memo(summary, positions).report_json
+    fallback = generate_daily_portfolio_memo(
+        summary,
+        positions,
+        user_id=user_id,
+        calculation_run_ids=calculation_run_ids,
+    ).report_json
     fallback["provenance"] = {
         "live_portfolio_data": is_live_portfolio,
         "live_market_data": is_live_market,

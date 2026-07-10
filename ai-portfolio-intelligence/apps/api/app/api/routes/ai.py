@@ -238,7 +238,22 @@ def analyze_portfolio(
         summary = adapter.get_account_summary(active_id)
         positions = adapter.get_positions(active_id)
         validate_and_gate_snapshot(summary, positions)
-        res = generate_ai_portfolio_memo(summary, positions, user_id=principal.user_id)
+        from app.core.config import settings
+        from app.services.analytics.run_collector import collect_portfolio_calculation_run_ids
+
+        allow_mock = settings.broker_mode == "mock_ibkr_readonly"
+        run_ids = collect_portfolio_calculation_run_ids(
+            active_id,
+            summary,
+            positions,
+            allow_mock=allow_mock,
+        )
+        res = generate_ai_portfolio_memo(
+            summary,
+            positions,
+            user_id=principal.user_id,
+            calculation_run_ids=run_ids,
+        )
         log_audit_action(
             action="ai_analysis_triggered",
             object_type="portfolio",

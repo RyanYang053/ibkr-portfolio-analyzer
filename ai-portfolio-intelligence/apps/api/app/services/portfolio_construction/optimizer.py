@@ -127,6 +127,37 @@ def _risk_parity_weights(covariance: list[list[float]]) -> list[float] | None:
     return [value / total for value in inverse]
 
 
+def _solve_cvxpy_min_variance(covariance: list[list[float]], sleeve_budget: float) -> list[float] | None:
+    try:
+        import cvxpy as cp
+        import numpy as np
+    except ImportError:
+        return None
+
+    size = len(covariance)
+    if size == 0:
+        return None
+    weights = cp.Variable(size, nonneg=True)
+    sigma = np.array(covariance, dtype=float)
+    objective = cp.Minimize(cp.quad_form(weights, sigma))
+    constraints = [cp.sum(weights) == sleeve_budget]
+    problem = cp.Problem(objective, constraints)
+    try:
+        problem.solve(solver=cp.OSQP, warm_start=True)
+    except Exception:
+        try:
+            problem.solve()
+        except Exception:
+            return None
+    if weights.value is None or problem.status not in {"optimal", "optimal_inaccurate"}:
+        return None
+    values = [float(value) for value in weights.value]
+    total = sum(values)
+    if total <= 0:
+        return None
+    return [value / total * sleeve_budget for value in values]
+
+
 def _annualized_means(returns_by_symbol: dict[str, list[float]], symbols: list[str]) -> list[float]:
     return [sum(returns_by_symbol[symbol]) / len(returns_by_symbol[symbol]) * TRADING_DAYS for symbol in symbols]
 
@@ -244,19 +275,23 @@ def generate_portfolio_optimization(
         if raw_weights is None:
             raise ValueError("Unable to solve risk-parity weights")
     else:
-        inverse = _invert_matrix(covariance)
-        if inverse is None:
-            raise ValueError("Covariance matrix is not invertible")
+        cvxpy_weights = _solve_cvxpy_min_variance(covariance, sleeve_budget=1.0)
+        if cvxpy_weights is not None:
+            raw_weights = cvxpy_weights
+        else:
+            inverse = _invert_matrix(covariance)
+            if inverse is None:
+                raise ValueError("Covariance matrix is not invertible")
 
-        ones = [1.0 for _ in covariance_symbols]
-        inv_ones = [
-            sum(inverse[row][col] * ones[col] for col in range(len(covariance_symbols)))
-            for row in range(len(covariance_symbols))
-        ]
-        denominator = sum(ones[index] * inv_ones[index] for index in range(len(covariance_symbols)))
-        if denominator <= 0:
-            raise ValueError("Unable to solve minimum-variance weights")
-        raw_weights = [value / denominator for value in inv_ones]
+            ones = [1.0 for _ in covariance_symbols]
+            inv_ones = [
+                sum(inverse[row][col] * ones[col] for col in range(len(covariance_symbols)))
+                for row in range(len(covariance_symbols))
+            ]
+            denominator = sum(ones[index] * inv_ones[index] for index in range(len(covariance_symbols)))
+            if denominator <= 0:
+                raise ValueError("Unable to solve minimum-variance weights")
+            raw_weights = [value / denominator for value in inv_ones]
 
     cash_target = policy.target_cash_percent / 100.0
     modeled_keys = {

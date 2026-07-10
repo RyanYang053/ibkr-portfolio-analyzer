@@ -342,6 +342,8 @@ class AdvancedRiskMetrics(BaseModel):
     conditional_var_95: Optional[float]
     historical_var_95: Optional[float] = None
     historical_es_95: Optional[float] = None
+    filtered_historical_var_95: Optional[float] = None
+    filtered_historical_es_95: Optional[float] = None
     sharpe_ratio: Optional[float] = None
     sortino_ratio: Optional[float] = None
     jensens_alpha: Optional[float] = None
@@ -379,6 +381,7 @@ class PerformanceAttribution(BaseModel):
     tax_lot_realized_by_symbol: dict[str, float] = Field(default_factory=dict)
     tax_lot_total_realized: Optional[float] = None
     report_title: str = "Current Unrealized P&L Decomposition"
+    calculation_run_id: Optional[str] = None
 
 
 class PerformanceReturns(BaseModel):

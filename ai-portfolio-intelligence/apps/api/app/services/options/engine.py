@@ -15,7 +15,10 @@ class OptionContract(BaseModel):
     mid: float
     implied_volatility: float
     delta: Optional[float] = None
+    gamma: Optional[float] = None
+    vega: Optional[float] = None
     theta: Optional[float] = None
+    rho: Optional[float] = None
     open_interest: Optional[int] = None
     volume: Optional[int] = None
 
@@ -40,22 +43,33 @@ def calculate_bs_price(S: float, K: float, T: float, r: float, sigma: float, rig
     except Exception:
         return 0.01
 
-def calculate_bs_greeks(S: float, K: float, T: float, r: float, sigma: float, right: str) -> tuple[float, float]:
+def calculate_bs_greeks(S: float, K: float, T: float, r: float, sigma: float, right: str) -> dict[str, float]:
     if S <= 0 or K <= 0 or T <= 0 or sigma <= 0:
-        return 0.0, 0.0
+        return {"delta": 0.0, "gamma": 0.0, "vega": 0.0, "theta": 0.0, "rho": 0.0}
     try:
-        d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
-        d2 = d1 - sigma * math.sqrt(T)
+        sqrt_t = math.sqrt(T)
+        d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrt_t)
+        d2 = d1 - sigma * sqrt_t
+        pdf_d1 = norm_pdf(d1)
         if right.upper() == "C":
             delta = norm_cdf(d1)
-            theta = -(S * norm_pdf(d1) * sigma) / (2.0 * math.sqrt(T)) - r * K * math.exp(-r * T) * norm_cdf(d2)
+            theta = -(S * pdf_d1 * sigma) / (2.0 * sqrt_t) - r * K * math.exp(-r * T) * norm_cdf(d2)
+            rho = K * T * math.exp(-r * T) * norm_cdf(d2) / 100.0
         else:
             delta = norm_cdf(d1) - 1.0
-            theta = -(S * norm_pdf(d1) * sigma) / (2.0 * math.sqrt(T)) + r * K * math.exp(-r * T) * norm_cdf(-d2)
-        # Daily theta
-        return round(delta, 2), round(theta / 365.0, 4)
+            theta = -(S * pdf_d1 * sigma) / (2.0 * sqrt_t) + r * K * math.exp(-r * T) * norm_cdf(-d2)
+            rho = -K * T * math.exp(-r * T) * norm_cdf(-d2) / 100.0
+        gamma = pdf_d1 / (S * sigma * sqrt_t)
+        vega = S * pdf_d1 * sqrt_t / 100.0
+        return {
+            "delta": round(delta, 4),
+            "gamma": round(gamma, 6),
+            "vega": round(vega, 4),
+            "theta": round(theta / 365.0, 4),
+            "rho": round(rho, 4),
+        }
     except Exception:
-        return 0.0, 0.0
+        return {"delta": 0.0, "gamma": 0.0, "vega": 0.0, "theta": 0.0, "rho": 0.0}
 
 def generate_mock_options_chain(symbol: str, current_price: float) -> list[OptionContract]:
     if current_price <= 0:
@@ -91,7 +105,7 @@ def generate_mock_options_chain(symbol: str, current_price: float) -> list[Optio
             continue
         # Calls
         c_price = calculate_bs_price(current_price, strike, T, r, sigma, "C")
-        c_delta, c_theta = calculate_bs_greeks(current_price, strike, T, r, sigma, "C")
+        c_greeks = calculate_bs_greeks(current_price, strike, T, r, sigma, "C")
         chain.append(
             OptionContract(
                 symbol=f"{symbol.upper()}{expiry.strftime('%y%m%d')}C{int(strike*1000):08d}",
@@ -102,15 +116,18 @@ def generate_mock_options_chain(symbol: str, current_price: float) -> list[Optio
                 ask=round(c_price * 1.02, 2),
                 mid=c_price,
                 implied_volatility=sigma,
-                delta=c_delta,
-                theta=c_theta,
+                delta=c_greeks["delta"],
+                gamma=c_greeks["gamma"],
+                vega=c_greeks["vega"],
+                theta=c_greeks["theta"],
+                rho=c_greeks["rho"],
                 open_interest=120,
                 volume=45,
             )
         )
         # Puts
         p_price = calculate_bs_price(current_price, strike, T, r, sigma, "P")
-        p_delta, p_theta = calculate_bs_greeks(current_price, strike, T, r, sigma, "P")
+        p_greeks = calculate_bs_greeks(current_price, strike, T, r, sigma, "P")
         chain.append(
             OptionContract(
                 symbol=f"{symbol.upper()}{expiry.strftime('%y%m%d')}P{int(strike*1000):08d}",
@@ -121,8 +138,11 @@ def generate_mock_options_chain(symbol: str, current_price: float) -> list[Optio
                 ask=round(p_price * 1.02, 2),
                 mid=p_price,
                 implied_volatility=sigma,
-                delta=p_delta,
-                theta=p_theta,
+                delta=p_greeks["delta"],
+                gamma=p_greeks["gamma"],
+                vega=p_greeks["vega"],
+                theta=p_greeks["theta"],
+                rho=p_greeks["rho"],
                 open_interest=98,
                 volume=32,
             )

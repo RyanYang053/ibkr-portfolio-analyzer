@@ -230,6 +230,8 @@ def _historical_metrics(
         "conditional_var_95": None,
         "historical_var_95": None,
         "historical_es_95": None,
+        "filtered_historical_var_95": None,
+        "filtered_historical_es_95": None,
         "sharpe_ratio": None,
         "sortino_ratio": None,
         "portfolio_beta_spy": None,
@@ -263,6 +265,9 @@ def _historical_metrics(
         tail_losses = historical_losses[var_index:]
         if tail_losses:
             result["historical_es_95"] = total_value * (sum(tail_losses) / len(tail_losses))
+        fhs_var, fhs_es = _filtered_historical_simulation(returns, total_value)
+        result["filtered_historical_var_95"] = fhs_var
+        result["filtered_historical_es_95"] = fhs_es
 
     if excess_sigma is not None and excess_sigma > 0:
         result["sharpe_ratio"] = math.sqrt(TRADING_DAYS) * fmean(excess) / excess_sigma
@@ -457,6 +462,27 @@ def _risk_contribution(weights: dict[str, float], covariance: list[list[float]],
     return marginal, component
 
 
+def _filtered_historical_simulation(returns: list[float], total_value: float, decay: float = 0.94) -> tuple[float | None, float | None]:
+    if len(returns) < MIN_HISTORICAL_VAR_RETURNS:
+        return None, None
+    weights = [decay ** (len(returns) - index - 1) for index in range(len(returns))]
+    weight_sum = sum(weights)
+    weighted_losses = sorted(
+        (-value, weights[index] / weight_sum)
+        for index, value in enumerate(returns)
+    )
+    cumulative = 0.0
+    var_loss = 0.0
+    for loss, weight in weighted_losses:
+        cumulative += weight
+        if cumulative >= 0.95:
+            var_loss = loss
+            break
+    tail = [loss for loss, weight in weighted_losses if loss >= var_loss]
+    es_loss = sum(tail) / len(tail) if tail else var_loss
+    return total_value * max(var_loss, 0.0), total_value * max(es_loss, 0.0)
+
+
 def calculate_advanced_risk_metrics(
     positions: list[Position],
     summary: Any,
@@ -637,6 +663,8 @@ def calculate_advanced_risk_metrics(
         conditional_var_95=rounded("conditional_var_95"),
         historical_var_95=rounded("historical_var_95"),
         historical_es_95=rounded("historical_es_95"),
+        filtered_historical_var_95=rounded("filtered_historical_var_95"),
+        filtered_historical_es_95=rounded("filtered_historical_es_95"),
         sharpe_ratio=rounded("sharpe_ratio"),
         sortino_ratio=rounded("sortino_ratio"),
         jensens_alpha=rounded("jensens_alpha"),

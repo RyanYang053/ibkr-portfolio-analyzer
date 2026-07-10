@@ -61,7 +61,7 @@ def fetch_live_options_chain(symbol: str, current_price: float, *, max_expiratio
                 sigma = float(implied)
                 if not math.isfinite(sigma) or sigma <= 0:
                     continue
-                delta, theta = calculate_bs_greeks(current_price, strike, time_to_expiry, r, sigma, right)
+                greeks = calculate_bs_greeks(current_price, strike, time_to_expiry, r, sigma, right)
                 chain.append(
                     OptionContract(
                         symbol=str(
@@ -75,8 +75,11 @@ def fetch_live_options_chain(symbol: str, current_price: float, *, max_expiratio
                         ask=round(ask, 2),
                         mid=round(mid, 2),
                         implied_volatility=round(sigma, 4),
-                        delta=delta,
-                        theta=theta,
+                        delta=greeks["delta"],
+                        gamma=greeks["gamma"],
+                        vega=greeks["vega"],
+                        theta=greeks["theta"],
+                        rho=greeks["rho"],
                         open_interest=int(row.get("openInterest") or 0) or None,
                         volume=int(row.get("volume") or 0) or None,
                     )

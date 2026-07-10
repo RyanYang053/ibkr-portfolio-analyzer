@@ -441,6 +441,7 @@ def research_context(
         risk=risk.model_dump(),
         exposures=_group_percent(account_positions, account_summary.base_currency, "sector"),
         holdings=[position.model_dump() for position in account_positions],
+        events=_portfolio_research_events(account_positions),
         policy=policy.model_dump(),
         suitability=profile.model_dump(),
         data_quality=DataQualityContext(
@@ -484,6 +485,28 @@ def risk(
     validation = validate_portfolio_snapshot(account_summary, account_positions)
     require_analytics_safe(validation)
     return analyze_portfolio_risk(account_summary, account_positions)
+
+
+def _portfolio_research_events(positions: list[Position]) -> list[dict]:
+    from app.core.config import settings
+    from app.services.market_data.mock_provider import MockMarketDataProvider
+    from app.services.research.event_taxonomy import classify_news_event
+
+    allow_mock = settings.broker_mode == "mock_ibkr_readonly"
+    provider = MockMarketDataProvider(allow_mock=allow_mock)
+    events: list[dict] = []
+    for position in positions[:5]:
+        try:
+            for item in provider.get_recent_news(position.symbol)[:2]:
+                headline = str(item.get("title") or item.get("headline") or "")
+                if not headline:
+                    continue
+                event = classify_news_event(headline, str(item.get("summary", "")))
+                event.symbol = position.symbol
+                events.append(event.model_dump())
+        except Exception:
+            continue
+    return events
 
 
 def _group_percent(positions: list[Position], base_currency: str, field: str) -> dict[str, float]:
@@ -591,6 +614,21 @@ def get_portfolio_attribution(
         account_id=active_id,
     )
     return prepare_professional_response(result, account_summary, account_positions, validation)
+
+
+@router.get("/decision-journal")
+def decision_journal(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    from app.services.governance.decision_journal import list_decision_journal_entries
+    from app.services.portfolio.account_scope import require_single_account_id
+
+    account_summary, _ = _resolve_account_data(adapter, account_id, principal)
+    active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
+    entries = list_decision_journal_entries(tenant_user_id(principal), active_id)
+    return {"account_id": active_id, "entries": entries}
 
 
 @router.get("/ledger-coverage")

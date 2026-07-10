@@ -102,16 +102,29 @@ def sync_readonly(
         accounts = adapter.get_accounts()
         transaction_counts: dict[str, int] = {}
         coverage_reports: dict[str, object] = {}
+        batch_ids: dict[str, str] = {}
         for account in accounts:
             synced, coverage = sync_transactions(adapter, account.id)
             grant_account_access(principal.user_id, account.id)
             transaction_counts[account.id] = len(synced)
             coverage_reports[account.id] = coverage
+            from app.db.broker_sync_batch_repo import create_broker_sync_batch
+
+            batch = create_broker_sync_batch(
+                account_id=account.id,
+                source="ibkr_readonly_sync",
+                row_count=len(synced),
+                period_start=coverage.coverage_start,
+                period_end=coverage.coverage_end,
+                imported_sections=coverage.imported_sections,
+            )
+            batch_ids[account.id] = batch.batch_id
         return {
             "status": "synced_readonly",
             "accounts": accounts,
             "transaction_counts": transaction_counts,
             "ledger_coverage": coverage_reports,
+            "batch_ids": batch_ids,
             "trading": "disabled",
         }
     except Exception as exc:
@@ -184,12 +197,24 @@ def sync_flex(
             period_end=flex_result.report_period_end,
         )
         save_ledger_coverage(coverage)
+        from app.db.broker_sync_batch_repo import create_broker_sync_batch
+
+        batch = create_broker_sync_batch(
+            account_id=account_id,
+            source="ibkr_flex_query",
+            row_count=len(merged),
+            period_start=flex_result.report_period_start,
+            period_end=flex_result.report_period_end,
+            imported_sections=["flex_cash_ledger"] + flex_result.imported_sections,
+            rejected_row_count=flex_result.rejected_row_count,
+        )
         return {
             "status": coverage.status,
             "source": "ibkr_flex_query",
             "transaction_count": len(merged),
             "rejected_row_count": flex_result.rejected_row_count,
             "ledger_coverage": coverage,
+            "batch_id": batch.batch_id,
         }
     if settings.broker_mode == "mock_ibkr_readonly":
         rows = mock_flex_transactions(account_id)
@@ -200,7 +225,21 @@ def sync_flex(
             imported_sections=["mock_flex_cash_ledger"],
         )
         save_ledger_coverage(coverage)
-        return {"status": coverage.status, "source": "mock_flex_query", "transaction_count": len(merged), "ledger_coverage": coverage}
+        from app.db.broker_sync_batch_repo import create_broker_sync_batch
+
+        batch = create_broker_sync_batch(
+            account_id=account_id,
+            source="mock_flex_query",
+            row_count=len(merged),
+            imported_sections=["mock_flex_cash_ledger"],
+        )
+        return {
+            "status": coverage.status,
+            "source": "mock_flex_query",
+            "transaction_count": len(merged),
+            "ledger_coverage": coverage,
+            "batch_id": batch.batch_id,
+        }
 
     from fastapi import HTTPException
 

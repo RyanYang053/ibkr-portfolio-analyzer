@@ -110,18 +110,31 @@ def sector_returns_from_ledger(
     period_end: date,
     *,
     allow_mock: bool = False,
+    base_currency: str = "USD",
+    fx_resolver=None,
 ) -> dict[str, float]:
     holdings = reconstruct_holdings_at_date(transactions, period_start - timedelta(days=1))
-    sector_returns: dict[str, list[float]] = defaultdict(list)
-    for (symbol, _), _quantity in holdings.items():
+    sector_numerators: dict[str, float] = defaultdict(float)
+    sector_denominators: dict[str, float] = defaultdict(float)
+    for (symbol, _), quantity in holdings.items():
         start_price = _price_on_or_before(symbol, period_start, allow_mock=allow_mock)
         end_price = _price_on_or_before(symbol, period_end, allow_mock=allow_mock)
-        if start_price is None or end_price is None or start_price <= 0:
+        if start_price is None or end_price is None or start_price <= 0 or quantity <= 0:
             continue
+        currency = next((position.currency for position in positions if position.symbol.upper() == symbol), "USD")
+        rate = 1.0
+        if fx_resolver is not None:
+            try:
+                rate = float(fx_resolver(currency, base_currency, period_start))
+            except (TypeError, ValueError):
+                rate = 1.0
+        beginning_value = abs(quantity * start_price * rate)
+        period_return = (end_price / start_price) - 1.0
         sector = _sector_for_symbol(symbol, positions)
-        sector_returns[sector].append((end_price / start_price) - 1.0)
+        sector_numerators[sector] += beginning_value * period_return
+        sector_denominators[sector] += beginning_value
     return {
-        sector: sum(values) / len(values)
-        for sector, values in sector_returns.items()
-        if values
+        sector: sector_numerators[sector] / sector_denominators[sector]
+        for sector in sector_numerators
+        if sector_denominators[sector] > 0
     }

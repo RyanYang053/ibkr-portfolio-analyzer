@@ -256,6 +256,13 @@ def record_pnl_snapshot(
         },
     )
 
+    try:
+        from app.db.daily_position_repo import upsert_daily_positions
+
+        upsert_daily_positions(active_account_id, date.fromisoformat(today), positions)
+    except Exception:
+        pass
+
     history.append(snapshot)
     store_key = "demo" if is_demo else active_account_id
     from app.core.config import settings

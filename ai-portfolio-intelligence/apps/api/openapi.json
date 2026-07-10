@@ -2650,6 +2650,58 @@
         ]
       }
     },
+    "/portfolio/decision-journal": {
+      "get": {
+        "operationId": "decision_journal_portfolio_decision_journal_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decision Journal",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
     "/portfolio/fundamentals/{symbol}/point-in-time": {
       "get": {
         "operationId": "point_in_time_fundamentals_portfolio_fundamentals__symbol__point_in_time_get",

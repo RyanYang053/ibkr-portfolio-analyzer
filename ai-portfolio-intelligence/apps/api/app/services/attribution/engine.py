@@ -52,21 +52,12 @@ def _portfolio_sector_weights(positions: list[Position], base_currency: str, fx_
     return {sector: weight / total for sector, weight in grouped.items()}
 
 
-def _benchmark_sector_weights() -> dict[str, float]:
-    return {
-        "Technology": 0.30,
-        "Financials": 0.13,
-        "Healthcare": 0.12,
-        "Consumer Cyclical": 0.10,
-        "Communication Services": 0.09,
-        "Industrials": 0.08,
-        "Consumer Defensive": 0.06,
-        "Energy": 0.04,
-        "Utilities": 0.03,
-        "Real Estate": 0.02,
-        "Materials": 0.02,
-        "Diversified": 0.01,
-    }
+def _benchmark_sector_weights(period_start: date | None = None, *, allow_mock: bool = False) -> dict[str, float]:
+    from app.services.attribution.benchmark_weights import benchmark_sector_weights_as_of
+
+    if period_start is None:
+        return benchmark_sector_weights_as_of(date.today(), allow_mock=allow_mock)
+    return benchmark_sector_weights_as_of(period_start, allow_mock=allow_mock)
 
 
 def calculate_brinson_attribution(
@@ -90,7 +81,7 @@ def calculate_brinson_attribution(
         )
 
     portfolio_weights = portfolio_sector_weights or _portfolio_sector_weights(positions, base_currency, fx_resolver)
-    benchmark_weights = _benchmark_sector_weights()
+    benchmark_weights = _benchmark_sector_weights(period_start, allow_mock=allow_mock)
     sectors = sorted(set(portfolio_weights) | set(benchmark_weights))
 
     if period_start is None or period_end is None:
@@ -141,8 +132,8 @@ def calculate_brinson_attribution(
 
     total_active = allocation + selection + interaction
     methodology = (
-        "Brinson-Fachler attribution uses beginning portfolio sector weights and period-aligned portfolio "
-        "sector returns versus benchmark sector ETF total returns."
+        "Brinson-Fachler attribution uses beginning portfolio sector weights and value-weighted period "
+        "portfolio sector returns versus date-aware benchmark sector ETF proxy weights and ETF total returns."
     )
     if portfolio_sector_weights is not None:
         methodology += " Beginning weights are reconstructed from the transaction ledger."
@@ -278,6 +269,10 @@ def calculate_performance_attribution(
         "Brinson effects are withheld while attribution remains experimental."
     )
 
+    brinson_status = "experimental_withheld"
+    ledger_brinson_ready = False
+    attribution_run_id: str | None = None
+
     if positions:
         net_liq = sum(abs(p.market_value) for p in positions)
         cash = history[-1].cash if history else 0.0
@@ -323,13 +318,16 @@ def calculate_performance_attribution(
                     period_start,
                     period_end,
                     allow_mock=allow_mock,
+                    base_currency=base_currency,
+                    fx_resolver=fx_resolver,
                 )
+                ledger_brinson_ready = bool(portfolio_sector_weights and portfolio_sector_returns)
         if "pytest" not in sys.modules:
             recon = reconstruct_portfolio_history(positions, summary, allow_mock=allow_mock)
             if portfolio_sector_returns is None and recon is not None:
                 portfolio_sector_returns = _portfolio_sector_returns_from_reconstruction(positions, recon)
 
-        # Brinson numerics withheld while methodology remains experimental.
+        # Brinson numerics emitted when ledger-backed sector returns are available.
         _alloc, _sel, _inter, _active, _by_sector, brinson_methodology = calculate_brinson_attribution(
             positions,
             base_currency,
@@ -341,6 +339,15 @@ def calculate_performance_attribution(
             period_end=period_end,
         )
         methodology = brinson_methodology
+        if ledger_brinson_ready and _by_sector:
+            allocation_effect = _alloc
+            selection_effect = _sel
+            interaction_effect = _inter
+            total_active_return = _active
+            brinson_by_sector = _by_sector
+            brinson_status = "ledger_backed"
+        elif _by_sector:
+            brinson_status = "experimental_modeled"
 
     cash_flow_status = "missing"
     if account_id:
@@ -353,6 +360,20 @@ def calculate_performance_attribution(
                 cash_flow_status = "sufficient"
             elif coverage.execution_only:
                 cash_flow_status = "partial_execution_only"
+
+    if ledger_brinson_ready and period_start and period_end and account_id:
+        from app.services.analytics.calculation_run import create_calculation_run
+
+        run = create_calculation_run(
+            run_type="performance_attribution",
+            account_id=account_id,
+            exclusions=[] if brinson_by_sector else ["brinson_withheld"],
+            coverage={
+                "brinson_attribution": brinson_status,
+                "cash_flow_adjustment": cash_flow_status,
+            },
+        )
+        attribution_run_id = run.calculation_run_id
 
     return PerformanceAttribution(
         security_selection_pnl=security_selection_pnl,
@@ -373,11 +394,12 @@ def calculate_performance_attribution(
         data_quality={
             "benchmark_data": data_quality_benchmark,
             "cash_flow_adjustment": cash_flow_status,
-            "brinson_attribution": "experimental_withheld",
+            "brinson_attribution": brinson_status,
             "tax_lot_realized": tax_lot_status,
         },
         methodology=(
             "Current Unrealized P&L Decomposition. "
             + methodology
         ),
+        calculation_run_id=attribution_run_id,
     )
