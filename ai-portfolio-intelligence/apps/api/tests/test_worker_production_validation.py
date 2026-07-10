@@ -19,6 +19,7 @@ def test_worker_checks_database_readiness_in_production(monkeypatch):
     monkeypatch.setattr("app.core.config.settings.environment", "production")
     monkeypatch.setattr("app.core.config.settings.jwt_secret", "strong-production-secret-value")
     monkeypatch.setattr("app.core.config.settings.bootstrap_token", "bootstrap-secret")
+    monkeypatch.setattr("app.core.config.settings.sec_edgar_user_agent", "PortfolioIntelligence/1.0 contact@example.org")
     monkeypatch.setattr("app.core.config.settings.persistence_backend", "postgres")
     monkeypatch.setattr("app.core.config.settings.scheduler_enabled", False)
     monkeypatch.setattr("app.worker._ensure_database_ready", lambda: (_ for _ in ()).throw(RuntimeError("db down")))

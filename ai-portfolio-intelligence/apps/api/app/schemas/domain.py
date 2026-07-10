@@ -221,6 +221,7 @@ class FundamentalSnapshot(BaseModel):
     gross_margin: Optional[float] = None
     operating_margin: Optional[float] = None
     free_cash_flow: Optional[float] = None
+    operating_cash_flow: Optional[float] = None
     cash: Optional[float] = None
     total_debt: Optional[float] = None
     pe_forward: Optional[float]

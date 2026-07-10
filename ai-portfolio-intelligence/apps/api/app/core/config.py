@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     scheduler_timezone: str = "America/New_York"
     scheduler_max_attempts: int = 3
     scheduler_lease_minutes: int = 30
-    sec_edgar_user_agent: str = "PortfolioIntelligence/1.0 contact@example.com"
+    sec_edgar_user_agent: str | None = "PortfolioIntelligence/1.0 contact@example.com"
+    sec_edgar_requests_per_second: float = 5.0
+    sec_edgar_cache_hours: int = 24
     optimization_turnover_budget: float = 0.25
     optimization_liquidity_cap: float = 0.15
     default_reporting_currency: str = "USD"
@@ -61,3 +63,5 @@ def validate_production_settings() -> None:
         raise RuntimeError("PERSISTENCE_BACKEND=postgres is required outside development")
     if not settings.bootstrap_token:
         raise RuntimeError("BOOTSTRAP_TOKEN is required outside development when bootstrapping owners")
+    if not settings.sec_edgar_user_agent or "example.com" in settings.sec_edgar_user_agent:
+        raise RuntimeError("A real SEC EDGAR contact user agent is required")
