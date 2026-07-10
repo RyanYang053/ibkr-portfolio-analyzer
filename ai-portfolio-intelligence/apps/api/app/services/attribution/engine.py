@@ -153,6 +153,33 @@ def calculate_brinson_attribution(
     )
 
 
+def _portfolio_sector_returns_from_reconstruction(
+    positions: list[Position],
+    reconstruction: dict,
+) -> dict[str, float] | None:
+    from collections import defaultdict
+
+    asset_returns = reconstruction.get("asset_returns", {})
+    if not asset_returns:
+        return None
+    sector_returns: dict[str, list[float]] = defaultdict(list)
+    for position in positions:
+        daily_returns = asset_returns.get(position.symbol)
+        if not daily_returns:
+            continue
+        compounded = 1.0
+        for daily_return in daily_returns:
+            compounded *= 1.0 + daily_return
+        sector_returns[position.sector or "Unknown"].append(compounded - 1.0)
+    if not sector_returns:
+        return None
+    return {
+        sector: sum(values) / len(values)
+        for sector, values in sector_returns.items()
+        if values
+    }
+
+
 def calculate_performance_attribution(
     positions: list[Position],
     history: list[PortfolioPnLSnapshot],
@@ -254,8 +281,11 @@ def calculate_performance_attribution(
         )
 
         recon = None
+        portfolio_sector_returns = None
         if "pytest" not in sys.modules:
-            recon = reconstruct_portfolio_history(positions, summary)
+            recon = reconstruct_portfolio_history(positions, summary, allow_mock=allow_mock)
+            if recon is not None:
+                portfolio_sector_returns = _portfolio_sector_returns_from_reconstruction(positions, recon)
         if recon is not None:
             port_returns = recon["port_returns"]
             spy_returns = recon["spy_returns"]
@@ -269,17 +299,19 @@ def calculate_performance_attribution(
                     for daily_return in spy_returns:
                         spy_compounded *= 1.0 + daily_return
                     spy_ret = spy_compounded - 1.0
-                    rf = 0.04
+                    from app.core.config import settings
+
+                    rf = float(getattr(settings, "risk_free_rate_annual", 0.0))
                     alpha = p_ret - (rf + beta_spy * (spy_ret - rf))
                     benchmark_relative_alpha = round(alpha * 100.0, 2)
-                    data_quality_benchmark = "sufficient"
+                    data_quality_benchmark = "modeled_current_holdings_alpha"
 
         alloc, sel, inter, active, by_sector, brinson_methodology = calculate_brinson_attribution(
             positions,
             base_currency,
             fx_resolver,
             allow_mock=allow_mock,
-            portfolio_sector_returns=None,
+            portfolio_sector_returns=portfolio_sector_returns,
         )
         if by_sector:
             allocation_effect = alloc

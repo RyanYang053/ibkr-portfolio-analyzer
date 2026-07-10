@@ -25,18 +25,18 @@ class SectorValuationNorms:
 
 SECTOR_MODEL_NAMES = frozenset(
     {
-        "technology_growth",
+        "technology_heuristic",
         "financials_heuristic",
         "reit_heuristic",
-        "dividend_utility",
-        "consumer_cyclical",
-        "stable_consumer",
-        "communication_services",
-        "healthcare_innovation",
-        "energy_cyclical",
-        "industrials",
-        "materials_cyclical",
-        "diversified_index",
+        "utilities_heuristic",
+        "consumer_cyclical_heuristic",
+        "consumer_defensive_heuristic",
+        "communication_services_heuristic",
+        "healthcare_heuristic",
+        "energy_heuristic",
+        "industrials_heuristic",
+        "materials_heuristic",
+        "diversified_heuristic",
     }
 )
 SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
@@ -47,7 +47,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.05, operating_margin_high=0.40,
         growth_low=-0.05, growth_high=0.40,
         fcf_yield_low=-0.01, fcf_yield_high=0.06,
-        model_name="technology_growth",
+        model_name="technology_heuristic",
     ),
     "Financials": SectorValuationNorms(
         pe_low=6.0, pe_high=18.0,
@@ -65,7 +65,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.03, operating_margin_high=0.22,
         growth_low=-0.10, growth_high=0.25,
         fcf_yield_low=0.0, fcf_yield_high=0.07,
-        model_name="consumer_cyclical",
+        model_name="consumer_cyclical_heuristic",
     ),
     "Consumer Defensive": SectorValuationNorms(
         pe_low=10.0, pe_high=28.0,
@@ -74,7 +74,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.08, operating_margin_high=0.25,
         growth_low=-0.03, growth_high=0.12,
         fcf_yield_low=0.01, fcf_yield_high=0.06,
-        model_name="stable_consumer",
+        model_name="consumer_defensive_heuristic",
     ),
     "Communication Services": SectorValuationNorms(
         pe_low=10.0, pe_high=35.0,
@@ -83,7 +83,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.05, operating_margin_high=0.35,
         growth_low=-0.05, growth_high=0.30,
         fcf_yield_low=0.0, fcf_yield_high=0.06,
-        model_name="communication_services",
+        model_name="communication_services_heuristic",
     ),
     "Healthcare": SectorValuationNorms(
         pe_low=10.0, pe_high=35.0,
@@ -92,7 +92,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.05, operating_margin_high=0.30,
         growth_low=-0.05, growth_high=0.25,
         fcf_yield_low=-0.02, fcf_yield_high=0.05,
-        model_name="healthcare_innovation",
+        model_name="healthcare_heuristic",
     ),
     "Real Estate": SectorValuationNorms(
         pe_low=8.0, pe_high=25.0,
@@ -110,7 +110,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.02, operating_margin_high=0.25,
         growth_low=-0.20, growth_high=0.20,
         fcf_yield_low=0.0, fcf_yield_high=0.10,
-        model_name="energy_cyclical",
+        model_name="energy_heuristic",
     ),
     "Industrials": SectorValuationNorms(
         pe_low=8.0, pe_high=28.0,
@@ -119,7 +119,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.04, operating_margin_high=0.20,
         growth_low=-0.10, growth_high=0.18,
         fcf_yield_low=0.0, fcf_yield_high=0.06,
-        model_name="industrials",
+        model_name="industrials_heuristic",
     ),
     "Utilities": SectorValuationNorms(
         pe_low=10.0, pe_high=22.0,
@@ -128,7 +128,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.10, operating_margin_high=0.28,
         growth_low=-0.02, growth_high=0.08,
         fcf_yield_low=0.02, fcf_yield_high=0.07,
-        model_name="dividend_utility",
+        model_name="utilities_heuristic",
     ),
     "Materials": SectorValuationNorms(
         pe_low=6.0, pe_high=22.0,
@@ -137,7 +137,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.02, operating_margin_high=0.18,
         growth_low=-0.15, growth_high=0.15,
         fcf_yield_low=0.0, fcf_yield_high=0.08,
-        model_name="materials_cyclical",
+        model_name="materials_heuristic",
     ),
     "Diversified": SectorValuationNorms(
         pe_low=10.0, pe_high=30.0,
@@ -146,7 +146,7 @@ SECTOR_VALUATION_NORMS: dict[str, SectorValuationNorms] = {
         operating_margin_low=0.05, operating_margin_high=0.25,
         growth_low=-0.05, growth_high=0.15,
         fcf_yield_low=0.0, fcf_yield_high=0.05,
-        model_name="diversified_index",
+        model_name="diversified_heuristic",
     ),
 }
 

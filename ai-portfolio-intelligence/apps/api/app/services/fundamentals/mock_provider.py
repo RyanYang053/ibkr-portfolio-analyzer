@@ -85,7 +85,10 @@ class MockFundamentalProvider:
 
                     from datetime import datetime, timezone
 
-                    return FundamentalSnapshot(
+                    from app.schemas.domain import FundamentalSnapshotRecord
+                    from app.services.fundamentals.snapshot_store import save_snapshot_record
+
+                    snapshot = FundamentalSnapshot(
                         symbol=symbol.upper(),
                         period="TTM",
                         report_date=datetime.fromtimestamp(
@@ -103,6 +106,19 @@ class MockFundamentalProvider:
                         fcf_yield=float(fcf_yield) if fcf_yield is not None else None,
                         source="live_yahoo_finance",
                     )
+                    save_snapshot_record(
+                        FundamentalSnapshotRecord(
+                            symbol=snapshot.symbol,
+                            as_of_date=snapshot.report_date,
+                            snapshot=snapshot,
+                            point_in_time=True,
+                            source=snapshot.source,
+                            report_period=snapshot.period,
+                            ingested_at=datetime.now(timezone.utc),
+                            synthetic_demo=False,
+                        )
+                    )
+                    return snapshot
         except Exception as exc:
             raise RuntimeError(f"Live fundamental data unavailable for {symbol.upper()}") from exc
         finally:

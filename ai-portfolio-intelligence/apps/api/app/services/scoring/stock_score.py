@@ -47,7 +47,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 5,
         "portfolio_fit": 30,
     },
-    "technology_growth": {
+    "technology_heuristic": {
         "business_quality": 16,
         "growth": 20,
         "profitability": 14,
@@ -77,7 +77,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 4,
         "portfolio_fit": 8,
     },
-    "dividend_utility": {
+    "utilities_heuristic": {
         "business_quality": 16,
         "growth": 6,
         "profitability": 22,
@@ -87,7 +87,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 4,
         "portfolio_fit": 10,
     },
-    "consumer_cyclical": {
+    "consumer_cyclical_heuristic": {
         "business_quality": 16,
         "growth": 16,
         "profitability": 16,
@@ -97,7 +97,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 6,
         "portfolio_fit": 8,
     },
-    "stable_consumer": {
+    "consumer_defensive_heuristic": {
         "business_quality": 20,
         "growth": 10,
         "profitability": 20,
@@ -107,7 +107,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 4,
         "portfolio_fit": 8,
     },
-    "communication_services": {
+    "communication_services_heuristic": {
         "business_quality": 16,
         "growth": 16,
         "profitability": 16,
@@ -117,7 +117,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 6,
         "portfolio_fit": 8,
     },
-    "healthcare_innovation": {
+    "healthcare_heuristic": {
         "business_quality": 16,
         "growth": 18,
         "profitability": 14,
@@ -127,7 +127,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 8,
         "portfolio_fit": 8,
     },
-    "energy_cyclical": {
+    "energy_heuristic": {
         "business_quality": 12,
         "growth": 12,
         "profitability": 20,
@@ -137,7 +137,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 6,
         "portfolio_fit": 8,
     },
-    "industrials": {
+    "industrials_heuristic": {
         "business_quality": 16,
         "growth": 12,
         "profitability": 18,
@@ -147,7 +147,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 6,
         "portfolio_fit": 8,
     },
-    "materials_cyclical": {
+    "materials_heuristic": {
         "business_quality": 12,
         "growth": 12,
         "profitability": 18,
@@ -157,7 +157,7 @@ MODEL_WEIGHTS: dict[str, dict[str, float]] = {
         "catalyst_news": 6,
         "portfolio_fit": 10,
     },
-    "diversified_index": {
+    "diversified_heuristic": {
         "business_quality": 14,
         "growth": 10,
         "profitability": 14,
@@ -307,8 +307,18 @@ def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockS
 
     try:
         from app.services.fundamentals.mock_provider import MockFundamentalProvider
+        from app.services.fundamentals.snapshot_store import get_point_in_time_fundamentals
 
-        fundamentals = MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(position.symbol)
+        if allow_mock:
+            fundamentals = MockFundamentalProvider(allow_mock=True).get_fundamentals(position.symbol)
+        else:
+            fundamentals = get_point_in_time_fundamentals(
+                position.symbol,
+                utc_now().date(),
+                allow_synthetic_demo=False,
+            )
+            if fundamentals is None:
+                fundamentals = MockFundamentalProvider(allow_mock=False).get_fundamentals(position.symbol)
     except Exception:
         fundamentals = None
 

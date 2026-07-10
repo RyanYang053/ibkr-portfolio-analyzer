@@ -163,6 +163,7 @@ def _historical_metrics(
         "volatility": None,
         "value_at_risk_95": None,
         "conditional_var_95": None,
+        "historical_var_95": None,
         "sharpe_ratio": None,
         "sortino_ratio": None,
         "portfolio_beta_spy": None,
@@ -182,12 +183,14 @@ def _historical_metrics(
     annualized_sigma = daily_sigma * math.sqrt(TRADING_DAYS)
     result["volatility"] = annualized_sigma * 100.0
 
-    # Parametric one-day normal loss estimates. Mean is included rather than
-    # implicitly assuming zero expected return.
+    # Parametric one-day normal loss estimates plus historical simulation quantile.
     var_loss_fraction = max(0.0, Z_95 * daily_sigma - daily_mean)
     es_loss_fraction = max(0.0, NORMAL_ES_95 * daily_sigma - daily_mean)
     result["value_at_risk_95"] = total_value * var_loss_fraction
     result["conditional_var_95"] = total_value * es_loss_fraction
+    historical_losses = sorted(-value for value in returns)
+    historical_index = max(0, min(len(historical_losses) - 1, int(math.ceil(0.05 * len(historical_losses))) - 1))
+    result["historical_var_95"] = total_value * historical_losses[historical_index]
 
     if annualized_sigma > 0:
         result["sharpe_ratio"] = (annualized_return - risk_free_rate_annual) / annualized_sigma
@@ -378,8 +381,8 @@ def calculate_advanced_risk_metrics(
             "It is withheld when the activity ledger does not cover the full snapshot period."
         ),
         "volatility_var": (
-            f"Annualized sample volatility and one-day parametric normal 95% VaR/expected shortfall require at least "
-            f"{MIN_RISK_RETURNS} cash-flow-adjusted returns. The return mean is included in the loss quantiles."
+            f"Annualized sample volatility, parametric normal 95% VaR/ES, and historical-simulation 95% VaR "
+            f"require at least {MIN_RISK_RETURNS} cash-flow-adjusted returns."
         ),
         "beta_correlation": (
             "Portfolio beta uses actual cash-flow-adjusted account returns aligned as-of to benchmark total returns. "
@@ -406,6 +409,7 @@ def calculate_advanced_risk_metrics(
         portfolio_beta_qqq=round(beta_qqq, 2) if beta_qqq is not None else None,
         value_at_risk_95=rounded("value_at_risk_95"),
         conditional_var_95=rounded("conditional_var_95"),
+        historical_var_95=rounded("historical_var_95"),
         sharpe_ratio=rounded("sharpe_ratio"),
         sortino_ratio=rounded("sortino_ratio"),
         jensens_alpha=rounded("jensens_alpha"),

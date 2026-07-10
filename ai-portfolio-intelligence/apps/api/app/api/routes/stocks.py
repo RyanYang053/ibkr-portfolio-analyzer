@@ -108,27 +108,31 @@ def technicals(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)
     allow_mock = is_demo
     provider = MockMarketDataProvider(allow_mock=allow_mock)
     try:
-        history = provider.get_historical_prices(symbol.upper(), date.today() - timedelta(days=260), date.today())
-        historical_prices = [item["close"] for item in history[-30:]]
-        
-        from app.services.technicals.indicators import calculate_technical_indicators
-        closes = [item["close"] for item in history]
-        if len(closes) >= 200:
-            indicators = calculate_technical_indicators(symbol.upper(), closes)
-            rsi = indicators.rsi_14
-            drawdown = indicators.drawdown_from_52w_high
-            trend = indicators.trend_classification
-        else:
+        bars = provider.get_chart_data(symbol.upper(), "1y", "1d")
+        closes = [float(item["close"]) for item in bars if item.get("close") is not None]
+        from app.services.technicals.indicators import calculate_technical_indicators_from_bars
+
+        if len(closes) < 200:
             raise RuntimeError("At least 200 daily closes are required")
+        indicators = calculate_technical_indicators_from_bars(symbol.upper(), bars)
+        historical_prices = closes[-30:]
+        has_ohlcv = all(key in bars[0] for key in ("open", "high", "low", "close"))
+        data_quality = "verified_close_only"
+        if indicators.atr_14 is not None and has_ohlcv:
+            data_quality = "verified_ohlcv_partial"
+        if is_demo:
+            data_quality = "mock_demo"
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Technical data not found for {symbol.upper()}: {exc}")
     return {
         "symbol": symbol.upper(),
         "historical_prices": historical_prices,
-        "rsi_14": rsi,
-        "drawdown_from_52w_high": drawdown,
-        "trend_classification": trend,
-        "data_quality": "verified" if not is_demo else "mock_demo",
+        "rsi_14": indicators.rsi_14,
+        "drawdown_from_52w_high": indicators.drawdown_from_52w_high,
+        "trend_classification": indicators.trend_classification,
+        "atr_14": indicators.atr_14,
+        "data_quality": data_quality,
+        "methodology": "Close-based trend/RSI/MACD metrics; ATR requires OHLCV bars.",
     }
 
 

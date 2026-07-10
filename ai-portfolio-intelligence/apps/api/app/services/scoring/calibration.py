@@ -1,9 +1,72 @@
 from __future__ import annotations
 
+import json
+import os
 from statistics import mean
-from typing import Optional
+from typing import Literal, Optional
 
 from app.schemas.domain import ScoreCalibrationReport
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+CALIBRATION_FILE = os.path.join(DATA_DIR, "score_calibration_observations.json")
+
+
+def _load_store() -> dict[str, list[dict[str, float | str]]]:
+    if not os.path.exists(CALIBRATION_FILE):
+        return {}
+    try:
+        with open(CALIBRATION_FILE, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_store(store: dict[str, list[dict[str, float | str]]]) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(CALIBRATION_FILE, "w", encoding="utf-8") as handle:
+        json.dump(store, handle, indent=2)
+
+
+def save_calibration_observations(model_name: str, observations: list[dict[str, float | str]]) -> None:
+    store = _load_store()
+    store[model_name] = observations
+    _save_store(store)
+
+
+def load_calibration_observations(model_name: str) -> list[dict[str, float | str]]:
+    return list(_load_store().get(model_name, []))
+
+
+def get_calibration_status(model_name: str) -> Literal["sufficient", "insufficient"]:
+    report = run_score_calibration(load_calibration_observations(model_name), model_name=model_name)
+    status = report.data_quality.get("status", "insufficient")
+    return "sufficient" if status == "sufficient" else "insufficient"
+
+
+def demo_calibration_observations() -> list[dict[str, float | str]]:
+    return [
+        {"symbol": "MSFT", "score": 82.0, "forward_return": 0.12},
+        {"symbol": "META", "score": 78.0, "forward_return": 0.09},
+        {"symbol": "IONQ", "score": 48.0, "forward_return": -0.08},
+        {"symbol": "QQQ", "score": 74.0, "forward_return": 0.07},
+        {"symbol": "SOFI", "score": 55.0, "forward_return": 0.01},
+        {"symbol": "NKE", "score": 42.0, "forward_return": -0.04},
+        {"symbol": "CRM", "score": 69.0, "forward_return": 0.05},
+        {"symbol": "GOOGL", "score": 76.0, "forward_return": 0.08},
+        {"symbol": "LAES", "score": 35.0, "forward_return": -0.15},
+        {"symbol": "SPY", "score": 71.0, "forward_return": 0.06},
+        {"symbol": "CELH", "score": 58.0, "forward_return": 0.02},
+        {"symbol": "INFQ", "score": 31.0, "forward_return": -0.12},
+        {"symbol": "SOXX", "score": 73.0, "forward_return": 0.10},
+        {"symbol": "AAPL", "score": 80.0, "forward_return": 0.11},
+        {"symbol": "NVDA", "score": 84.0, "forward_return": 0.18},
+        {"symbol": "TSLA", "score": 52.0, "forward_return": -0.02},
+        {"symbol": "AMZN", "score": 77.0, "forward_return": 0.09},
+        {"symbol": "MSFT", "score": 79.0, "forward_return": 0.06},
+        {"symbol": "META", "score": 75.0, "forward_return": 0.04},
+        {"symbol": "QQQ", "score": 72.0, "forward_return": 0.05},
+    ]
 
 
 def _rank(values: list[float]) -> list[float]:

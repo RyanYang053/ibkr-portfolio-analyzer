@@ -33,16 +33,7 @@ export default async function DashboardPage(props: PageProps) {
 
   const sparklineValues = pnlHistory && pnlHistory.length >= 2
     ? pnlHistory.map((h: any) => h.net_liquidation)
-    : isRealConnection
-      ? [data.summary.net_liquidation, data.summary.net_liquidation]
-      : [
-          data.summary.net_liquidation * 0.95,
-          data.summary.net_liquidation * 0.965,
-          data.summary.net_liquidation * 0.96,
-          data.summary.net_liquidation * 0.985,
-          data.summary.net_liquidation * 0.975,
-          data.summary.net_liquidation
-        ];
+    : [data.summary.net_liquidation, data.summary.net_liquidation];
 
   return (
     <div className="grid gap-6">

@@ -47,32 +47,28 @@ class MockMarketDataProvider:
         total_return: bool = False,
     ) -> list[dict[str, float | str]]:
         if not self.allow_mock:
-            import httpx
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}?range=1y&interval=1d"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            try:
-                with httpx.Client() as client:
-                    response = client.get(url, headers=headers, timeout=5.0)
-                    if response.status_code == 200:
-                        data = response.json()
-                        result = data["chart"]["result"][0]
-                        timestamps = result["timestamp"]
-                        indicators = result.get("indicators", {})
-                        adj = indicators.get("adjclose", [{}])[0].get("adjclose", [])
-                        closes = indicators.get("quote", [{}])[0].get("close", [])
-                        series = adj if total_return and any(value is not None for value in adj) else closes
-                        label = "live_yahoo_adjclose" if series is adj else "live_yahoo_finance"
+            from app.services.market_data.http_client import filter_rows_by_date, request_with_retry
 
-                        prices = []
-                        from datetime import datetime, timezone
-                        for ts, close in zip(timestamps, series):
-                            if close is not None:
-                                date_str = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
-                                prices.append({"date": date_str, "close": float(close), "source": label})
-                        if prices:
-                            return prices
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}?range=1y&interval=1d"
+            try:
+                response = request_with_retry(url, timeout=5.0)
+                data = response.json()
+                result = data["chart"]["result"][0]
+                timestamps = result["timestamp"]
+                indicators = result.get("indicators", {})
+                adj = indicators.get("adjclose", [{}])[0].get("adjclose", [])
+                closes = indicators.get("quote", [{}])[0].get("close", [])
+                series = adj if total_return and any(value is not None for value in adj) else closes
+                label = "live_yahoo_adjclose" if series is adj else "live_yahoo_finance"
+
+                prices = []
+                from datetime import datetime, timezone
+                for ts, close in zip(timestamps, series):
+                    if close is not None:
+                        date_str = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+                        prices.append({"date": date_str, "close": float(close), "source": label})
+                if prices:
+                    return filter_rows_by_date(prices, start_date, end_date)
             except Exception as exc:
                 raise RuntimeError(f"Live price history unavailable for {symbol.upper()}") from exc
             raise RuntimeError(f"Live price history unavailable for {symbol.upper()}")

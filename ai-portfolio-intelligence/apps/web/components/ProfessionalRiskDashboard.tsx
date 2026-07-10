@@ -82,7 +82,7 @@ export function ProfessionalRiskDashboard({
             <div className="rounded-md bg-panel p-3">
               <h4 className="text-xs font-semibold uppercase text-zinc-500 mb-2">Realized vs. Unrealized</h4>
               <dl className="text-sm space-y-1">
-                <div className="flex justify-between"><dt>Unrealized Return</dt><dd className="font-semibold text-accent">+{currencySymbol}{attribution.realized_vs_unrealized.unrealized.toLocaleString()}</dd></div>
+                <div className="flex justify-between"><dt>Unrealized P&amp;L</dt><dd className="font-semibold text-accent">+{currencySymbol}{attribution.realized_vs_unrealized.unrealized.toLocaleString()}</dd></div>
                 <div className="flex justify-between"><dt>Realized Profits</dt><dd className="font-semibold text-zinc-700">{currencySymbol}{attribution.realized_vs_unrealized.realized.toLocaleString()}</dd></div>
               </dl>
             </div>
@@ -90,7 +90,7 @@ export function ProfessionalRiskDashboard({
               <h4 className="text-xs font-semibold uppercase text-zinc-500 mb-2">Benchmark Analysis</h4>
               <dl className="text-sm space-y-1">
                 <div className="flex justify-between"><dt>Alpha vs SPY</dt><dd className="font-semibold text-zinc-700">{formatPercent(attribution.benchmark_relative_alpha)}</dd></div>
-                <div className="flex justify-between"><dt>Benchmark data</dt><dd className="text-zinc-600">Unavailable</dd></div>
+                <div className="flex justify-between"><dt>Benchmark data</dt><dd className="text-zinc-600">{attribution.data_quality?.benchmark_data ?? "Unavailable"}</dd></div>
               </dl>
             </div>
           </div>
@@ -302,7 +302,7 @@ export function ProfessionalRiskDashboard({
           <div className="mt-1 text-xs text-zinc-500">{formatNumber(advancedRisk.portfolio_beta_qqq)} vs QQQ</div>
         </div>
         <div className="rounded-md border border-line bg-white p-4">
-          <div className="text-xs font-semibold uppercase text-zinc-500">Value at Risk (95% Daily)</div>
+          <div className="text-xs font-semibold uppercase text-zinc-500">Parametric VaR (95% Daily)</div>
           <div className="mt-2 text-2xl font-bold text-zinc-700">{formatCurrency(advancedRisk.value_at_risk_95, currencySymbol)}</div>
           <div className="mt-1 text-xs text-zinc-500">CVaR: {formatCurrency(advancedRisk.conditional_var_95, currencySymbol)}</div>
         </div>

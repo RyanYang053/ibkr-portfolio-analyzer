@@ -297,6 +297,7 @@ class AdvancedRiskMetrics(BaseModel):
     portfolio_beta_qqq: Optional[float]
     value_at_risk_95: Optional[float]
     conditional_var_95: Optional[float]
+    historical_var_95: Optional[float] = None
     sharpe_ratio: Optional[float] = None
     sortino_ratio: Optional[float] = None
     jensens_alpha: Optional[float] = None

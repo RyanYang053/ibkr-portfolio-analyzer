@@ -265,31 +265,17 @@ def performance(account_id: Optional[str] = None, adapter: BrokerAdapter = Depen
 
 @router.get("/score-calibration")
 def score_calibration(model_name: str = "universal"):
-    from app.services.scoring.calibration import run_score_calibration
+    from app.core.config import settings
+    from app.services.scoring.calibration import (
+        demo_calibration_observations,
+        load_calibration_observations,
+        run_score_calibration,
+    )
 
-    # Demo calibration uses reproducible score/return pairs until live walk-forward history is stored.
-    observations = [
-        {"symbol": "MSFT", "score": 82.0, "forward_return": 0.12},
-        {"symbol": "META", "score": 78.0, "forward_return": 0.09},
-        {"symbol": "IONQ", "score": 48.0, "forward_return": -0.08},
-        {"symbol": "QQQ", "score": 74.0, "forward_return": 0.07},
-        {"symbol": "SOFI", "score": 55.0, "forward_return": 0.01},
-        {"symbol": "NKE", "score": 42.0, "forward_return": -0.04},
-        {"symbol": "CRM", "score": 69.0, "forward_return": 0.05},
-        {"symbol": "GOOGL", "score": 76.0, "forward_return": 0.08},
-        {"symbol": "LAES", "score": 35.0, "forward_return": -0.15},
-        {"symbol": "SPY", "score": 71.0, "forward_return": 0.06},
-        {"symbol": "CELH", "score": 58.0, "forward_return": 0.02},
-        {"symbol": "INFQ", "score": 31.0, "forward_return": -0.12},
-        {"symbol": "SOXX", "score": 73.0, "forward_return": 0.10},
-        {"symbol": "AAPL", "score": 80.0, "forward_return": 0.11},
-        {"symbol": "NVDA", "score": 84.0, "forward_return": 0.18},
-        {"symbol": "TSLA", "score": 52.0, "forward_return": -0.02},
-        {"symbol": "AMZN", "score": 77.0, "forward_return": 0.09},
-        {"symbol": "MSFT", "score": 79.0, "forward_return": 0.06},
-        {"symbol": "META", "score": 75.0, "forward_return": 0.04},
-        {"symbol": "QQQ", "score": 72.0, "forward_return": 0.05},
-    ]
+    if settings.broker_mode == "mock_ibkr_readonly":
+        observations = demo_calibration_observations()
+    else:
+        observations = load_calibration_observations(model_name)
     return run_score_calibration(observations, model_name=model_name)
 
 
