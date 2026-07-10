@@ -110,13 +110,14 @@ def test_company_type_valuation_models():
         market_price=150.0,
     )
     assert bank.company_type == "bank"
-    assert bank.valuation_status == "available"
-    assert bank.fair_value_mid is not None
+    assert bank.valuation_status == "unavailable"
+    assert bank.fair_value_mid is None
+    assert "bank_valuation_model_not_validated" in bank.unavailable_reasons
 
     reit_snapshot = bank_snapshot.model_copy(update={"symbol": "O", "affo_per_share": 3.6})
     reit = run_scenario_valuation(reit_snapshot, sector="Real Estate", stock_type="reit_heuristic", market_price=60.0)
     assert reit.company_type == "reit"
-    assert reit.valuation_status == "available"
+    assert reit.valuation_status == "unavailable"
 
     missing_price = run_scenario_valuation(bank_snapshot, sector="Financials", stock_type="financials_heuristic")
     assert missing_price.valuation_status == "unavailable"
