@@ -233,16 +233,19 @@ def performance(account_id: Optional[str] = None, adapter: BrokerAdapter = Depen
 
     from app.services.portfolio.performance_returns import calculate_performance_returns
     from app.services.portfolio.pnl_tracker import get_pnl_history
+    from app.core.config import settings
 
     active_id = account_id or account_summary.account_id or "default"
     history = get_pnl_history(None if active_id == "all" else active_id)
     history = sorted(history, key=lambda item: (item.date, item.timestamp))
     latest = history[-1] if history else None
+    allow_mock = settings.broker_mode == "mock_ibkr_readonly"
     returns = calculate_performance_returns(
         active_id if active_id != "all" else "default",
         history,
         account_summary.base_currency,
         get_exchange_rate,
+        allow_mock=allow_mock,
     )
 
     return {
@@ -371,10 +374,33 @@ def get_portfolio_attribution(
     )
 
 
+@router.get("/ledger-coverage")
+def ledger_coverage(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+    from app.services.portfolio.transaction_store import get_ledger_coverage
+
+    account_summary, _ = _resolve_account_data(adapter, account_id)
+    active_id = account_id or account_summary.account_id or "default"
+    if active_id == "all":
+        active_id = adapter.get_accounts()[0].id
+    coverage = get_ledger_coverage(active_id)
+    if coverage is None:
+        return {
+            "account_id": active_id,
+            "status": "missing",
+            "has_external_cash_flows": False,
+            "execution_only": False,
+        }
+    return coverage
+
+
 @router.get("/tax-lots")
 def tax_lot_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+    from datetime import date as date_type
+
     from app.services.portfolio.tax_lots import build_tax_lot_attribution
+    from app.services.portfolio.pnl_tracker import get_pnl_history
     from app.services.portfolio.transaction_store import get_transactions, sync_transactions
+    from app.services.suitability.engine import get_investor_profile
 
     account_summary, _ = _resolve_account_data(adapter, account_id)
     active_id = account_id or account_summary.account_id or "default"
@@ -384,30 +410,53 @@ def tax_lot_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter
     if not transactions:
         sync_transactions(adapter, active_id)
         transactions = get_transactions(active_id)
-    return build_tax_lot_attribution(active_id, transactions)
+
+    history = get_pnl_history(active_id)
+    ordered = sorted(history, key=lambda item: (item.date, item.timestamp))
+    period_start = date_type.fromisoformat(ordered[0].date) if ordered else None
+    period_end = date_type.fromisoformat(ordered[-1].date) if ordered else None
+    profile = get_investor_profile(active_id)
+    jurisdiction = "US" if profile.tax_residency == "US" else "CA" if profile.tax_residency == "Canada" else "OTHER"
+
+    return build_tax_lot_attribution(
+        active_id,
+        transactions,
+        reporting_currency=account_summary.base_currency,
+        period_start=period_start,
+        period_end=period_end,
+        tax_labeling_jurisdiction=jurisdiction,
+    )
 
 
 @router.get("/fundamentals/{symbol}/point-in-time")
 def point_in_time_fundamentals(symbol: str, as_of: Optional[str] = None):
     from datetime import date as date_type
 
+    from fastapi import HTTPException
+
+    from app.core.config import settings
     from app.services.fundamentals.mock_provider import MockFundamentalProvider
-    from app.services.fundamentals.snapshot_store import get_point_in_time_fundamentals, seed_walk_forward_demo_records
+    from app.services.fundamentals.snapshot_store import get_point_in_time_fundamentals, seed_demo_fundamentals_records
 
     as_of_date = date_type.fromisoformat(as_of) if as_of else date_type.today()
-    snapshot = get_point_in_time_fundamentals(symbol, as_of_date)
+    allow_demo = settings.broker_mode == "mock_ibkr_readonly"
+    snapshot = get_point_in_time_fundamentals(symbol, as_of_date, allow_synthetic_demo=allow_demo)
+    if snapshot is None and allow_demo:
+        base = MockFundamentalProvider(allow_mock=True).get_fundamentals(symbol)
+        seed_demo_fundamentals_records(symbol, base)
+        snapshot = get_point_in_time_fundamentals(symbol, as_of_date, allow_synthetic_demo=True)
     if snapshot is None:
-        provider = MockFundamentalProvider(allow_mock=True)
-        base = provider.get_fundamentals(symbol)
-        seed_walk_forward_demo_records(symbol, base)
-        snapshot = get_point_in_time_fundamentals(symbol, as_of_date)
-    if snapshot is None:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail=f"No point-in-time fundamentals for {symbol.upper()} on {as_of_date}")
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "PIT_FUNDAMENTALS_UNAVAILABLE",
+                "message": f"No genuine point-in-time fundamentals for {symbol.upper()} on {as_of_date.isoformat()}",
+            },
+        )
     return {
         "symbol": symbol.upper(),
         "as_of_date": as_of_date.isoformat(),
         "snapshot": snapshot,
-        "point_in_time": True,
+        "point_in_time": snapshot.source != "synthetic_demo",
+        "synthetic_demo": snapshot.source == "synthetic_demo",
     }

@@ -9,6 +9,12 @@ from typing import Optional
 
 from app.schemas.domain import Transaction
 from app.services.broker.base import BrokerAdapter
+from app.services.portfolio.ledger_coverage import (
+    TransactionLedgerCoverage,
+    build_ledger_coverage,
+    load_ledger_coverage,
+    save_ledger_coverage,
+)
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 _FILE_LOCK = Lock()
@@ -67,7 +73,7 @@ def load_transactions(account_id: str) -> list[Transaction]:
 
 
 def save_transactions(account_id: str, transactions: list[Transaction]) -> list[Transaction]:
-    existing = { _transaction_key(item): item for item in load_transactions(account_id) }
+    existing = {_transaction_key(item): item for item in load_transactions(account_id)}
     for txn in transactions:
         existing[_transaction_key(txn)] = txn
     merged = sorted(existing.values(), key=lambda item: (item.trade_date, item.symbol, item.action))
@@ -88,60 +94,63 @@ def get_transactions(
     return rows
 
 
-def sync_transactions(adapter: BrokerAdapter, account_id: str, lookback_days: int = 365) -> list[Transaction]:
-    end_date = date.today()
-    start_date = end_date.fromordinal(end_date.toordinal() - lookback_days)
-    fetched = adapter.get_transactions(account_id, start_date, end_date)
+def get_ledger_coverage(account_id: str) -> Optional[TransactionLedgerCoverage]:
+    return load_ledger_coverage(account_id)
+
+
+def sync_transactions(
+    adapter: BrokerAdapter,
+    account_id: str,
+    lookback_days: int = 365,
+    period_start: Optional[date] = None,
+    period_end: Optional[date] = None,
+) -> tuple[list[Transaction], TransactionLedgerCoverage]:
+    end_date = period_end or date.today()
+    start_date = period_start or end_date.fromordinal(end_date.toordinal() - lookback_days)
+    execution_rows = adapter.get_transactions(account_id, start_date, end_date)
 
     from app.core.config import settings
-    from app.services.broker.flex_query import fetch_flex_transactions, flex_query_configured, mock_flex_transactions
+    from app.services.broker.flex_query import (
+        fetch_flex_cash_ledger,
+        flex_activity_query_configured,
+        mock_flex_transactions,
+    )
 
     flex_rows: list[Transaction] = []
-    try:
-        if flex_query_configured():
-            flex_rows = fetch_flex_transactions(account_id)
-        elif settings.broker_mode == "mock_ibkr_readonly":
-            flex_rows = mock_flex_transactions(account_id)
-    except Exception:
-        flex_rows = []
+    rejected_row_count = 0
+    flex_error: str | None = None
+    imported_sections = ["executions"]
 
-    return save_transactions(account_id, fetched + flex_rows)
+    if flex_activity_query_configured():
+        try:
+            flex_result = fetch_flex_cash_ledger(account_id)
+            flex_rows = flex_result.transactions
+            rejected_row_count = flex_result.rejected_row_count
+            imported_sections.append("flex_cash_ledger")
+        except Exception as exc:
+            flex_error = str(exc)
+    elif settings.broker_mode == "mock_ibkr_readonly":
+        flex_rows = mock_flex_transactions(account_id)
+        imported_sections.append("mock_flex_cash_ledger")
 
-
-def external_cash_flow_amount(txn: Transaction) -> float:
-    """Signed external cash flow in transaction currency (positive = money added to account)."""
-    notional = txn.amount
-    if notional is None:
-        notional = txn.quantity * txn.price
-    if txn.action in {"deposit"}:
-        return abs(notional)
-    if txn.action in {"withdrawal"}:
-        return -abs(notional)
-    if txn.action == "dividend":
-        return abs(notional)
-    if txn.action == "fee":
-        return 0.0  # Fees reduce NAV directly; they are not external flows.
-    if txn.action == "interest":
-        return abs(notional)
-    return 0.0
-
-
-def external_cash_flows_by_date(
-    transactions: list[Transaction],
-    base_currency: str,
-    fx_resolver,
-) -> dict[str, float]:
-    grouped: dict[str, float] = {}
-    for txn in transactions:
-        amount = external_cash_flow_amount(txn)
-        if amount == 0.0:
-            continue
-        rate = fx_resolver(txn.currency, base_currency)
-        grouped[txn.trade_date.isoformat()] = grouped.get(txn.trade_date.isoformat(), 0.0) + amount * rate
-    return grouped
+    merged = save_transactions(account_id, execution_rows + flex_rows)
+    coverage = build_ledger_coverage(
+        account_id=account_id,
+        transactions=merged,
+        imported_sections=imported_sections,
+        rejected_row_count=rejected_row_count,
+        flex_error=flex_error,
+        period_start=start_date,
+        period_end=end_date,
+    )
+    save_ledger_coverage(coverage)
+    return merged, coverage
 
 
 def last_sync_timestamp(account_id: str) -> datetime | None:
+    coverage = load_ledger_coverage(account_id)
+    if coverage and coverage.last_successful_sync_at:
+        return coverage.last_successful_sync_at
     rows = load_transactions(account_id)
     if not rows:
         return None

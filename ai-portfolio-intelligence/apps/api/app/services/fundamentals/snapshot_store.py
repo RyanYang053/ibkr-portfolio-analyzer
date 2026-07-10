@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import date
+from datetime import date, datetime, timezone
 from threading import Lock
 from typing import Optional
 
@@ -50,27 +50,33 @@ def save_snapshot_record(record: FundamentalSnapshotRecord) -> FundamentalSnapsh
     return record
 
 
-def list_snapshot_records(symbol: str) -> list[FundamentalSnapshotRecord]:
+def list_snapshot_records(symbol: str, include_synthetic_demo: bool = False) -> list[FundamentalSnapshotRecord]:
     path = _store_path(symbol)
     if not os.path.exists(path):
         return []
     with _FILE_LOCK, open(path, "r", encoding="utf-8") as handle:
         raw = json.load(handle)
-    return [FundamentalSnapshotRecord(**item) for item in raw]
+    records = [FundamentalSnapshotRecord(**item) for item in raw]
+    if include_synthetic_demo:
+        return records
+    return [record for record in records if not record.synthetic_demo and record.point_in_time]
 
 
-def get_point_in_time_fundamentals(symbol: str, as_of: date) -> Optional[FundamentalSnapshot]:
-    """Return the latest fundamentals known on or before the as-of date."""
-    records = list_snapshot_records(symbol)
-    eligible = [record for record in records if record.as_of_date <= as_of]
+def get_point_in_time_fundamentals(symbol: str, as_of: date, allow_synthetic_demo: bool = False) -> Optional[FundamentalSnapshot]:
+    records = list_snapshot_records(symbol, include_synthetic_demo=allow_synthetic_demo)
+    eligible = [
+        record
+        for record in records
+        if record.as_of_date <= as_of and (record.point_in_time or (allow_synthetic_demo and record.synthetic_demo))
+    ]
     if not eligible:
         return None
     latest = sorted(eligible, key=lambda record: record.as_of_date)[-1]
     return latest.snapshot
 
 
-def seed_walk_forward_demo_records(symbol: str, base_snapshot: FundamentalSnapshot) -> list[FundamentalSnapshotRecord]:
-    """Create quarterly point-in-time snapshots for walk-forward calibration demos."""
+def seed_demo_fundamentals_records(symbol: str, base_snapshot: FundamentalSnapshot) -> list[FundamentalSnapshotRecord]:
+    """Isolated demo-only records. Never used in live mode."""
     from datetime import timedelta
 
     records: list[FundamentalSnapshotRecord] = []
@@ -79,16 +85,18 @@ def seed_walk_forward_demo_records(symbol: str, base_snapshot: FundamentalSnapsh
         adjusted = base_snapshot.model_copy(
             update={
                 "report_date": as_of,
-                "revenue_growth_yoy": max(-0.2, base_snapshot.revenue_growth_yoy - 0.03 * quarter),
-                "source": f"{base_snapshot.source}_pit_q{quarter}",
+                "source": "synthetic_demo",
             }
         )
         record = FundamentalSnapshotRecord(
             symbol=symbol.upper(),
             as_of_date=as_of,
             snapshot=adjusted,
-            point_in_time=True,
-            source=adjusted.source,
+            point_in_time=False,
+            source="synthetic_demo",
+            report_period=adjusted.period,
+            ingested_at=datetime.now(timezone.utc),
+            synthetic_demo=True,
         )
         records.append(save_snapshot_record(record))
     return records

@@ -39,7 +39,13 @@ class MockMarketDataProvider:
             return MOCK_LOTS[symbol.upper()][2]
         raise RuntimeError(f"Live market price unavailable for {symbol.upper()}")
 
-    def get_historical_prices(self, symbol: str, start_date: date, end_date: date) -> list[dict[str, float | str]]:
+    def get_historical_prices(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        total_return: bool = False,
+    ) -> list[dict[str, float | str]]:
         if not self.allow_mock:
             import httpx
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol.upper()}?range=1y&interval=1d"
@@ -53,14 +59,18 @@ class MockMarketDataProvider:
                         data = response.json()
                         result = data["chart"]["result"][0]
                         timestamps = result["timestamp"]
-                        closes = result["indicators"]["quote"][0]["close"]
-                        
+                        indicators = result.get("indicators", {})
+                        adj = indicators.get("adjclose", [{}])[0].get("adjclose", [])
+                        closes = indicators.get("quote", [{}])[0].get("close", [])
+                        series = adj if total_return and any(value is not None for value in adj) else closes
+                        label = "live_yahoo_adjclose" if series is adj else "live_yahoo_finance"
+
                         prices = []
                         from datetime import datetime, timezone
-                        for ts, close in zip(timestamps, closes):
+                        for ts, close in zip(timestamps, series):
                             if close is not None:
                                 date_str = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
-                                prices.append({"date": date_str, "close": float(close), "source": "live_yahoo_finance"})
+                                prices.append({"date": date_str, "close": float(close), "source": label})
                         if prices:
                             return prices
             except Exception as exc:
@@ -77,7 +87,13 @@ class MockMarketDataProvider:
         prices = []
         for index in range(days):
             close = base + index * (MOCK_LOTS[symbol.upper()][2] - base) / max(days - 1, 1)
-            prices.append({"date": (start_date + timedelta(days=index)).isoformat(), "close": round(close, 2), "source": "mock_market_data"})
+            prices.append(
+                {
+                    "date": (start_date + timedelta(days=index)).isoformat(),
+                    "close": round(close, 2),
+                    "source": "mock_market_data",
+                }
+            )
         return prices
 
     def get_recent_news(self, symbol: str) -> list[dict[str, Any]]:

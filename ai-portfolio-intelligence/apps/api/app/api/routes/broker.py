@@ -73,13 +73,16 @@ def sync_readonly(adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[
 
         accounts = adapter.get_accounts()
         transaction_counts: dict[str, int] = {}
+        coverage_reports: dict[str, object] = {}
         for account in accounts:
-            synced = sync_transactions(adapter, account.id)
+            synced, coverage = sync_transactions(adapter, account.id)
             transaction_counts[account.id] = len(synced)
+            coverage_reports[account.id] = coverage
         return {
             "status": "synced_readonly",
             "accounts": accounts,
             "transaction_counts": transaction_counts,
+            "ledger_coverage": coverage_reports,
             "trading": "disabled",
         }
     except Exception as exc:
@@ -113,27 +116,44 @@ def positions(account_id: str, adapter: BrokerAdapter = Depends(get_broker_adapt
 @router.post("/sync-flex")
 def sync_flex(account_id: str, adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[str, object]:
     from app.core.config import settings
-    from app.services.broker.flex_query import fetch_flex_transactions, flex_query_configured, mock_flex_transactions
-    from app.services.portfolio.transaction_store import save_transactions
+    from app.services.broker.flex_query import fetch_flex_cash_ledger, flex_activity_query_configured, mock_flex_transactions
+    from app.services.portfolio.ledger_coverage import build_ledger_coverage, save_ledger_coverage
+    from app.services.portfolio.transaction_store import load_transactions, save_transactions
 
-    try:
-        if flex_query_configured():
-            rows = fetch_flex_transactions(account_id)
-            source = "ibkr_flex_query"
-        elif settings.broker_mode == "mock_ibkr_readonly":
-            rows = mock_flex_transactions(account_id)
-            source = "mock_flex_query"
-        else:
-            from fastapi import HTTPException
-
-            raise HTTPException(
-                status_code=400,
-                detail="IBKR Flex Query is not configured. Set IBKR_FLEX_TOKEN and IBKR_FLEX_QUERY_ID.",
-            )
+    if flex_activity_query_configured():
+        flex_result = fetch_flex_cash_ledger(account_id)
+        merged = save_transactions(account_id, flex_result.transactions)
+        coverage = build_ledger_coverage(
+            account_id=account_id,
+            transactions=merged,
+            imported_sections=["flex_cash_ledger"] + flex_result.imported_sections,
+            rejected_row_count=flex_result.rejected_row_count,
+        )
+        save_ledger_coverage(coverage)
+        return {
+            "status": coverage.status,
+            "source": "ibkr_flex_query",
+            "transaction_count": len(merged),
+            "rejected_row_count": flex_result.rejected_row_count,
+            "ledger_coverage": coverage,
+        }
+    if settings.broker_mode == "mock_ibkr_readonly":
+        rows = mock_flex_transactions(account_id)
         merged = save_transactions(account_id, rows)
-        return {"status": "synced", "source": source, "transaction_count": len(merged)}
-    except Exception as exc:
-        raise broker_not_configured_error(exc) from exc
+        coverage = build_ledger_coverage(
+            account_id=account_id,
+            transactions=merged,
+            imported_sections=["mock_flex_cash_ledger"],
+        )
+        save_ledger_coverage(coverage)
+        return {"status": coverage.status, "source": "mock_flex_query", "transaction_count": len(merged), "ledger_coverage": coverage}
+
+    from fastapi import HTTPException
+
+    raise HTTPException(
+        status_code=400,
+        detail="IBKR Flex Query is not configured. Set IBKR_FLEX_TOKEN and IBKR_FLEX_ACTIVITY_QUERY_ID.",
+    )
 
 
 @router.get("/accounts/{account_id}/transactions")

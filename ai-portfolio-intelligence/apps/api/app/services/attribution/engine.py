@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from app.schemas.domain import AccountSummary, PerformanceAttribution, Position, utc_now
+from app.services.portfolio.ledger_coverage import ledger_covers_period, load_ledger_coverage
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
 
 SECTOR_BENCHMARK_ETF = {
@@ -24,19 +25,18 @@ SECTOR_BENCHMARK_ETF = {
 }
 
 
-def _sector_period_return(sector: str, allow_mock: bool) -> Optional[float]:
+def _sector_benchmark_return(sector: str, allow_mock: bool, period_start: date, period_end: date) -> Optional[float]:
     etf = SECTOR_BENCHMARK_ETF.get(sector, "SPY")
     try:
         from app.services.market_data.mock_provider import MockMarketDataProvider
 
         provider = MockMarketDataProvider(allow_mock=allow_mock)
-        end = date.today()
-        start = end - timedelta(days=365)
-        history = provider.get_historical_prices(etf, start, end)
-        closes = [float(item["close"]) for item in history if item.get("close")]
-        if len(closes) < 2 or closes[0] <= 0:
+        history = provider.get_historical_prices(etf, period_start, period_end, total_return=True)
+        closes = {str(item["date"]): float(item["close"]) for item in history if item.get("close")}
+        dates = sorted(closes)
+        if len(dates) < 2 or closes[dates[0]] <= 0:
             return None
-        return (closes[-1] / closes[0]) - 1.0
+        return (closes[dates[-1]] / closes[dates[0]]) - 1.0
     except Exception:
         return None
 
@@ -53,7 +53,6 @@ def _portfolio_sector_weights(positions: list[Position], base_currency: str, fx_
 
 
 def _benchmark_sector_weights() -> dict[str, float]:
-    # S&P 500 approximate sector weights for Brinson benchmark allocation.
     return {
         "Technology": 0.30,
         "Financials": 0.13,
@@ -75,16 +74,31 @@ def calculate_brinson_attribution(
     base_currency: str,
     fx_resolver,
     allow_mock: bool,
+    portfolio_sector_returns: Optional[dict[str, float]] = None,
+    period_start: Optional[date] = None,
+    period_end: Optional[date] = None,
 ) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], dict[str, dict[str, float]], str]:
+    if not portfolio_sector_returns:
+        return (
+            None,
+            None,
+            None,
+            None,
+            {},
+            "Brinson attribution withheld: actual beginning-weight portfolio sector returns are unavailable.",
+        )
+
     portfolio_weights = _portfolio_sector_weights(positions, base_currency, fx_resolver)
     benchmark_weights = _benchmark_sector_weights()
     sectors = sorted(set(portfolio_weights) | set(benchmark_weights))
 
-    sector_portfolio_returns: dict[str, float] = {}
+    if period_start is None or period_end is None:
+        period_end = date.today()
+        period_start = period_end - timedelta(days=365)
+
     sector_benchmark_returns: dict[str, float] = {}
     for sector in sectors:
-        sector_benchmark_returns[sector] = _sector_period_return(sector, allow_mock) or 0.0
-        sector_portfolio_returns[sector] = sector_benchmark_returns[sector]
+        sector_benchmark_returns[sector] = _sector_benchmark_return(sector, allow_mock, period_start, period_end) or 0.0
 
     allocation = 0.0
     selection = 0.0
@@ -94,8 +108,10 @@ def calculate_brinson_attribution(
     for sector in sectors:
         w_p = portfolio_weights.get(sector, 0.0)
         w_b = benchmark_weights.get(sector, 0.0)
-        r_p = sector_portfolio_returns.get(sector, 0.0)
+        r_p = portfolio_sector_returns.get(sector)
         r_b = sector_benchmark_returns.get(sector, 0.0)
+        if r_p is None:
+            continue
         alloc = (w_p - w_b) * r_b
         sel = w_b * (r_p - r_b)
         inter = (w_p - w_b) * (r_p - r_b)
@@ -112,10 +128,20 @@ def calculate_brinson_attribution(
             "interaction_effect_percent": round(inter * 100.0, 2),
         }
 
+    if not by_sector:
+        return (
+            None,
+            None,
+            None,
+            None,
+            {},
+            "Brinson attribution withheld: period-aligned portfolio sector returns are unavailable.",
+        )
+
     total_active = allocation + selection + interaction
     methodology = (
-        "Brinson-Fachler attribution decomposes active return into allocation, selection, and interaction "
-        "effects using portfolio sector weights vs S&P 500 sector weights and sector ETF proxy returns."
+        "Brinson-Fachler attribution uses beginning portfolio sector weights and period-aligned portfolio "
+        "sector returns versus benchmark sector ETF total returns."
     )
     return (
         round(allocation * 100.0, 2),
@@ -145,11 +171,24 @@ def calculate_performance_attribution(
 
     tax_lot_realized: dict[str, float] = {}
     tax_lot_total: float | None = None
+    tax_lot_status = "missing"
     if account_id:
-        transactions = get_transactions(account_id)
-        tax_lot_realized = realized_gain_by_symbol(transactions, account_id)
-        if tax_lot_realized:
-            tax_lot_total = round(sum(tax_lot_realized.values()), 2)
+        coverage = load_ledger_coverage(account_id)
+        ordered = sorted(history, key=lambda item: (item.date, item.timestamp))
+        period_start = date.fromisoformat(ordered[0].date) if ordered else None
+        period_end = date.fromisoformat(ordered[-1].date) if ordered else None
+        if coverage and ledger_covers_period(coverage, period_start, period_end) if period_start and period_end else False:
+            transactions = get_transactions(account_id)
+            tax_lot_realized = realized_gain_by_symbol(
+                transactions,
+                account_id,
+                reporting_currency=base_currency,
+                period_start=period_start,
+                period_end=period_end,
+            )
+            if tax_lot_realized:
+                tax_lot_total = round(sum(tax_lot_realized.values()), 2)
+                tax_lot_status = "sufficient"
 
     security_selection: dict[str, float] = {}
     sector_allocation: dict[str, float] = defaultdict(float)
@@ -189,7 +228,7 @@ def calculate_performance_attribution(
     brinson_by_sector: dict[str, dict[str, float]] = {}
     methodology = (
         "Current realized and unrealized P&L grouped by security, sector, and asset class. "
-        "Brinson allocation/selection/interaction effects are computed when sector benchmark data is available."
+        "Brinson effects are withheld unless period-aligned portfolio sector returns are available."
     )
 
     if positions:
@@ -232,16 +271,13 @@ def calculate_performance_attribution(
                     alpha = p_ret - (rf + beta_spy * (spy_ret - rf))
                     benchmark_relative_alpha = round(alpha * 100.0, 2)
                     data_quality_benchmark = "sufficient"
-                    methodology = (
-                        "P&L grouping plus Brinson-Fachler sector attribution and Jensen's alpha vs SPY "
-                        "over a 1-year proxy return window."
-                    )
 
         alloc, sel, inter, active, by_sector, brinson_methodology = calculate_brinson_attribution(
             positions,
             base_currency,
             fx_resolver,
             allow_mock=allow_mock,
+            portfolio_sector_returns=None,
         )
         if by_sector:
             allocation_effect = alloc
@@ -252,8 +288,16 @@ def calculate_performance_attribution(
             methodology = brinson_methodology
 
     cash_flow_status = "missing"
-    if history and any(item.external_cash_flow is not None for item in history):
-        cash_flow_status = "sufficient"
+    if account_id:
+        coverage = load_ledger_coverage(account_id)
+        ordered = sorted(history, key=lambda item: (item.date, item.timestamp))
+        if ordered and coverage:
+            period_start = date.fromisoformat(ordered[0].date)
+            period_end = date.fromisoformat(ordered[-1].date)
+            if ledger_covers_period(coverage, period_start, period_end):
+                cash_flow_status = "sufficient"
+            elif coverage.execution_only:
+                cash_flow_status = "partial_execution_only"
 
     return PerformanceAttribution(
         security_selection_return=security_selection,
@@ -274,8 +318,8 @@ def calculate_performance_attribution(
         data_quality={
             "benchmark_data": data_quality_benchmark,
             "cash_flow_adjustment": cash_flow_status,
-            "brinson_attribution": "sufficient" if brinson_by_sector else "missing",
-            "tax_lot_realized": "sufficient" if tax_lot_realized else "missing",
+            "brinson_attribution": "sufficient" if brinson_by_sector else "insufficient",
+            "tax_lot_realized": tax_lot_status,
         },
         methodology=methodology,
     )
