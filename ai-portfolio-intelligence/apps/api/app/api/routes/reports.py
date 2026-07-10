@@ -120,7 +120,11 @@ def daily(
     principal: Principal = Depends(get_current_principal),
 ):
     summary, positions = _data(adapter, account_id, principal)
-    return generate_daily_portfolio_memo(summary, positions)
+    return generate_daily_portfolio_memo(
+        summary,
+        positions,
+        user_id=tenant_user_id(principal),
+    )
 
 
 @router.post("/weekly")
@@ -130,7 +134,11 @@ def weekly(
     principal: Principal = Depends(get_current_principal),
 ):
     summary, positions = _data(adapter, account_id, principal)
-    report = generate_daily_portfolio_memo(summary, positions)
+    report = generate_daily_portfolio_memo(
+        summary,
+        positions,
+        user_id=tenant_user_id(principal),
+    )
     report.report_type = "weekly"
     report.title = "Weekly Investment Review"
     return report

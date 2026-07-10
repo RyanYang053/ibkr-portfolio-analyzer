@@ -21,21 +21,11 @@ from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
 from app.services.technicals.indicators import calculate_technical_indicators
 from app.core.config import settings
+from app.services.provenance import build_report_provenance
 
 
 def _derive_provenance(positions: list[Position], *, web_grounded: bool = False) -> Provenance:
-    price_sources = {getattr(position, "price_source", None) for position in positions}
-    has_broker_positions = bool(positions) and ("broker" in price_sources or "broker_snapshot" in price_sources)
-    has_mock_positions = any(source in {"mock", "mock_fundamentals"} for source in price_sources if source)
-    live_portfolio = settings.broker_mode == "ibkr_readonly" and has_broker_positions
-    mock_fallback = settings.broker_mode == "mock_ibkr_readonly" or has_mock_positions
-    return Provenance(
-        live_portfolio_data=live_portfolio,
-        live_market_data=live_portfolio and not mock_fallback,
-        cached_data=False,
-        mock_fallback_data=mock_fallback,
-        web_grounded_context=web_grounded,
-    )
+    return build_report_provenance(positions, web_grounded=web_grounded)
 
 
 def generate_daily_portfolio_memo(

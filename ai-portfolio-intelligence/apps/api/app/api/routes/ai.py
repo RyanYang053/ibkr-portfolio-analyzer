@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.api.account_deps import resolve_authorized_account_id
 from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
+from app.core.config import settings
 from app.services.ai.client import GeminiClient, configure_runtime_gemini
 from app.services.ai.report_generator import generate_ai_portfolio_memo, generate_stock_research_report
 from app.services.ai.thesis_tracker import get_thesis, update_thesis
@@ -116,6 +117,11 @@ def ai_status() -> dict[str, object]:
 
 @router.post("/configure", dependencies=[Depends(require_scope("configuration:write"))])
 def configure_ai(payload: AIConfigureRequest) -> dict[str, object]:
+    if settings.environment != "development":
+        raise HTTPException(
+            status_code=403,
+            detail="Runtime AI credential changes are disabled in production",
+        )
     configure_runtime_gemini(payload.api_key, payload.model)
     client = GeminiClient()
     log_audit_action(
@@ -128,7 +134,6 @@ def configure_ai(payload: AIConfigureRequest) -> dict[str, object]:
         "model": client.model,
         "configured": client.configured,
         "mode": "live_gemini" if client.configured else "deterministic_fallback",
-        "api_key": "configured" if client.configured else "missing",
     }
 
 

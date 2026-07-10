@@ -18,15 +18,30 @@ class GeminiAPIError(RuntimeError):
 
 
 def configure_runtime_gemini(api_key: str, model: str | None = None) -> None:
+    if settings.environment != "development":
+        raise RuntimeError("Runtime Gemini configuration is only allowed in development")
     global _runtime_api_key, _runtime_model
     _runtime_api_key = api_key.strip()
     _runtime_model = model.strip() if model else None
 
 
+def resolve_gemini_credentials(
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> tuple[str | None, str]:
+    if settings.environment == "development":
+        resolved_key = api_key if api_key is not None else _runtime_api_key or os.getenv("GEMINI_API_KEY") or settings.gemini_api_key
+        resolved_model = model or _runtime_model or os.getenv("GEMINI_MODEL") or settings.gemini_model
+        return resolved_key, resolved_model
+    resolved_key = api_key or os.getenv("GEMINI_API_KEY") or settings.gemini_api_key
+    resolved_model = model or os.getenv("GEMINI_MODEL") or settings.gemini_model
+    return resolved_key, resolved_model
+
+
 class GeminiClient:
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
-        self.api_key = api_key if api_key is not None else _runtime_api_key or os.getenv("GEMINI_API_KEY") or settings.gemini_api_key
-        self.model = model or _runtime_model or os.getenv("GEMINI_MODEL") or settings.gemini_model
+        self.api_key, self.model = resolve_gemini_credentials(api_key=api_key, model=model)
         self.last_grounding_used = False
 
     @property

@@ -81,7 +81,7 @@ def test_ai_configure_endpoint_sets_key_without_echoing_secret():
     assert response.status_code == 200
     payload = response.json()
     assert payload["configured"] is True
-    assert payload["api_key"] == "configured"
+    assert "api_key" not in payload
     assert "test-secret-key" not in response.text
 
 
