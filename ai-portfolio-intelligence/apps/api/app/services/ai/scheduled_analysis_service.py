@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any
 
 from app.core.config import settings
 from app.schemas.domain import utc_now
 from app.core.audit import log_audit_action
 from app.services.broker.base import BrokerAdapter
-from app.api.account_deps import resolve_authorized_account_id
+from app.services.system_actor import SystemActor
 
 
 def _load_runs() -> list[dict[str, Any]]:
@@ -35,23 +35,22 @@ def _fallback_analysis_text(period: str, net_liq: float, cash: float) -> str:
 def run_scheduled_analysis(
     *,
     period: str,
-    account_id: str | None,
+    authorized_account_id: str,
     adapter: BrokerAdapter,
-    principal_user_id: str = "scheduler-system",
+    actor: SystemActor,
 ) -> dict[str, Any]:
     """Application service for scheduled portfolio analysis.
 
     Workers and HTTP routes must call this function instead of invoking route handlers directly.
+    The caller must resolve and authorize the account before invoking this service.
     """
-    from app.api.auth_deps import OWNER_SCOPES, Principal
     from app.services.ai.client import GeminiClient
 
     period = period.lower().strip()
     if period not in {"morning", "midday", "night"}:
         raise ValueError("Invalid period. Must be morning, midday, or night.")
 
-    principal = Principal(user_id=principal_user_id, role="owner", scopes=OWNER_SCOPES)
-    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    active_id = authorized_account_id
     summary = adapter.get_account_summary(active_id)
     positions = adapter.get_positions(active_id)
     from app.services.data_quality.validation import validate_and_gate_snapshot
@@ -159,11 +158,21 @@ Write a concise Markdown review with evidence from the supplied fields.
 
     runs = _load_runs()
     today_str = date.today().isoformat()
-    runs = [row for row in runs if not (row.get("timestamp", "").startswith(today_str) and row.get("period") == period)]
+    runs = [
+        row
+        for row in runs
+        if not (
+            row.get("timestamp", "").startswith(today_str)
+            and row.get("period") == period
+            and row.get("account_id") == active_id
+        )
+    ]
 
     new_run = {
         "timestamp": utc_now().isoformat(),
         "period": period,
+        "account_id": active_id,
+        "actor_id": actor.actor_id,
         "net_liquidation": round(net_liq, 2),
         "cash": round(cash, 2),
         "analysis_text": analysis_text,
@@ -181,5 +190,6 @@ Write a concise Markdown review with evidence from the supplied fields.
         action="ai_scheduled_run",
         object_type="portfolio",
         object_id=period,
+        metadata={"account_id": active_id, "actor_id": actor.actor_id},
     )
     return new_run

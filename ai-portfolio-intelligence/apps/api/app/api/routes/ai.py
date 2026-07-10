@@ -272,14 +272,17 @@ def trigger_scheduled_analysis(
     principal: Principal = Depends(get_current_principal),
 ):
     """Trigger a mock or real scheduled daily slot analysis (Morning, Midday, Night)."""
+    from app.api.account_deps import resolve_authorized_account_id
     from app.services.ai.scheduled_analysis_service import run_scheduled_analysis
+    from app.services.system_actor import SystemActor
 
     try:
+        active_id = resolve_authorized_account_id(account_id, adapter, principal)
         return run_scheduled_analysis(
             period=payload.period,
-            account_id=account_id,
+            authorized_account_id=active_id,
             adapter=adapter,
-            principal_user_id=principal.user_id,
+            actor=SystemActor(actor_id=principal.user_id, purpose="manual_scheduled_analysis"),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

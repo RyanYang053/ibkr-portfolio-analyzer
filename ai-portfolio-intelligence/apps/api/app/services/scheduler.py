@@ -10,7 +10,8 @@ from app.core.config import settings
 from app.db.scheduler_store import complete_job, job_already_completed, try_acquire_job
 from app.services.ai.scheduled_analysis_service import run_scheduled_analysis
 from app.services.portfolio.pnl_tracker import get_pnl_history, record_pnl_snapshot
-from app.services.scheduler_lease import SchedulerLeaseHeartbeat
+from app.services.scheduler_lease import SchedulerLeaseHeartbeat, SchedulerLeaseLost
+from app.services.system_actor import SCHEDULER_ACTOR
 
 logger = logging.getLogger("scheduler")
 
@@ -41,6 +42,13 @@ def _ensure_timezone(current_time: datetime) -> datetime:
     return current_time
 
 
+def _scheduled_analysis_account_ids(adapter) -> list[str]:
+    configured = settings.ibkr_account_id
+    if configured:
+        return [configured]
+    return [account.id for account in adapter.get_accounts()]
+
+
 def _record_scheduled_score_snapshots(positions) -> None:
     from app.services.scoring.score_snapshot_store import save_daily_score_snapshot
     from app.services.scoring.stock_score import score_stock
@@ -53,6 +61,54 @@ def _record_scheduled_score_snapshots(positions) -> None:
             save_daily_score_snapshot("scheduler", score)
         except Exception as exc:
             logger.warning("Skipping scheduled score snapshot for %s: %s", position.symbol, exc)
+
+
+def _run_scheduled_analysis_for_accounts(
+    *,
+    adapter,
+    period: str,
+    business_date: date,
+    account_ids: list[str],
+) -> None:
+    for account_id in account_ids:
+        slot = f"{period}:{account_id}"
+        if job_already_completed("scheduled_analysis", account_id, business_date, slot):
+            continue
+        if not try_acquire_job("scheduled_analysis", account_id, business_date, slot):
+            continue
+
+        logger.info("Triggering scheduled %s analysis for account %s", period, account_id)
+        try:
+            with SchedulerLeaseHeartbeat("scheduled_analysis", account_id, business_date, slot) as lease:
+                lease.assert_owned()
+                result = run_scheduled_analysis(
+                    period=period,
+                    authorized_account_id=account_id,
+                    adapter=adapter,
+                    actor=SCHEDULER_ACTOR,
+                )
+                lease.assert_owned()
+            if not complete_job(
+                "scheduled_analysis",
+                account_id,
+                business_date,
+                slot,
+                status="completed",
+                payload=result,
+            ):
+                raise SchedulerLeaseLost("Lost scheduler lease before completing scheduled analysis")
+        except SchedulerLeaseLost:
+            raise
+        except Exception as exc:
+            logger.error("Failed %s analysis for account %s: %s", period, account_id, exc)
+            complete_job(
+                "scheduled_analysis",
+                account_id,
+                business_date,
+                slot,
+                status="failed",
+                error_message=str(exc),
+            )
 
 
 def _run_scheduler_sync(now: datetime | None = None) -> None:
@@ -71,8 +127,6 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
         ("midday", "midday_time", "12:30"),
         ("night", "night_time", "20:00"),
     ):
-        if job_already_completed("scheduled_analysis", None, business_date, period):
-            continue
         try:
             due = _slot_is_due(
                 current_time,
@@ -84,30 +138,17 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
 
         if not due:
             continue
-        if not try_acquire_job("scheduled_analysis", None, business_date, period):
-            continue
 
-        logger.info("Triggering scheduled %s analysis", period)
-        try:
-            adapter = adapter or get_broker_adapter()
-            with SchedulerLeaseHeartbeat("scheduled_analysis", None, business_date, period):
-                run_scheduled_analysis(
-                    period=period,
-                    account_id=settings.ibkr_account_id,
-                    adapter=adapter,
-                    principal_user_id="scheduler-system",
-                )
-            complete_job("scheduled_analysis", None, business_date, period, status="completed")
-        except Exception as exc:
-            logger.error("Failed %s analysis: %s", period, exc)
-            complete_job(
-                "scheduled_analysis",
-                None,
-                business_date,
-                period,
-                status="failed",
-                error_message=str(exc),
-            )
+        adapter = adapter or get_broker_adapter()
+        account_ids = _scheduled_analysis_account_ids(adapter)
+        if not account_ids:
+            continue
+        _run_scheduled_analysis_for_accounts(
+            adapter=adapter,
+            period=period,
+            business_date=business_date,
+            account_ids=account_ids,
+        )
 
     if current_time.weekday() >= 5:
         return
@@ -124,20 +165,28 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
                 continue
             history = get_pnl_history(account.id)
             if any(entry.date == business_date.isoformat() for entry in history):
-                complete_job("pnl_snapshot", account.id, business_date, slot, status="completed")
+                if try_acquire_job("pnl_snapshot", account.id, business_date, slot):
+                    complete_job("pnl_snapshot", account.id, business_date, slot, status="completed")
                 continue
             if not try_acquire_job("pnl_snapshot", account.id, business_date, slot):
                 continue
             logger.info("Triggering scheduled daily snapshot for account %s", account.id)
             try:
-                summary = adapter.get_account_summary(account.id)
-                positions = adapter.get_positions(account.id)
-                from app.services.data_quality.validation import validate_and_gate_snapshot
+                with SchedulerLeaseHeartbeat("pnl_snapshot", account.id, business_date, slot) as lease:
+                    lease.assert_owned()
+                    summary = adapter.get_account_summary(account.id)
+                    positions = adapter.get_positions(account.id)
+                    from app.services.data_quality.validation import validate_and_gate_snapshot
 
-                validate_and_gate_snapshot(summary, positions)
-                record_pnl_snapshot(summary, positions, account.id)
-                _record_scheduled_score_snapshots(positions)
-                complete_job("pnl_snapshot", account.id, business_date, slot, status="completed")
+                    validate_and_gate_snapshot(summary, positions)
+                    lease.assert_owned()
+                    record_pnl_snapshot(summary, positions, account.id)
+                    _record_scheduled_score_snapshots(positions)
+                    lease.assert_owned()
+                if not complete_job("pnl_snapshot", account.id, business_date, slot, status="completed"):
+                    raise SchedulerLeaseLost("Lost scheduler lease before completing PnL snapshot")
+            except SchedulerLeaseLost:
+                raise
             except Exception as exc:
                 complete_job(
                     "pnl_snapshot",
@@ -154,17 +203,24 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
                 consolidated_history = get_pnl_history("all")
                 if not any(entry.date == business_date.isoformat() for entry in consolidated_history):
                     if try_acquire_job("pnl_snapshot", "all", business_date, slot):
-                        from app.api.routes.portfolio import _get_consolidated_summary_and_positions
-
                         logger.info("Triggering scheduled daily consolidated snapshot")
                         try:
-                            account_ids = [account.id for account in accounts]
-                            summary, positions = _get_consolidated_summary_and_positions(adapter, account_ids)
-                            from app.services.data_quality.validation import validate_and_gate_snapshot
+                            with SchedulerLeaseHeartbeat("pnl_snapshot", "all", business_date, slot) as lease:
+                                lease.assert_owned()
+                                from app.api.routes.portfolio import _get_consolidated_summary_and_positions
 
-                            validate_and_gate_snapshot(summary, positions)
-                            record_pnl_snapshot(summary, positions, "all")
-                            complete_job("pnl_snapshot", "all", business_date, slot, status="completed")
+                                account_ids = [account.id for account in accounts]
+                                summary, positions = _get_consolidated_summary_and_positions(adapter, account_ids)
+                                from app.services.data_quality.validation import validate_and_gate_snapshot
+
+                                validate_and_gate_snapshot(summary, positions)
+                                lease.assert_owned()
+                                record_pnl_snapshot(summary, positions, "all")
+                                lease.assert_owned()
+                            if not complete_job("pnl_snapshot", "all", business_date, slot, status="completed"):
+                                raise SchedulerLeaseLost("Lost scheduler lease before completing consolidated snapshot")
+                        except SchedulerLeaseLost:
+                            raise
                         except Exception as exc:
                             complete_job(
                                 "pnl_snapshot",
@@ -174,6 +230,8 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
                                 status="failed",
                                 error_message=str(exc),
                             )
+    except SchedulerLeaseLost:
+        raise
     except Exception as exc:
         logger.error("Failed recording scheduled PnL snapshots: %s", exc)
 
@@ -185,6 +243,8 @@ async def run_background_scheduler() -> None:
     while True:
         try:
             await run_in_threadpool(_run_scheduler_sync)
+        except SchedulerLeaseLost as exc:
+            logger.error("Scheduler loop lost lease ownership: %s", exc)
         except Exception as exc:
             logger.error("Scheduler loop encountered error: %s", exc)
         await asyncio.sleep(SCHEDULER_INTERVAL_SECONDS)

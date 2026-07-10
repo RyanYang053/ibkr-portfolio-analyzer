@@ -220,20 +220,22 @@ def complete_job(
     status: str = "completed",
     payload: dict[str, Any] | None = None,
     error_message: str | None = None,
-) -> None:
+) -> bool:
     now = _utc_now()
     normalized_account = _job_account_id(account_id)
     claim_key = _json_idempotency_key(job_name, account_id, business_date, slot)
     worker = _worker_id()
     expected_claim = _active_claims.get(claim_key)
+    if expected_claim is None:
+        return False
     if settings.persistence_backend != "postgres":
         store = get_state_store()
         key = claim_key
         existing = store.read_json("scheduled_jobs", key, default={}) or {}
         if existing.get("worker_id") and existing.get("worker_id") != worker:
-            return
-        if expected_claim and int(existing.get("fencing_token", 0)) != expected_claim[1]:
-            return
+            return False
+        if int(existing.get("fencing_token", 0)) != expected_claim[1]:
+            return False
         next_retry_at = None
         if status == "failed":
             attempt_count = int(existing.get("attempt_count", 1))
@@ -258,11 +260,11 @@ def complete_job(
             },
         )
         _active_claims.pop(claim_key, None)
-        return
+        return True
 
     from app.db.session import SessionLocal
 
-    fencing_token = expected_claim[1] if expected_claim else None
+    fencing_token = expected_claim[1]
     payload_text = json.dumps(payload) if payload is not None else None
     next_retry_sql = None
     with SessionLocal() as session:
@@ -319,14 +321,15 @@ def complete_job(
                 "business_date": business_date,
                 "slot": slot,
                 "worker_id": worker,
-                "fencing_token": fencing_token if fencing_token is not None else -1,
+                "fencing_token": fencing_token,
             },
         ).first()
         if result is None:
             session.rollback()
-            return
+            return False
         session.commit()
         _active_claims.pop(claim_key, None)
+        return True
 
 
 def renew_job_lease(
