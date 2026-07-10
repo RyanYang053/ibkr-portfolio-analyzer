@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     optimization_turnover_budget: float = 0.25
     optimization_liquidity_cap: float = 0.15
     default_reporting_currency: str = "USD"
+    pnl_reconciliation_absolute_tolerance: float = 1.0
+    pnl_reconciliation_tolerance_bps: float = 25.0
 
 
 settings = Settings()

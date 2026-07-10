@@ -258,6 +258,7 @@ def record_pnl_snapshot(
 
     try:
         from app.db.daily_position_repo import upsert_daily_positions
+        from app.db.portfolio_snapshot_repo import persist_portfolio_snapshot
         from app.services.market_data.fx_store import get_historical_exchange_rate
 
         upsert_daily_positions(
@@ -266,6 +267,13 @@ def record_pnl_snapshot(
             positions,
             base_currency=summary.base_currency,
             fx_resolver=get_historical_exchange_rate,
+        )
+        persist_portfolio_snapshot(
+            active_account_id,
+            date.fromisoformat(today),
+            summary,
+            positions,
+            source="pnl_snapshot",
         )
     except Exception as exc:
         from app.core.config import settings

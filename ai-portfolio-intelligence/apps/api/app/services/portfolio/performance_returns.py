@@ -79,6 +79,15 @@ def _interval_external_flows(
     ]
 
 
+def _snapshots_support_exact_twr(snapshots: list[PortfolioPnLSnapshot]) -> bool:
+    for snapshot in snapshots:
+        timing = snapshot.data_quality.get("valuation_timing")
+        observed_at = snapshot.data_quality.get("observed_at")
+        if not timing or not observed_at:
+            return False
+    return True
+
+
 def _subperiod_twr_interval_return(
     snapshots: list[PortfolioPnLSnapshot],
     transactions: list[Transaction],
@@ -87,7 +96,9 @@ def _subperiod_twr_interval_return(
     base_currency: str,
     fx_resolver: Callable[[str, str], float],
 ) -> float | None:
-    """Exact subperiod linking when NAV observations exist on flow dates."""
+    """Exact subperiod linking when NAV observations exist on flow dates with explicit timing."""
+    if not _snapshots_support_exact_twr(snapshots):
+        return None
     flows = _interval_external_flows(transactions, interval_start, interval_end)
     if not flows:
         return None
