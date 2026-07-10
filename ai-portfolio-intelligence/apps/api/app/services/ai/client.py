@@ -37,9 +37,6 @@ class GeminiClient:
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured")
 
-        if tools is None:
-            tools = [{"googleSearchRetrieval": {}}]
-
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -81,9 +78,6 @@ class GeminiClient:
     def generate_text(self, prompt: str, system_instruction: str | None = None, tools: list[dict[str, Any]] | None = None) -> str:
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured")
-
-        if tools is None:
-            tools = [{"googleSearchRetrieval": {}}]
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         payload = {

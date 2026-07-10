@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.auth_deps import get_current_principal
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.services.ai.report_generator import generate_daily_portfolio_memo
 from app.services.broker.base import BrokerAdapter
+from app.services.portfolio.account_scope import resolve_portfolio_account_id
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
 from app.services.scoring.decision_engine import build_recommendation
 
@@ -10,20 +14,29 @@ from app.services.scoring.decision_engine import build_recommendation
 from app.schemas.domain import AIReport, DISCLAIMER, utc_now
 
 
-router = APIRouter(prefix="/reports", tags=["reports"])
+router = APIRouter(
+    prefix="/reports",
+    tags=["reports"],
+    dependencies=[Depends(get_current_principal)],
+)
 
 
-def _data(adapter: BrokerAdapter):
+def _data(adapter: BrokerAdapter, account_id: Optional[str] = None):
     try:
-        account_id = adapter.get_accounts()[0].id
-        return adapter.get_account_summary(account_id), adapter.get_positions(account_id)
+        active_id = resolve_portfolio_account_id(account_id, adapter)
+        return adapter.get_account_summary(active_id), adapter.get_positions(active_id)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise broker_not_configured_error(exc) from exc
 
 
 @router.get("")
-def list_reports(adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    summary, positions = _data(adapter)
+def list_reports(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    summary, positions = _data(adapter, account_id)
     reports = [generate_daily_portfolio_memo(summary, positions)]
 
     # Load cached AI portfolio report if present
@@ -86,14 +99,20 @@ def list_reports(adapter: BrokerAdapter = Depends(get_broker_adapter)):
 
 
 @router.post("/daily")
-def daily(adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    summary, positions = _data(adapter)
+def daily(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    summary, positions = _data(adapter, account_id)
     return generate_daily_portfolio_memo(summary, positions)
 
 
 @router.post("/weekly")
-def weekly(adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    summary, positions = _data(adapter)
+def weekly(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    summary, positions = _data(adapter, account_id)
     report = generate_daily_portfolio_memo(summary, positions)
     report.report_type = "weekly"
     report.title = "Weekly Investment Review"
@@ -101,8 +120,12 @@ def weekly(adapter: BrokerAdapter = Depends(get_broker_adapter)):
 
 
 @router.post("/stock/{symbol}")
-def stock_report(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    _summary, positions = _data(adapter)
+def stock_report(
+    symbol: str,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    _summary, positions = _data(adapter, account_id)
     for position in positions:
         if position.symbol == symbol.upper():
             return {"symbol": symbol.upper(), "recommendation": build_recommendation(position)}
@@ -110,6 +133,9 @@ def stock_report(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapte
 
 
 @router.post("/risk")
-def risk_report(adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    summary, positions = _data(adapter)
+def risk_report(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    summary, positions = _data(adapter, account_id)
     return {"report_type": "risk", "risk": analyze_portfolio_risk(summary, positions)}

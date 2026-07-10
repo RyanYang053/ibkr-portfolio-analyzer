@@ -22,7 +22,16 @@ def test_decision_support_uses_non_execution_language_and_human_review():
     recommendation = build_recommendation(position)
 
     assert recommendation.human_review_required is True
-    assert recommendation.action in {"Strong Add", "Add", "Hold", "Watch", "Trim Review", "Exit Review", "Avoid", "Data Insufficient"}
+    assert recommendation.action in {
+        "Strong Add",
+        "High heuristic score",
+        "Moderate heuristic score",
+        "Low heuristic score",
+        "Hold",
+        "Watch",
+        "Trim Review",
+        "Data Insufficient",
+    }
     if recommendation.action == "Data Insufficient":
         assert recommendation.add_zone is None
     assert "execute" not in recommendation.explanation.lower()

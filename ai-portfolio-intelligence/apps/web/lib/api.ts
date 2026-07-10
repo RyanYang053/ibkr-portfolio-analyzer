@@ -34,6 +34,19 @@ async function requireJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export function formatApiError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (typeof error.detail === "object" && error.detail && "message" in (error.detail as object)) {
+      return String((error.detail as { message?: string }).message);
+    }
+    if (error.status === 503) return "Broker or data provider is not configured.";
+    if (error.status === 401) return "Authentication is required.";
+    if (error.status === 422) return "Account selection is required for this view.";
+    return `Request failed (${error.status}).`;
+  }
+  return "Request failed.";
+}
+
 async function getJson<T>(path: string, fallback: T): Promise<T> {
   try {
     const response = await fetch(`${API_URL}${path}`, { cache: "no-store" });
@@ -46,114 +59,43 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
 
 const fallbackPositions: Position[] = [];
 
-const fallbackRisk: PortfolioRisk = {
-  total_value: 0,
-  risk_score: 0,
-  cash_percent: 0,
-  etf_percent: 0,
-  single_stock_percent: 0,
-  speculative_percent: 0,
-  sector_exposure: {},
-  currency_exposure: {},
-  top_5_concentration: 0,
-  herfindahl_concentration_score: 0,
-  herfindahl_concentration_label: "Disconnected",
-  margin_usage_percent: 0,
-  alerts: [
-    { alert_type: "broker_not_connected", severity: "medium", message: "IBKR read-only connector is not configured. No mock portfolio data is being shown." }
-  ]
-};
-
 export async function getPortfolioSummary(accountId?: string): Promise<PortfolioSummary> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  const data = await getJson<PortfolioSummary>(`/portfolio/summary${query}`, {
-    summary: {
-      account_id: "DISCONNECTED",
-      net_liquidation: 0,
-      cash: 0,
-      buying_power: 0,
-      margin_requirement: 0,
-      total_unrealized_pnl: 0,
-      total_realized_pnl: 0,
-      base_currency: "USD",
-      data_timestamp: new Date().toISOString()
-    },
-    risk: fallbackRisk,
-    positions: fallbackPositions
-  });
-  if (data && data.risk) {
-    data.risk = { ...fallbackRisk, ...data.risk };
-  }
-  return data;
+  return requireJson<PortfolioSummary>(`/portfolio/summary${query}`);
 }
 
 export async function getPositions(accountId?: string): Promise<Position[]> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  return getJson<Position[]>(`/portfolio/positions${query}`, fallbackPositions);
+  return requireJson<Position[]>(`/portfolio/positions${query}`);
 }
 
 export async function getRisk(accountId?: string): Promise<PortfolioRisk> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  const risk = await getJson<PortfolioRisk>(`/portfolio/risk${query}`, fallbackRisk);
-  return { ...fallbackRisk, ...risk };
+  return requireJson<PortfolioRisk>(`/portfolio/risk${query}`);
 }
 
-export async function getAlerts(): Promise<Alert[]> {
-  return getJson<Alert[]>("/alerts", fallbackRisk.alerts);
+export async function getAlerts(accountId?: string): Promise<Alert[]> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson<Alert[]>(`/alerts${query}`);
 }
 
-export async function getRecommendations(): Promise<Recommendation[]> {
-  return getJson<Recommendation[]>("/recommendations", []);
+export async function getRecommendations(accountId?: string): Promise<Recommendation[]> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson<Recommendation[]>(`/recommendations${query}`);
 }
 
 export async function getAccounts(): Promise<any[]> {
   return getJson("/broker/accounts", []);
 }
 
-export async function getHoldingAnalysis(symbol: string): Promise<{ position: Position; recommendation: Recommendation; score: { final_score: number | null; interpretation: string; sub_scores: Record<string, number> }; last_ai_report?: AIStockReport | null }> {
-  return getJson(`/stocks/${symbol}/analysis`, {
-    position: {
-      account_id: "DISCONNECTED",
-      symbol,
-      company_name: "IBKR not connected",
-      asset_class: "UNKNOWN",
-      quantity: 0,
-      avg_cost: 0,
-      market_price: 0,
-      market_value: 0,
-      unrealized_pnl: 0,
-      realized_pnl: 0,
-      currency: "USD",
-      exchange: "",
-      sector: "",
-      industry: "",
-      portfolio_weight: 0,
-      stock_type: "unknown",
-      is_etf: false,
-      is_speculative: false,
-      updated_at: new Date().toISOString()
-    },
-    recommendation: {
-      symbol,
-      action: "Data Insufficient",
-      score: null,
-      confidence: "Low",
-      add_zone: null,
-      hold_zone: null,
-      trim_review_zone: null,
-      exit_review_trigger: null,
-      explanation: "IBKR read-only connector is not configured. Mock holding analysis is disabled.",
-      evidence: ["broker_not_connected"],
-      human_review_reminder: "Human review required before any investment decision.",
-      disclaimer: "This is portfolio analysis and decision support only. The system does not execute trades."
-    },
-    score: { final_score: null, interpretation: "Data Insufficient", sub_scores: {} },
-    last_ai_report: null
-  });
+export async function getHoldingAnalysis(symbol: string, accountId?: string): Promise<{ position: Position; recommendation: Recommendation; score: { final_score: number | null; interpretation: string; sub_scores: Record<string, number> }; last_ai_report?: AIStockReport | null }> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/stocks/${symbol}/analysis${query}`);
 }
 
-export async function getReports() {
-  return getJson("/reports", []);
+export async function getReports(accountId?: string) {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/reports${query}`);
 }
 
 export async function getWatchlist() {
@@ -219,48 +161,15 @@ export async function configureBrokerReadonly(payload: { mode: string; host: str
 
 export async function getTechnicals(symbol: string): Promise<{
   symbol: string;
-  date: string;
-  sma_20: number;
-  sma_50: number;
-  sma_100: number;
-  sma_200: number;
-  ema_8: number;
-  ema_21: number;
+  historical_prices: number[];
   rsi_14: number | null;
-  macd: number;
-  macd_signal: number;
-  macd_histogram: number;
-  atr_14: number | null;
-  beta: number | null;
-  volume_ratio: number | null;
-  relative_strength_spy: number | null;
-  relative_strength_qqq: number | null;
   drawdown_from_52w_high: number | null;
   trend_classification: string | null;
-  historical_prices: number[];
+  atr_14: number | null;
+  data_quality: string;
+  methodology: string;
 }> {
-  return getJson(`/stocks/${symbol}/technicals`, {
-    symbol,
-    date: new Date().toISOString().split("T")[0],
-    sma_20: 0,
-    sma_50: 0,
-    sma_100: 0,
-    sma_200: 0,
-    ema_8: 0,
-    ema_21: 0,
-    rsi_14: null,
-    macd: 0,
-    macd_signal: 0,
-    macd_histogram: 0,
-    atr_14: null,
-    beta: null,
-    volume_ratio: null,
-    relative_strength_spy: null,
-    relative_strength_qqq: null,
-    drawdown_from_52w_high: null,
-    trend_classification: null,
-    historical_prices: []
-  });
+  return requireJson(`/stocks/${symbol}/technicals`);
 }
 
 export async function getNews(symbol: string): Promise<Array<{
@@ -288,20 +197,7 @@ export async function getFundamentals(symbol: string): Promise<{
   ev_sales: number | null;
   fcf_yield: number | null;
 }> {
-  return getJson(`/stocks/${symbol}/fundamentals`, {
-    symbol,
-    period: "TTM",
-    report_date: new Date().toISOString().split("T")[0],
-    revenue_growth_yoy: null,
-    gross_margin: null,
-    operating_margin: null,
-    free_cash_flow: null,
-    cash: null,
-    total_debt: null,
-    pe_forward: null,
-    ev_sales: null,
-    fcf_yield: null,
-  });
+  return requireJson(`/stocks/${symbol}/fundamentals`);
 }
 
 export async function refreshAIPortfolioReport(): Promise<any> {
@@ -319,7 +215,7 @@ export async function getChartData(symbol: string, range: string): Promise<Array
   high: number;
   low: number;
 }>> {
-  return getJson(`/stocks/${symbol}/chart?range=${range}`, []);
+  return requireJson(`/stocks/${symbol}/chart?range=${range}`);
 }
 
 export async function addWatchlistItem(payload: {
@@ -367,7 +263,14 @@ export async function sendChatMessage(
 
 export async function getPnlHistory(accountId?: string): Promise<any[]> {
   const query = accountId ? `?account_id=${accountId}` : "";
-  return getJson(`/portfolio/pnl-history${query}`, []);
+  try {
+    return await requireJson(`/portfolio/pnl-history${query}`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return [];
+    }
+    throw error;
+  }
 }
 
 export async function recordSnapshot(accountId?: string): Promise<any> {

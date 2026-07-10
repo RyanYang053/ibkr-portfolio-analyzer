@@ -41,13 +41,12 @@ def test_pnl_endpoints_use_broker_override():
     app.dependency_overrides[get_broker_adapter] = lambda: MockIBKRAdapter()
     client = TestClient(app)
     try:
-        response = client.get("/portfolio/pnl-history")
-        assert response.status_code == 200
-        assert response.json()
-
-        recorded = client.post("/portfolio/pnl-history/record")
+        recorded = client.post("/portfolio/pnl-history/record?account_id=MOCK-001")
         assert recorded.status_code == 200
         assert recorded.json()["net_liquidation"] > 0
+        response = client.get("/portfolio/pnl-history?account_id=MOCK-001")
+        assert response.status_code == 200
+        assert response.json()
     finally:
         app.dependency_overrides.clear()
 
@@ -69,7 +68,7 @@ def test_ai_scheduling_endpoints_use_isolated_storage():
 
     app.dependency_overrides[get_broker_adapter] = lambda: MockIBKRAdapter()
     try:
-        analyzed = client.post("/ai/scheduled-analyze", json={"period": "midday"})
+        analyzed = client.post("/ai/scheduled-analyze?account_id=MOCK-001", json={"period": "midday"})
         assert analyzed.status_code == 200
         assert analyzed.json()["period"] == "midday"
     finally:

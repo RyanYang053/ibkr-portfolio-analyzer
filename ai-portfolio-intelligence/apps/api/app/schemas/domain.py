@@ -15,6 +15,9 @@ DISCLAIMER = (
 ActionCategory = Literal[
     "Strong Add",
     "Add",
+    "High heuristic score",
+    "Moderate heuristic score",
+    "Low heuristic score",
     "Hold",
     "Watch",
     "Trim Review",

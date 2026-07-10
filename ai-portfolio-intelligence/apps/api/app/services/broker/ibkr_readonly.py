@@ -11,6 +11,12 @@ from app.services.broker.base import BrokerAdapter
 
 import time
 
+EQUITY_LIKE_TYPES = frozenset({"STK", "ETF"})
+
+
+def _can_use_yahoo_equity_fallback(sec_type: str, multiplier: float) -> bool:
+    return sec_type in EQUITY_LIKE_TYPES and multiplier == 1.0
+
 _runtime_config: dict[str, Any] = {}
 _client_id_lock = Lock()
 _client_id_offsets = count()
@@ -237,18 +243,36 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                     currency = getattr(contract, "currency", "USD") or "USD"
                     positions_data.append((item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency))
 
-            # If any position is missing market price, fetch from Yahoo Finance concurrently
-            if any(market_price == 0.0 for _, _, _, _, _, market_price, _, _ in positions_data):
+            # If any eligible equity position is missing market price, fetch Yahoo concurrently.
+            yahoo_filled: set[int] = set()
+            if any(
+                market_price == 0.0
+                and _can_use_yahoo_equity_fallback(
+                    sec_type,
+                    float(getattr(item.contract, "multiplier", 1) or 1),
+                )
+                for item, _, sec_type, _, _, market_price, _, _ in positions_data
+            ):
                 from concurrent.futures import ThreadPoolExecutor
-                
+
                 def fetch_one(idx, sym, exch, curr):
                     return idx, _get_yahoo_market_price(sym, exch, curr)
 
                 with ThreadPoolExecutor(max_workers=10) as executor:
                     futures = [
-                        executor.submit(fetch_one, idx, sym, getattr(item.contract, "exchange", ""), curr)
-                        for idx, (item, sym, _, _, _, mkt_pr, _, curr) in enumerate(positions_data)
+                        executor.submit(
+                            fetch_one,
+                            idx,
+                            sym,
+                            getattr(item.contract, "exchange", ""),
+                            curr,
+                        )
+                        for idx, (item, sym, sec_type, _, _, mkt_pr, _, curr) in enumerate(positions_data)
                         if mkt_pr == 0.0
+                        and _can_use_yahoo_equity_fallback(
+                            sec_type,
+                            float(getattr(item.contract, "multiplier", 1) or 1),
+                        )
                     ]
                     for fut in futures:
                         try:
@@ -257,6 +281,7 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                                 item, sym, sec_type, qty, avg_cost, _, _, curr = positions_data[idx]
                                 mkt_val = qty * price
                                 positions_data[idx] = (item, sym, sec_type, qty, avg_cost, price, mkt_val, curr)
+                                yahoo_filled.add(idx)
                         except Exception:
                             pass
 
@@ -270,10 +295,20 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
             total_value = net_liq if net_liq > 0 else max(total_value_in_base, 1.0)
             
             positions: list[Position] = []
-            for item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency in positions_data:
+            for idx, (item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency) in enumerate(positions_data):
                 contract = item.contract
                 from app.services.broker.securities import classify_security
                 sec_info = classify_security(symbol, sec_type)
+                multiplier = float(getattr(contract, "multiplier", 1) or 1)
+
+                if market_price > 0:
+                    if idx in yahoo_filled:
+                        price_source = "yahoo_equity_fallback"
+                    else:
+                        price_source = "ibkr_portfolio"
+                else:
+                    price_source = "missing"
+                    market_value = 0.0
                 
                 # Compute weight using base currency values
                 rate = get_exchange_rate(currency, base_currency)
@@ -281,8 +316,10 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                 weight = round(market_value_base / total_value * 100, 2)
                 
                 unrealized_pnl = float(getattr(item, "unrealizedPNL", 0) or 0)
-                if unrealized_pnl == 0.0 and market_price > 0.0:
+                if unrealized_pnl == 0.0 and market_price > 0 and price_source == "ibkr_portfolio":
                     unrealized_pnl = round((market_price - avg_cost) * quantity, 2)
+                if sec_type in {"OPT", "FOP", "FUT"} and price_source != "ibkr_portfolio":
+                    unrealized_pnl = 0.0
                 
                 positions.append(
                     Position(
@@ -307,8 +344,8 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                         updated_at=now,
                         con_id=int(getattr(contract, "conId", 0) or 0) or None,
                         local_symbol=getattr(contract, "localSymbol", None) or None,
-                        multiplier=float(getattr(contract, "multiplier", 1) or 1),
-                        price_source="broker" if market_price > 0 else "yahoo_fallback",
+                        multiplier=multiplier,
+                        price_source=price_source,
                     )
                 )
             _set_in_cache(f"positions:{account_id}", positions)
@@ -350,13 +387,19 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                 if trade_day < start_date or trade_day > end_date:
                     continue
                 side = str(getattr(execution, "side", "")).upper()
-                action = "buy" if side in {"BOT", "BUY"} else "sell" if side in {"SLD", "SELL"} else "buy"
+                if side in {"BOT", "BUY"}:
+                    action = "buy"
+                elif side in {"SLD", "SELL"}:
+                    action = "sell"
+                else:
+                    continue
                 quantity = float(getattr(execution, "shares", 0) or 0)
                 price = float(getattr(execution, "price", 0) or 0)
                 commission_report = getattr(fill, "commissionReport", None)
                 commission = float(getattr(commission_report, "commission", 0) or 0) if commission_report else 0.0
                 symbol = getattr(contract, "symbol", "") or getattr(contract, "localSymbol", "")
                 currency = getattr(contract, "currency", "USD") or "USD"
+                multiplier = float(getattr(contract, "multiplier", 1) or 1)
                 exec_id = str(getattr(execution, "execId", "") or "")
                 append_transaction(
                     Transaction(
@@ -372,7 +415,7 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                         con_id=int(getattr(contract, "conId", 0) or 0) or None,
                         local_symbol=getattr(contract, "localSymbol", None) or None,
                         transaction_id=exec_id or None,
-                        amount=quantity * price,
+                        amount=quantity * price * multiplier,
                     )
                 )
 

@@ -5,25 +5,32 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 
+from app.api.auth_deps import get_current_principal
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.schemas.domain import AccountSummary, InvestmentPolicyStatement, InvestorProfile, Position, utc_now
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.ibkr_readonly import get_exchange_rate
-from app.services.data_quality.validation import validate_portfolio_snapshot
+from app.services.data_quality.validation import require_analytics_safe, validate_portfolio_snapshot
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
 
-router = APIRouter(prefix="/portfolio", tags=["portfolio"])
+router = APIRouter(
+    prefix="/portfolio",
+    tags=["portfolio"],
+    dependencies=[Depends(get_current_principal)],
+)
 
 
 def _position_group_key(position: Position) -> tuple[str, ...]:
-    if position.con_id is not None:
-        return ("conid", str(position.con_id))
-    return (
-        position.symbol.upper(),
-        position.asset_class.upper(),
-        position.exchange.upper(),
-        position.currency.upper(),
-    )
+  side = "long" if position.quantity >= 0 else "short"
+  if position.con_id is not None:
+    return ("conid", str(position.con_id), side)
+  return (
+    position.symbol.upper(),
+    position.asset_class.upper(),
+    position.exchange.upper(),
+    position.currency.upper(),
+    side,
+  )
 
 
 def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[AccountSummary, list[Position]]:
@@ -173,6 +180,7 @@ def _resolve_account_data(
 def summary(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
     account_summary, account_positions = _resolve_account_data(adapter, account_id)
     data_quality = validate_portfolio_snapshot(account_summary, account_positions)
+    require_analytics_safe(data_quality)
     risk_analysis = analyze_portfolio_risk(account_summary, account_positions)
 
     from app.services.suitability.engine import check_position_suitability, get_investor_profile
@@ -287,6 +295,8 @@ def score_calibration(model_name: str = "universal"):
 @router.get("/risk")
 def risk(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
     account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    validation = validate_portfolio_snapshot(account_summary, account_positions)
+    require_analytics_safe(validation)
     return analyze_portfolio_risk(account_summary, account_positions)
 
 

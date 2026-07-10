@@ -3,17 +3,25 @@ from __future__ import annotations
 import json
 import os
 from datetime import date, datetime, timedelta, timezone
+from typing import Any, Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.auth_deps import get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.services.ai.client import GeminiClient, configure_runtime_gemini
 from app.services.ai.report_generator import generate_ai_portfolio_memo, generate_stock_research_report
 from app.services.ai.thesis_tracker import get_thesis, update_thesis
 from app.services.broker.base import BrokerAdapter
+from app.services.portfolio.account_scope import find_portfolio_position, resolve_portfolio_account_id
 from app.core.audit import log_audit_action
 
-router = APIRouter(prefix="/ai", tags=["ai-research"])
+router = APIRouter(
+    prefix="/ai",
+    tags=["ai-research"],
+    dependencies=[Depends(get_current_principal)],
+)
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 SETTINGS_FILE = os.path.join(DATA_DIR, "schedule_settings.json")
@@ -98,7 +106,7 @@ def ai_status() -> dict[str, object]:
     }
 
 
-@router.post("/configure")
+@router.post("/configure", dependencies=[Depends(require_scope("configuration:write"))])
 def configure_ai(payload: AIConfigureRequest) -> dict[str, object]:
     configure_runtime_gemini(payload.api_key, payload.model)
     client = GeminiClient()
@@ -133,7 +141,7 @@ def get_schedule(adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[s
     }
 
 
-@router.put("/schedule")
+@router.put("/schedule", dependencies=[Depends(require_scope("configuration:write"))])
 def update_schedule(payload: AIScheduleSettings, adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[str, object]:
     settings = payload.model_dump()
     _save_settings(settings)
@@ -153,7 +161,7 @@ def read_thesis(symbol: str) -> dict[str, object]:
     return get_thesis(symbol)
 
 
-@router.put("/thesis/{symbol}")
+@router.put("/thesis/{symbol}", dependencies=[Depends(require_scope("portfolio:write"))])
 def write_thesis(symbol: str, payload: ThesisUpdateRequest) -> dict[str, object]:
     res = update_thesis(symbol, payload.thesis, payload.key_assumptions, payload.break_triggers)
     log_audit_action(
@@ -165,30 +173,37 @@ def write_thesis(symbol: str, payload: ThesisUpdateRequest) -> dict[str, object]
 
 
 @router.post("/analyze-stock/{symbol}")
-def analyze_stock(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def analyze_stock(
+    symbol: str,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
     try:
-        account_id = adapter.get_accounts()[0].id
-        positions = adapter.get_positions(account_id)
+        position = find_portfolio_position(symbol, adapter, account_id)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise broker_not_configured_error(exc) from exc
-    for position in positions:
-        if position.symbol == symbol.upper():
-            res = generate_stock_research_report(position)
-            log_audit_action(
-                action="ai_analysis_triggered",
-                object_type="security",
-                object_id=symbol.upper(),
-                metadata={"provider": res.get("provider")}
-            )
-            return res
+    if position is not None:
+        res = generate_stock_research_report(position)
+        log_audit_action(
+            action="ai_analysis_triggered",
+            object_type="security",
+            object_id=symbol.upper(),
+            metadata={"provider": res.get("provider")}
+        )
+        return res
     raise HTTPException(status_code=404, detail="Symbol not found in portfolio")
 
 
 @router.post("/analyze-portfolio")
-def analyze_portfolio(adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def analyze_portfolio(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
     try:
-        account_id = adapter.get_accounts()[0].id
-        res = generate_ai_portfolio_memo(adapter.get_account_summary(account_id), adapter.get_positions(account_id))
+        active_id = resolve_portfolio_account_id(account_id, adapter)
+        res = generate_ai_portfolio_memo(adapter.get_account_summary(active_id), adapter.get_positions(active_id))
         log_audit_action(
             action="ai_analysis_triggered",
             object_type="portfolio",
@@ -200,7 +215,11 @@ def analyze_portfolio(adapter: BrokerAdapter = Depends(get_broker_adapter)):
 
 
 @router.post("/scheduled-analyze")
-def trigger_scheduled_analysis(payload: ScheduledAnalyzeRequest, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def trigger_scheduled_analysis(
+    payload: ScheduledAnalyzeRequest,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
     """Trigger a mock or real scheduled daily slot analysis (Morning, Midday, Night)."""
     period = payload.period.lower().strip()
     if period not in {"morning", "midday", "night"}:
@@ -208,11 +227,13 @@ def trigger_scheduled_analysis(payload: ScheduledAnalyzeRequest, adapter: Broker
 
     # 1. Gather real-time portfolio details
     try:
-        account_id = adapter.get_accounts()[0].id
-        summary = adapter.get_account_summary(account_id)
-        positions = adapter.get_positions(account_id)
+        active_id = resolve_portfolio_account_id(account_id, adapter)
+        summary = adapter.get_account_summary(active_id)
+        positions = adapter.get_positions(active_id)
         net_liq = summary.net_liquidation
         cash = summary.cash
+    except HTTPException:
+        raise
     except Exception as exc:
         raise broker_not_configured_error(exc) from exc
 
@@ -285,7 +306,7 @@ Write a concise Markdown review with evidence from the supplied fields.
 """
         web_grounded = False
         try:
-            analysis_text = gemini.generate_text(prompt, system_instruction)
+            analysis_text = gemini.generate_text(prompt, system_instruction, tools=[])
             web_grounded = gemini.last_grounding_used
         except Exception as exc:
             analysis_text = f"*(Gemini analysis error: {exc})*\n\n" + _get_fallback_analysis_text(period, net_liq, cash)
@@ -295,7 +316,7 @@ Write a concise Markdown review with evidence from the supplied fields.
 
     from app.core.config import settings
     is_demo = settings.broker_mode == "mock_ibkr_readonly"
-    is_live_portfolio = not is_demo and account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY", "all")
+    is_live_portfolio = not is_demo and active_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY", "all")
     is_live_market = not is_demo
     is_mock_fallback = is_demo
 

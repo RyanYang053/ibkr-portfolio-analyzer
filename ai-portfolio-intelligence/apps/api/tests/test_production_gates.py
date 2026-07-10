@@ -45,7 +45,7 @@ def test_strong_add_disabled_without_calibration(monkeypatch):
         )(),
     )
     recommendation = build_recommendation(_position())
-    assert recommendation.action == "Add"
+    assert recommendation.action == "High heuristic score"
     assert recommendation.action != "Strong Add"
 
 
@@ -76,7 +76,7 @@ def test_strong_add_requires_calibration_when_enabled(monkeypatch):
         )(),
     )
     recommendation = build_recommendation(_position())
-    assert recommendation.action == "Add"
+    assert recommendation.action == "High heuristic score"
 
 
 def test_same_currency_tax_lot_fifo_realized_gain():

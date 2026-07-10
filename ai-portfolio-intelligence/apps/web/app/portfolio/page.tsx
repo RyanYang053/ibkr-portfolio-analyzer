@@ -10,6 +10,7 @@ import {
   getRebalanceProposal,
   getOptimizationProposal,
   ApiError,
+  formatApiError,
 } from "@/lib/api";
 import type { PortfolioRisk, Position, RebalanceProposal, PortfolioOptimizationProposal } from "@/lib/types";
 import { DonutChart } from "@/components/DonutChart";
@@ -112,10 +113,29 @@ export default async function PortfolioPage(props: PageProps) {
   const accountId = searchParams.account_id || undefined;
   const professionalAnalyticsAvailable = Boolean(accountId && accountId !== "all");
 
-  const [summary, positions] = await Promise.all([
-    getPortfolioSummary(accountId),
-    getPositions(accountId),
-  ]);
+  let summary;
+  let positions: Position[] = [];
+  let loadError: string | null = null;
+
+  try {
+    [summary, positions] = await Promise.all([
+      getPortfolioSummary(accountId),
+      getPositions(accountId),
+    ]);
+  } catch (error) {
+    loadError = formatApiError(error);
+  }
+
+  if (!summary) {
+    return (
+      <div className="grid gap-6">
+        <Disclaimer />
+        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
+          {loadError ?? "Portfolio data is unavailable."}
+        </div>
+      </div>
+    );
+  }
 
   let advancedRisk: any = null;
   let attribution: any = null;

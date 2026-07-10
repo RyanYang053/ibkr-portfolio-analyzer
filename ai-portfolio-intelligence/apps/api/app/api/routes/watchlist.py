@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from app.api.auth_deps import get_current_principal, require_scope
 from app.core.audit import log_audit_action
 
 
-router = APIRouter(prefix="/watchlist", tags=["watchlist"])
+router = APIRouter(
+    prefix="/watchlist",
+    tags=["watchlist"],
+    dependencies=[Depends(get_current_principal)],
+)
 _WATCHLIST = [
     {
         "id": 1,
@@ -48,7 +53,7 @@ def list_watchlist():
     return _WATCHLIST
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_scope("portfolio:write"))])
 def create_watchlist_item(payload: WatchlistItem):
     item = {"id": len(_WATCHLIST) + 1, **payload.model_dump(), "status": "watch"}
     _WATCHLIST.append(item)
@@ -61,7 +66,7 @@ def create_watchlist_item(payload: WatchlistItem):
     return item
 
 
-@router.put("/{item_id}")
+@router.put("/{item_id}", dependencies=[Depends(require_scope("portfolio:write"))])
 def update_watchlist_item(item_id: int, payload: WatchlistItem):
     for item in _WATCHLIST:
         if item["id"] == item_id:
@@ -76,7 +81,7 @@ def update_watchlist_item(item_id: int, payload: WatchlistItem):
     return {"status": "not_found"}
 
 
-@router.delete("/{item_id}")
+@router.delete("/{item_id}", dependencies=[Depends(require_scope("portfolio:write"))])
 def delete_watchlist_item(item_id: int):
     global _WATCHLIST
     symbol = "UNKNOWN"

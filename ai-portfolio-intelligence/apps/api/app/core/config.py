@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     risk_free_rate_annual: float = 0.0
     # Strong Add requires validated walk-forward calibration evidence.
     enable_strong_add_recommendations: bool = False
+    disable_auth_enforcement: bool = False
+    bootstrap_owner_email: str | None = None
+    allowed_ibkr_hosts: list[str] = ["127.0.0.1", "localhost"]
+    api_bind_host: str = "127.0.0.1"
 
 
 settings = Settings()
+
+
+def validate_production_settings() -> None:
+    if settings.environment == "development":
+        return
+    weak_secrets = {"", "change-me", "dev-only-change-me"}
+    if settings.jwt_secret in weak_secrets:
+        raise RuntimeError("A strong JWT_SECRET is required outside development")

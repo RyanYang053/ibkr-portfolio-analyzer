@@ -4,7 +4,7 @@ import { AllocationBars } from "@/components/AllocationBars";
 import { Disclaimer } from "@/components/Disclaimer";
 import { HoldingsTable } from "@/components/HoldingsTable";
 import { StatCard } from "@/components/StatCard";
-import { getPortfolioSummary, getRecommendations, getPnlHistory, getScheduleSettings } from "@/lib/api";
+import { getPortfolioSummary, getRecommendations, getPnlHistory, getScheduleSettings, ApiError, formatApiError } from "@/lib/api";
 import { RiskGauge } from "@/components/RiskGauge";
 import { DonutChart } from "@/components/DonutChart";
 import { PerformanceSparkline } from "@/components/PerformanceSparkline";
@@ -21,15 +21,41 @@ export default async function DashboardPage(props: PageProps) {
   const searchParams = await props.searchParams;
   const accountId = searchParams.account_id || undefined;
 
-  const [data, recommendations, pnlHistory, scheduleData] = await Promise.all([
-    getPortfolioSummary(accountId),
-    getRecommendations(),
-    getPnlHistory(accountId),
-    getScheduleSettings(),
-  ]);
-  const topIdeas = recommendations.slice(0, 4);
+  let data;
+  let recommendations: Awaited<ReturnType<typeof getRecommendations>> = [];
+  let pnlHistory: Awaited<ReturnType<typeof getPnlHistory>> = [];
+  let scheduleData: Awaited<ReturnType<typeof getScheduleSettings>> = {
+    settings: { enabled: false, morning_time: "09:30", midday_time: "12:30", night_time: "20:00" },
+    runs: [],
+  };
+  let loadError: string | null = null;
 
-  const isRealConnection = data.summary.account_id && data.summary.account_id !== "DISCONNECTED" && !data.summary.account_id.startsWith("MOCK");
+  try {
+    [data, recommendations, pnlHistory, scheduleData] = await Promise.all([
+      getPortfolioSummary(accountId),
+      getRecommendations(accountId),
+      getPnlHistory(accountId),
+      getScheduleSettings(),
+    ]);
+  } catch (error) {
+    loadError = formatApiError(error);
+    if (error instanceof ApiError && error.status === 404) {
+      loadError = "Portfolio data is unavailable. Connect IBKR read-only or enable demo mode.";
+    }
+  }
+
+  if (!data) {
+    return (
+      <div className="grid gap-6">
+        <Disclaimer />
+        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
+          {loadError ?? "Portfolio data is unavailable."}
+        </div>
+      </div>
+    );
+  }
+
+  const topIdeas = recommendations.slice(0, 4);
 
   const sparklineValues = pnlHistory && pnlHistory.length >= 2
     ? pnlHistory.map((h: any) => h.net_liquidation)
@@ -48,6 +74,9 @@ export default async function DashboardPage(props: PageProps) {
       </div>
 
       <Disclaimer />
+      {loadError ? (
+        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">{loadError}</div>
+      ) : null}
       {data.positions.length === 0 ? (
         <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
           IBKR read-only connector is not configured. Mock portfolio data is disabled, so no holdings are shown.

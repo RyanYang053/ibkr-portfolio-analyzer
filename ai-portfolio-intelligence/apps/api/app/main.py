@@ -4,12 +4,13 @@ from contextlib import asynccontextmanager
 import asyncio
 
 from app.api.routes import admin, ai, alerts, analysis, auth, broker, chat, pnl, portfolio, reports, stocks, watchlist
-from app.core.config import settings
+from app.core.config import settings, validate_production_settings
 from app.services.scheduler import run_background_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_production_settings()
     # Start background scheduler daemon
     scheduler_task = asyncio.create_task(run_background_scheduler())
     yield

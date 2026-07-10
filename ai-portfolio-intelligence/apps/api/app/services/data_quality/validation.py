@@ -5,9 +5,37 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from fastapi import HTTPException
+
 from app.schemas.domain import AccountSummary, Position
 
 FxResolver = Callable[[str, str], float]
+
+FATAL_CODES = frozenset(
+    {
+        "NON_FINITE_SUMMARY_VALUE",
+        "NON_POSITIVE_NET_LIQUIDATION",
+        "NON_FINITE_POSITION_VALUE",
+        "FX_CONVERSION_FAILED",
+        "ACCOUNT_RECONCILIATION_GAP",
+    }
+)
+
+
+def require_analytics_safe(validation: dict[str, Any]) -> None:
+    fatal = [
+        issue
+        for issue in validation.get("issues", [])
+        if issue.get("severity") == "error" and issue.get("code") in FATAL_CODES
+    ]
+    if fatal:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PORTFOLIO_SNAPSHOT_INVALID",
+                "issues": fatal,
+            },
+        )
 
 
 def _finite(value: float) -> bool:
@@ -89,7 +117,13 @@ def validate_portfolio_snapshot(
         )
 
     duplicate_keys = Counter(
-        (position.account_id, position.symbol, position.asset_class, position.currency, position.exchange)
+        (
+            position.account_id,
+            position.con_id,
+            position.local_symbol or position.symbol.upper(),
+            position.asset_class,
+            position.currency,
+        )
         for position in positions
     )
     for key, count in duplicate_keys.items():

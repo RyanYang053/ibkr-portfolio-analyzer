@@ -1,7 +1,7 @@
 import { AllocationBars } from "@/components/AllocationBars";
 import { Disclaimer } from "@/components/Disclaimer";
 import { StatCard } from "@/components/StatCard";
-import { getRisk } from "@/lib/api";
+import { getRisk, ApiError, formatApiError } from "@/lib/api";
 import { RiskGauge } from "@/components/RiskGauge";
 import { DonutChart } from "@/components/DonutChart";
 
@@ -15,7 +15,24 @@ export default async function RiskPage(props: PageProps) {
   const searchParams = await props.searchParams;
   const accountId = searchParams.account_id || undefined;
 
-  const risk = await getRisk(accountId);
+  let risk;
+  let loadError: string | null = null;
+  try {
+    risk = await getRisk(accountId);
+  } catch (error) {
+    loadError = formatApiError(error);
+  }
+
+  if (!risk) {
+    return (
+      <div className="grid gap-6">
+        <Disclaimer />
+        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
+          {loadError ?? "Risk analytics are unavailable."}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-6">

@@ -1,9 +1,12 @@
 from datetime import date, timedelta
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.auth_deps import get_current_principal
 from app.api.deps import broker_not_configured_error, data_provider_not_configured_error, demo_mode_enabled, get_broker_adapter
 from app.services.broker.base import BrokerAdapter
+from app.services.portfolio.account_scope import find_portfolio_position, is_symbol_held, resolve_portfolio_account_id
 from app.services.fundamentals.mock_provider import MockFundamentalProvider
 from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.scoring.decision_engine import build_recommendation
@@ -11,17 +14,20 @@ from app.services.scoring.stock_score import score_stock
 from app.services.technicals.indicators import calculate_technical_indicators
 
 
-router = APIRouter(prefix="/stocks", tags=["stocks"])
+router = APIRouter(
+    prefix="/stocks",
+    tags=["stocks"],
+    dependencies=[Depends(get_current_principal)],
+)
 
 
-def _position(symbol: str, adapter: BrokerAdapter):
+def _position(symbol: str, adapter: BrokerAdapter, account_id: Optional[str] = None):
     try:
-        accounts = adapter.get_accounts()
-        if accounts:
-            positions = adapter.get_positions(accounts[0].id)
-            for position in positions:
-                if position.symbol.upper() == symbol.upper():
-                    return position
+        position = find_portfolio_position(symbol, adapter, account_id)
+        if position is not None:
+            return position
+    except HTTPException:
+        raise
     except Exception:
         pass
         
@@ -64,13 +70,12 @@ def _position(symbol: str, adapter: BrokerAdapter):
     )
 
 
-def _is_held(symbol: str, adapter: BrokerAdapter) -> bool:
+def _is_held(symbol: str, adapter: BrokerAdapter, account_id: Optional[str] = None) -> bool:
     try:
-        accounts = adapter.get_accounts()
-        if accounts:
-            positions = adapter.get_positions(accounts[0].id)
-            if any(p.symbol.upper() == symbol.upper() for p in positions):
-                return True
+        if is_symbol_held(symbol, adapter, account_id):
+            return True
+    except HTTPException:
+        raise
     except Exception:
         pass
         
@@ -84,8 +89,12 @@ def _is_held(symbol: str, adapter: BrokerAdapter) -> bool:
 
 
 @router.get("/{symbol}")
-def stock(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    return _position(symbol, adapter)
+def stock(
+    symbol: str,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    return _position(symbol, adapter, account_id)
 
 
 @router.get("/{symbol}/fundamentals")
@@ -209,8 +218,12 @@ def analysis(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
 
 
 @router.get("/{symbol}/options-strategy")
-def options_strategy(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    position = _position(symbol, adapter)
+def options_strategy(
+    symbol: str,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
+    position = _position(symbol, adapter, account_id)
     is_demo = demo_mode_enabled()
     allow_mock = is_demo
     provider = MockMarketDataProvider(allow_mock=allow_mock)
@@ -231,19 +244,19 @@ def options_strategy(symbol: str, adapter: BrokerAdapter = Depends(get_broker_ad
     cash_available = 15000.0
     account_type = "Margin"
     try:
+        active_id = resolve_portfolio_account_id(account_id, adapter)
+        summary_data = adapter.get_account_summary(active_id)
+        cash_available = summary_data.cash
         accounts = adapter.get_accounts()
-        if accounts:
-            summary_data = adapter.get_account_summary(accounts[0].id)
-            cash_available = summary_data.cash
-            account_type = accounts[0].account_type
+        account_type = next((acct.account_type for acct in accounts if acct.id == active_id), "Margin")
     except Exception:
         pass
 
     from app.services.ai.report_generator import generate_options_strategy_report
     return generate_options_strategy_report(
-        position, 
-        technicals_data, 
-        cash_available=cash_available, 
+        position,
+        technicals_data,
+        cash_available=cash_available,
         account_type=account_type
     )
 

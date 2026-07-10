@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Optional
 from datetime import date, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.api.auth_deps import get_current_principal
 from app.api.deps import get_broker_adapter, demo_mode_enabled
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.securities import classify_security
@@ -13,9 +14,14 @@ from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.fundamentals.mock_provider import MockFundamentalProvider
 from app.services.technicals.indicators import calculate_technical_indicators
 from app.services.ai.client import GeminiClient
+from app.services.portfolio.account_scope import find_portfolio_position, resolve_portfolio_account_id
 from app.schemas.domain import Position, utc_now, InvestorProfile, InvestmentPolicyStatement
 
-router = APIRouter(prefix="/ai/chat", tags=["chat"])
+router = APIRouter(
+    prefix="/ai/chat",
+    tags=["chat"],
+    dependencies=[Depends(get_current_principal)],
+)
 
 
 class ChatMessage(BaseModel):
@@ -29,19 +35,15 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage]
 
 
-def _get_stock_context(symbol: str, adapter: BrokerAdapter) -> dict[str, Any]:
+def _get_stock_context(symbol: str, adapter: BrokerAdapter, account_id: Optional[str] = None) -> dict[str, Any]:
     sym = symbol.upper().strip()
     
     # 1. Fetch or build synthetic position
     position = None
     try:
-        accounts = adapter.get_accounts()
-        if accounts:
-            positions = adapter.get_positions(accounts[0].id)
-            for pos in positions:
-                if pos.symbol.upper() == sym:
-                    position = pos
-                    break
+        position = find_portfolio_position(sym, adapter, account_id)
+    except HTTPException:
+        raise
     except Exception:
         pass
 
@@ -150,12 +152,16 @@ Rules:
 
 
 @router.post("")
-def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def chat(
+    payload: ChatRequest,
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
     # 1. Gather contexts for tagged stocks
     tagged_contexts = []
     for symbol in payload.tagged_symbols:
         try:
-            context = _get_stock_context(symbol, adapter)
+            context = _get_stock_context(symbol, adapter, account_id)
             tagged_contexts.append(context)
         except Exception as exc:
             import logging
@@ -169,109 +175,118 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
         "reason": "Broker portfolio data was not available.",
     }
     try:
-        accounts = adapter.get_accounts()
-        if accounts:
-            acct_id = accounts[0].id
-            summary = adapter.get_account_summary(acct_id)
-            positions = adapter.get_positions(acct_id)
-            portfolio_context = {
-                "status": "available",
-                "summary": {
-                    "net_liquidation": summary.net_liquidation,
-                    "cash": summary.cash,
-                    "base_currency": summary.base_currency,
-                    "total_unrealized_pnl": summary.total_unrealized_pnl,
-                    "total_realized_pnl": summary.total_realized_pnl,
-                    "data_timestamp": summary.data_timestamp.isoformat(),
-                },
-                "positions": [
-                    {
-                        "symbol": pos.symbol,
-                        "market_price": pos.market_price,
-                        "market_value": pos.market_value,
-                        "portfolio_weight": pos.portfolio_weight,
-                        "stock_type": pos.stock_type,
-                        "is_speculative": pos.is_speculative,
-                        "currency": pos.currency,
-                        "updated_at": pos.updated_at.isoformat(),
-                    }
-                    for pos in positions
-                    if pos.quantity > 0
-                ],
-                "performance_history": [],
-                "suitability": None,
-            }
-            
-            portfolio_summary_text += "Current User Portfolio State:\n"
-            portfolio_summary_text += f"- Net Liquidation: ${summary.net_liquidation:,.2f} {summary.base_currency}\n"
-            portfolio_summary_text += f"- Cash Balance: ${summary.cash:,.2f} {summary.base_currency}\n"
-            portfolio_summary_text += "- Active Portfolio Positions:\n"
-            for pos in positions:
-                if pos.quantity > 0:
-                    portfolio_summary_text += f"  * {pos.symbol} | Price: ${pos.market_price:.2f} | Value: ${pos.market_value:.2f} | Weight: {pos.portfolio_weight:.2f}% | Type: {pos.stock_type}\n"
-            
-            # Load PnL history trend
-            try:
-                from app.services.portfolio.pnl_tracker import get_pnl_history
-                pnl_history = get_pnl_history(acct_id)[-7:]
-                if pnl_history:
-                    portfolio_context["performance_history"] = [
-                        {
-                            "date": entry.date,
-                            "net_liquidation": entry.net_liquidation,
-                            "cash": entry.cash,
-                            "daily_pnl": entry.daily_pnl,
-                            "daily_pnl_percent": entry.daily_pnl_percent,
-                        }
-                        for entry in pnl_history
-                    ]
-                    portfolio_summary_text += "- Recent 7-Day Performance Trend:\n"
-                    for entry in pnl_history:
-                        portfolio_summary_text += f"  * {entry.date}: Net Liq: ${entry.net_liquidation:,.2f} | Cash: ${entry.cash:,.2f} | PnL: ${entry.daily_pnl:+,.2f} ({entry.daily_pnl_percent:+.2f}%)\n"
-            except Exception:
-                pass
-
-            try:
-                from app.services.suitability.engine import get_investor_profile, check_position_suitability
-                from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
-                
-                profile = get_investor_profile(acct_id)
-                policy = get_portfolio_policy(acct_id)
-                drift = analyze_policy_drift(positions, summary.cash, summary.net_liquidation, policy)
-                
-                suitability_warnings = []
-                for pos in positions:
-                    suitability_warnings.extend(check_position_suitability(profile, pos))
-                portfolio_context["suitability"] = {
-                    "investor_profile": {
-                        "objective": profile.objective,
-                        "risk_tolerance": profile.risk_tolerance,
-                        "risk_capacity": profile.risk_capacity,
-                        "time_horizon_years": profile.time_horizon_years,
-                        "account_type": profile.account_type,
-                        "liquidity_needs": profile.liquidity_needs,
-                        "restrictions": profile.restrictions,
-                    },
-                    "target_policy": {
-                        "target_equity_percent": policy.target_equity_percent,
-                        "target_cash_percent": policy.target_cash_percent,
-                        "target_bond_percent": policy.target_bond_percent,
-                        "minimum_cash": policy.minimum_cash,
-                    },
-                    "policy_drift": drift,
-                    "warnings": suitability_warnings,
+        active_id = resolve_portfolio_account_id(account_id, adapter)
+        summary = adapter.get_account_summary(active_id)
+        positions = adapter.get_positions(active_id)
+        portfolio_context = {
+            "status": "available",
+            "summary": {
+                "net_liquidation": summary.net_liquidation,
+                "cash": summary.cash,
+                "base_currency": summary.base_currency,
+                "total_unrealized_pnl": summary.total_unrealized_pnl,
+                "total_realized_pnl": summary.total_realized_pnl,
+                "data_timestamp": summary.data_timestamp.isoformat(),
+            },
+            "positions": [
+                {
+                    "symbol": pos.symbol,
+                    "market_price": pos.market_price,
+                    "market_value": pos.market_value,
+                    "portfolio_weight": pos.portfolio_weight,
+                    "stock_type": pos.stock_type,
+                    "is_speculative": pos.is_speculative,
+                    "currency": pos.currency,
+                    "updated_at": pos.updated_at.isoformat(),
                 }
-                    
-                portfolio_summary_text += "\nInvestor Profile & Policy IPS:\n"
-                portfolio_summary_text += f"- Objective: {profile.objective} | Risk Tolerance: {profile.risk_tolerance} | Time Horizon: {profile.time_horizon_years} years | Account: {profile.account_type}\n"
-                portfolio_summary_text += f"- Target Equity: {policy.target_equity_percent}% | Target Cash: {policy.target_cash_percent}% | Target Bond: {policy.target_bond_percent}%\n"
-                portfolio_summary_text += f"- Policy Drift: Equity drift: {drift['drifts']['equity']['drift']:.2f}%, Cash drift: {drift['drifts']['cash']['drift']:.2f}%\n"
-                portfolio_summary_text += f"- Cash Floor Check: {'OK' if summary.cash >= policy.minimum_cash else 'BELOW MINIMUM FLOOR'}\n"
-                portfolio_summary_text += f"- Suitability Warnings: {'; '.join(suitability_warnings) or 'None'}\n"
-            except Exception as exc:
-                portfolio_summary_text += f"\nError loading professional metrics: {exc}\n"
-                
-            portfolio_summary_text += "\n"
+                for pos in positions
+                if pos.quantity > 0
+            ],
+            "performance_history": [],
+            "suitability": None,
+        }
+
+        portfolio_summary_text += "Current User Portfolio State:\n"
+        portfolio_summary_text += f"- Net Liquidation: ${summary.net_liquidation:,.2f} {summary.base_currency}\n"
+        portfolio_summary_text += f"- Cash Balance: ${summary.cash:,.2f} {summary.base_currency}\n"
+        portfolio_summary_text += "- Active Portfolio Positions:\n"
+        for pos in positions:
+            if pos.quantity > 0:
+                portfolio_summary_text += f"  * {pos.symbol} | Price: ${pos.market_price:.2f} | Value: ${pos.market_value:.2f} | Weight: {pos.portfolio_weight:.2f}% | Type: {pos.stock_type}\n"
+
+        # Load PnL history trend
+        try:
+            from app.services.portfolio.pnl_tracker import get_pnl_history
+            pnl_history = get_pnl_history(active_id)[-7:]
+            if pnl_history:
+                portfolio_context["performance_history"] = [
+                    {
+                        "date": entry.date,
+                        "net_liquidation": entry.net_liquidation,
+                        "cash": entry.cash,
+                        "daily_pnl": entry.daily_pnl,
+                        "daily_pnl_percent": entry.daily_pnl_percent,
+                    }
+                    for entry in pnl_history
+                ]
+                portfolio_summary_text += "- Recent 7-Day Performance Trend:\n"
+                for entry in pnl_history:
+                    portfolio_summary_text += f"  * {entry.date}: Net Liq: ${entry.net_liquidation:,.2f} | Cash: ${entry.cash:,.2f} | PnL: ${entry.daily_pnl:+,.2f} ({entry.daily_pnl_percent:+.2f}%)\n"
+        except Exception:
+            pass
+
+        try:
+            from app.services.suitability.engine import get_investor_profile, check_position_suitability
+            from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
+
+            profile = get_investor_profile(active_id)
+            policy = get_portfolio_policy(active_id)
+            drift = analyze_policy_drift(positions, summary.cash, summary.net_liquidation, policy)
+
+            suitability_warnings = []
+            for pos in positions:
+                suitability_warnings.extend(check_position_suitability(profile, pos))
+            portfolio_context["suitability"] = {
+                "investor_profile": {
+                    "objective": profile.objective,
+                    "risk_tolerance": profile.risk_tolerance,
+                    "risk_capacity": profile.risk_capacity,
+                    "time_horizon_years": profile.time_horizon_years,
+                    "account_type": profile.account_type,
+                    "liquidity_needs": profile.liquidity_needs,
+                    "restrictions": profile.restrictions,
+                },
+                "target_policy": {
+                    "target_equity_percent": policy.target_equity_percent,
+                    "target_cash_percent": policy.target_cash_percent,
+                    "target_bond_percent": policy.target_bond_percent,
+                    "minimum_cash": policy.minimum_cash,
+                },
+                "policy_drift": drift,
+                "warnings": suitability_warnings,
+            }
+
+            portfolio_summary_text += "\nInvestor Profile & Policy IPS:\n"
+            portfolio_summary_text += f"- Objective: {profile.objective} | Risk Tolerance: {profile.risk_tolerance} | Time Horizon: {profile.time_horizon_years} years | Account: {profile.account_type}\n"
+            portfolio_summary_text += f"- Target Equity: {policy.target_equity_percent}% | Target Cash: {policy.target_cash_percent}% | Target Bond: {policy.target_bond_percent}%\n"
+            portfolio_summary_text += f"- Policy Drift: Equity drift: {drift['drifts']['equity']['drift']:.2f}%, Cash drift: {drift['drifts']['cash']['drift']:.2f}%\n"
+            portfolio_summary_text += f"- Cash Floor Check: {'OK' if summary.cash >= policy.minimum_cash else 'BELOW MINIMUM FLOOR'}\n"
+            portfolio_summary_text += f"- Suitability Warnings: {'; '.join(suitability_warnings) or 'None'}\n"
+        except Exception as exc:
+            portfolio_summary_text += f"\nError loading professional metrics: {exc}\n"
+
+        portfolio_summary_text += "\n"
+    except HTTPException as exc:
+        if exc.status_code == 422:
+            portfolio_summary_text += (
+                "Current User Portfolio State: Unavailable (account selection required for multi-account portfolios).\n\n"
+            )
+            portfolio_context = {
+                "status": "unavailable",
+                "reason": "account_selection_required",
+            }
+        else:
+            raise
     except Exception as exc:
         portfolio_summary_text += f"Current User Portfolio State: Unavailable ({exc})\n\n"
         portfolio_context = {
@@ -328,7 +343,7 @@ def chat(payload: ChatRequest, adapter: BrokerAdapter = Depends(get_broker_adapt
         )
 
         try:
-            response_text = gemini.generate_text(prompt, CHAT_SYSTEM_INSTRUCTION)
+            response_text = gemini.generate_text(prompt, CHAT_SYSTEM_INSTRUCTION, tools=[])
             web_grounded = gemini.last_grounding_used
             provenance = {
                 "live_portfolio_data": is_live_portfolio,

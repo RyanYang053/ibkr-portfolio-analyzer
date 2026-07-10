@@ -18,6 +18,13 @@ export type Position = {
   is_etf: boolean;
   is_speculative: boolean;
   updated_at: string;
+  con_id?: number | null;
+  local_symbol?: string | null;
+  multiplier?: number;
+  price_source?: string;
+  market_value_native?: number | null;
+  market_value_base?: number | null;
+  reporting_currency?: string;
 };
 
 export type PortfolioSummary = {

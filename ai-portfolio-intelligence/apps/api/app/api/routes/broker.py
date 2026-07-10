@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.auth_deps import get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.ibkr_readonly import configure_runtime_ibkr, get_runtime_ibkr_config
@@ -15,7 +16,11 @@ from app.core.audit import log_audit_action
 from app.core.config import settings
 
 
-router = APIRouter(prefix="/broker", tags=["broker-readonly"])
+router = APIRouter(
+    prefix="/broker",
+    tags=["broker-readonly"],
+    dependencies=[Depends(get_current_principal)],
+)
 
 
 class BrokerConfigureRequest(BaseModel):
@@ -31,11 +36,12 @@ def status(adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[str, st
     return adapter.health_check()
 
 
-@router.post("/configure-readonly")
+@router.post("/configure-readonly", dependencies=[Depends(require_scope("configuration:write"))])
 def configure_readonly(payload: BrokerConfigureRequest) -> dict[str, object]:
     if payload.mode not in ("ibkr_readonly", "mock_ibkr_readonly"):
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Invalid broker mode. Must be 'ibkr_readonly' or 'mock_ibkr_readonly'.")
+    if payload.host not in set(settings.allowed_ibkr_hosts):
+        raise HTTPException(status_code=400, detail="IBKR host is not permitted")
 
     settings.broker_mode = payload.mode
     configure_runtime_ibkr(payload.host, payload.port, payload.client_id, payload.account_id)
@@ -66,7 +72,7 @@ def configure_readonly(payload: BrokerConfigureRequest) -> dict[str, object]:
     }
 
 
-@router.post("/sync-readonly")
+@router.post("/sync-readonly", dependencies=[Depends(require_scope("portfolio:sync"))])
 def sync_readonly(adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[str, object]:
     try:
         from app.services.portfolio.transaction_store import sync_transactions
@@ -113,7 +119,7 @@ def positions(account_id: str, adapter: BrokerAdapter = Depends(get_broker_adapt
         raise broker_not_configured_error(exc) from exc
 
 
-@router.post("/sync-flex")
+@router.post("/sync-flex", dependencies=[Depends(require_scope("portfolio:sync"))])
 def sync_flex(account_id: str, adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[str, object]:
     from app.core.config import settings
     from app.services.broker.flex_query import fetch_flex_cash_ledger, flex_activity_query_configured, mock_flex_transactions
@@ -128,6 +134,11 @@ def sync_flex(account_id: str, adapter: BrokerAdapter = Depends(get_broker_adapt
             transactions=merged,
             imported_sections=["flex_cash_ledger"] + flex_result.imported_sections,
             rejected_row_count=flex_result.rejected_row_count,
+            flex_query_id=flex_result.query_id,
+            flex_generated_at=flex_result.generated_at,
+            flex_statement_account_id=flex_result.account_id,
+            period_start=flex_result.report_period_start,
+            period_end=flex_result.report_period_end,
         )
         save_ledger_coverage(coverage)
         return {
