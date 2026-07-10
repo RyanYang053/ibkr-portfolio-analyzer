@@ -2,6 +2,8 @@ import os
 import sys
 import pytest
 
+playwright = pytest.importorskip("playwright")
+
 @pytest.mark.skipif(os.getenv("SKIP_FRONTEND_TESTS") == "true", reason="Skip frontend tests")
 def test_options_tab_lazy_loading_and_mock_warning():
     from playwright.sync_api import sync_playwright

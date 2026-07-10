@@ -245,6 +245,13 @@ def _fallback_stock_report(position: Position, score, recommendation, context: d
     
     confidence = _min_confidence("Medium", limits["confidence_cap"])
     add_zone = recommendation.add_zone if limits["add_zone_allowed"] else None
+    invalidation_triggers = list(context["thesis"]["invalidation_triggers"])
+    if not invalidation_triggers:
+        invalidation_triggers = [
+            "Revenue growth turns negative or materially below the stored assumption range",
+            "Operating margin compression or balance-sheet stress versus stored assumptions",
+            "Technical trend breakdown against the stored review framework",
+        ]
     claims = [
         build_claim(
             "claim_portfolio_role",
@@ -289,8 +296,8 @@ def _fallback_stock_report(position: Position, score, recommendation, context: d
         "confidence": confidence,
         "confidence_limits": limits,
         "data_quality": context["data_quality"],
-        "thesis": context["thesis"],
-        "thesis_invalidation_triggers": context["thesis"]["invalidation_triggers"],
+        "thesis": {**context["thesis"], "invalidation_triggers": invalidation_triggers},
+        "thesis_invalidation_triggers": invalidation_triggers,
         "strengths": [
             {"text": "The portfolio position and data-quality state are available for review.", "evidence_ids": ["ev_portfolio_position", "ev_data_quality"]},
             {"text": "The stored thesis has been compared against current data.", "evidence_ids": ["ev_thesis", "ev_rule_engine"]},
