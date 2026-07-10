@@ -157,6 +157,7 @@ class StockScore(BaseModel):
     explanation: str
     supporting_evidence: list[str]
     missing_data: list[str]
+    factor_coverage: dict[str, bool] = Field(default_factory=dict)
     confidence: ConfidenceLevel
     data_timestamp: datetime
 

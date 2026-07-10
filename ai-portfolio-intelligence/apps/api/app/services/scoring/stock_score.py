@@ -252,6 +252,8 @@ def _technical_score(technicals) -> float:
 
 
 def _stock_fundamental_scores(fundamentals) -> dict[str, float]:
+    from app.services.fundamentals.sector_models import _number
+
     scores: dict[str, float] = {}
 
     quality_parts = [
@@ -277,12 +279,13 @@ def _stock_fundamental_scores(fundamentals) -> dict[str, float]:
     if profitability_parts:
         scores["profitability"] = fmean(profitability_parts)
 
-    cash = fundamentals.cash or 0.0
-    debt = fundamentals.total_debt or 0.0
-    capital = abs(cash) + abs(debt)
-    if capital > 0:
-        net_cash_ratio = (cash - debt) / capital
-        scores["balance_sheet"] = _clamp(50.0 + 50.0 * net_cash_ratio)
+    cash = _number(fundamentals.cash)
+    debt = _number(fundamentals.total_debt)
+    if cash is not None and debt is not None:
+        capital = abs(cash) + abs(debt)
+        if capital > 0:
+            net_cash_ratio = (cash - debt) / capital
+            scores["balance_sheet"] = _clamp(50.0 + 50.0 * net_cash_ratio)
 
     valuation_parts: list[float] = []
     if fundamentals.pe_forward is not None and fundamentals.pe_forward > 0:
@@ -394,10 +397,20 @@ def score_stock(
         model_name = resolve_scoring_model(position)
         if fundamentals is not None and not str(fundamentals.source).endswith("_etf"):
             sub_scores.update(score_fundamentals_for_sector(fundamentals, position.sector or "Unknown"))
+            if fundamentals.revenue_growth_yoy is not None:
+                evidence.append(
+                    f"Revenue growth YoY: {fundamentals.revenue_growth_yoy * 100:.2f}%"
+                )
+            else:
+                missing_data.append("Revenue growth")
+            if fundamentals.operating_margin is not None:
+                evidence.append(
+                    f"Operating margin: {fundamentals.operating_margin * 100:.2f}%"
+                )
+            else:
+                missing_data.append("Operating margin")
             evidence.extend(
                 [
-                    f"Revenue growth YoY: {fundamentals.revenue_growth_yoy * 100:.2f}%",
-                    f"Operating margin: {fundamentals.operating_margin * 100:.2f}%",
                     f"Fundamental source: {fundamentals.source}",
                     f"Fundamental report date: {fundamentals.report_date.isoformat()}",
                 ]
@@ -427,6 +440,7 @@ def score_stock(
         missing_data.append("Recent catalyst/news inputs")
 
     weights = MODEL_WEIGHTS.get(model_name, MODEL_WEIGHTS["universal"])
+    factor_coverage = {factor: factor in sub_scores for factor in weights}
     raw_score, coverage = _weighted_score(sub_scores, weights)
 
     input_sources = {
@@ -531,6 +545,7 @@ def score_stock(
         explanation=explanation,
         supporting_evidence=evidence,
         missing_data=missing_data,
+        factor_coverage=factor_coverage,
         confidence=confidence,
         data_timestamp=utc_now(),
     )
