@@ -17,6 +17,11 @@ interface AdvancedRiskMetrics {
   portfolio_beta_qqq: number | null;
   value_at_risk_95: number | null;
   conditional_var_95: number | null;
+  sharpe_ratio: number | null;
+  sortino_ratio: number | null;
+  jensens_alpha: number | null;
+  tracking_error: number | null;
+  information_ratio: number | null;
   correlation_matrix: Record<string, Record<string, number>>;
   factor_exposures: Record<string, number>;
   stress_tests: StressScenario[];
@@ -141,6 +146,135 @@ export function ProfessionalRiskDashboard({
         </section>
       </div>
 
+      <section className="rounded-md border border-line bg-white p-6">
+        <h3 className="mb-4 text-lg font-semibold inline-flex items-center gap-2">
+          <ShieldAlert size={18} className="text-accent" />
+          Risk-Adjusted Performance Indicators (Institutional Metrics)
+        </h3>
+        <p className="text-xs text-zinc-500 mb-6 -mt-3">
+          Key metrics computed using historical NAV reconstruction and aligned daily returns against SPY as benchmark (annualized, assuming 4.0% risk-free rate threshold). Hover over the info indicators to see the methodology.
+        </p>
+        
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {/* Sharpe Card */}
+          <div className="rounded-md bg-panel p-4 border border-line/30 hover:border-accent/30 transition-all duration-300 relative group">
+            <div className="text-xs font-semibold uppercase text-zinc-500 flex justify-between items-center">
+              <span>Sharpe Ratio</span>
+              <span className="text-zinc-400 cursor-help group-hover:text-accent font-normal text-[10px]">ℹ️
+                <span className="invisible group-hover:visible absolute left-0 bottom-full mb-2 z-10 w-64 bg-zinc-800 text-white text-[11px] p-2 rounded shadow-lg normal-case font-normal leading-relaxed">
+                  {advancedRisk.methodology?.sharpe_ratio || "Excess return per unit of total risk (volatility). High Sharpe indicates high return efficiency."}
+                </span>
+              </span>
+            </div>
+            <div className={`mt-2 text-2xl font-bold font-mono ${
+              advancedRisk.sharpe_ratio !== null && advancedRisk.sharpe_ratio >= 1.5 
+                ? "text-accent" 
+                : advancedRisk.sharpe_ratio !== null && advancedRisk.sharpe_ratio >= 1.0 
+                ? "text-teal-600" 
+                : advancedRisk.sharpe_ratio !== null && advancedRisk.sharpe_ratio < 0 
+                ? "text-danger" 
+                : "text-zinc-700"
+            }`}>
+              {formatNumber(advancedRisk.sharpe_ratio)}
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-500">
+              {advancedRisk.sharpe_ratio !== null && advancedRisk.sharpe_ratio >= 1.0 ? "Efficient Excess Return" : "Risk-to-volatility ratio"}
+            </div>
+          </div>
+
+          {/* Sortino Card */}
+          <div className="rounded-md bg-panel p-4 border border-line/30 hover:border-accent/30 transition-all duration-300 relative group">
+            <div className="text-xs font-semibold uppercase text-zinc-500 flex justify-between items-center">
+              <span>Sortino Ratio</span>
+              <span className="text-zinc-400 cursor-help group-hover:text-accent font-normal text-[10px]">ℹ️
+                <span className="invisible group-hover:visible absolute left-0 bottom-full mb-2 z-10 w-64 bg-zinc-800 text-white text-[11px] p-2 rounded shadow-lg normal-case font-normal leading-relaxed">
+                  {advancedRisk.methodology?.sortino_ratio || "Excess return per unit of downside deviation. Ignores upside volatility, penalizing only negative returns."}
+                </span>
+              </span>
+            </div>
+            <div className={`mt-2 text-2xl font-bold font-mono ${
+              advancedRisk.sortino_ratio !== null && advancedRisk.sortino_ratio >= 1.5 
+                ? "text-accent" 
+                : advancedRisk.sortino_ratio !== null && advancedRisk.sortino_ratio < 0 
+                ? "text-danger" 
+                : "text-zinc-700"
+            }`}>
+              {formatNumber(advancedRisk.sortino_ratio)}
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-500">
+              Downside risk-adjusted ratio
+            </div>
+          </div>
+
+          {/* Jensen's Alpha Card */}
+          <div className="rounded-md bg-panel p-4 border border-line/30 hover:border-accent/30 transition-all duration-300 relative group">
+            <div className="text-xs font-semibold uppercase text-zinc-500 flex justify-between items-center">
+              <span>Jensen&apos;s Alpha</span>
+              <span className="text-zinc-400 cursor-help group-hover:text-accent font-normal text-[10px]">ℹ️
+                <span className="invisible group-hover:visible absolute left-0 bottom-full mb-2 z-10 w-64 bg-zinc-800 text-white text-[11px] p-2 rounded shadow-lg normal-case font-normal leading-relaxed">
+                  {advancedRisk.methodology?.jensens_alpha || "The portfolio's excess return relative to the market CAPM prediction. Positive means outperforming the beta-adjusted benchmark."}
+                </span>
+              </span>
+            </div>
+            <div className={`mt-2 text-2xl font-bold font-mono ${
+              advancedRisk.jensens_alpha !== null && advancedRisk.jensens_alpha > 0 
+                ? "text-accent" 
+                : advancedRisk.jensens_alpha !== null && advancedRisk.jensens_alpha < 0 
+                ? "text-danger" 
+                : "text-zinc-700"
+            }`}>
+              {advancedRisk.jensens_alpha !== null && advancedRisk.jensens_alpha > 0 ? "+" : ""}
+              {formatPercent(advancedRisk.jensens_alpha)}
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-500">
+              Annualized excess return vs SPY
+            </div>
+          </div>
+
+          {/* Tracking Error Card */}
+          <div className="rounded-md bg-panel p-4 border border-line/30 hover:border-accent/30 transition-all duration-300 relative group">
+            <div className="text-xs font-semibold uppercase text-zinc-500 flex justify-between items-center">
+              <span>Tracking Error</span>
+              <span className="text-zinc-400 cursor-help group-hover:text-accent font-normal text-[10px]">ℹ️
+                <span className="invisible group-hover:visible absolute left-0 bottom-full mb-2 z-10 w-64 bg-zinc-800 text-white text-[11px] p-2 rounded shadow-lg normal-case font-normal leading-relaxed">
+                  {advancedRisk.methodology?.tracking_error || "Standard deviation of the differences between the portfolio and market returns. Measures active benchmark deviation risk."}
+                </span>
+              </span>
+            </div>
+            <div className="mt-2 text-2xl font-bold text-zinc-700 font-mono">
+              {formatPercent(advancedRisk.tracking_error)}
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-500">
+              Annualized active deviation
+            </div>
+          </div>
+
+          {/* Information Ratio Card */}
+          <div className="rounded-md bg-panel p-4 border border-line/30 hover:border-accent/30 transition-all duration-300 relative group">
+            <div className="text-xs font-semibold uppercase text-zinc-500 flex justify-between items-center">
+              <span>Information Ratio</span>
+              <span className="text-zinc-400 cursor-help group-hover:text-accent font-normal text-[10px]">ℹ️
+                <span className="invisible group-hover:visible absolute left-0 bottom-full mb-2 z-10 w-64 bg-zinc-800 text-white text-[11px] p-2 rounded shadow-lg normal-case font-normal leading-relaxed">
+                  {advancedRisk.methodology?.information_ratio || "Active return vs benchmark divided by the active tracking error. Measures manager's ability to consistently generate alpha relative to active risk."}
+                </span>
+              </span>
+            </div>
+            <div className={`mt-2 text-2xl font-bold font-mono ${
+              advancedRisk.information_ratio !== null && advancedRisk.information_ratio >= 0.5 
+                ? "text-accent" 
+                : advancedRisk.information_ratio !== null && advancedRisk.information_ratio < 0 
+                ? "text-danger" 
+                : "text-zinc-700"
+            }`}>
+              {formatNumber(advancedRisk.information_ratio)}
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-500">
+              Excess return active efficiency
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-md border border-line bg-white p-4">
           <div className="text-xs font-semibold uppercase text-zinc-500">Historical Drawdown</div>
@@ -167,17 +301,17 @@ export function ProfessionalRiskDashboard({
   );
 }
 
-function formatPercent(value: number | null, negative = false) {
-  if (value === null) return "Unavailable";
+function formatPercent(value: number | null | undefined, negative = false) {
+  if (value === null || value === undefined) return "Unavailable";
   return `${negative ? "-" : ""}${value.toFixed(2)}%`;
 }
 
-function formatNumber(value: number | null) {
-  return value === null ? "Unavailable" : value.toFixed(2);
+function formatNumber(value: number | null | undefined) {
+  return value === null || value === undefined ? "Unavailable" : value.toFixed(2);
 }
 
-function formatCurrency(value: number | null, symbol: string) {
-  return value === null
+function formatCurrency(value: number | null | undefined, symbol: string) {
+  return value === null || value === undefined
     ? "Unavailable"
     : `${symbol}${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }

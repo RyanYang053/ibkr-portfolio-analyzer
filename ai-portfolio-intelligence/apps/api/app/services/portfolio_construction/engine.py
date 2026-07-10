@@ -1,218 +1,217 @@
-from typing import Literal
+from __future__ import annotations
+
+from collections import defaultdict
+
 from app.schemas.domain import (
     AccountSummary,
-    InvestorProfile,
     InvestmentPolicyStatement,
+    InvestorProfile,
     Position,
     RebalanceProposal,
-    RebalanceProposalItem
+    RebalanceProposalItem,
 )
 from app.services.policy.engine import analyze_policy_drift
+
+MINIMUM_TRADE_VALUE = 100.0
+
+
+def _validate_policy(policy: InvestmentPolicyStatement) -> None:
+    targets = [policy.target_equity_percent, policy.target_cash_percent, policy.target_bond_percent]
+    if any(value < 0 or value > 100 for value in targets):
+        raise ValueError("Policy target percentages must be between 0 and 100")
+    if abs(sum(targets) - 100.0) > 0.5:
+        raise ValueError("Equity, cash, and bond policy targets must sum to 100%")
+    for value in (
+        policy.max_single_stock_weight,
+        policy.max_speculative_weight,
+        policy.max_sector_weight,
+        policy.max_options_exposure,
+        policy.rebalancing_drift_threshold,
+    ):
+        if value < 0 or value > 100:
+            raise ValueError("Policy limits must be between 0 and 100")
+    if policy.minimum_cash < 0:
+        raise ValueError("Minimum cash cannot be negative")
+
 
 def generate_rebalance_proposal(
     positions: list[Position],
     summary: AccountSummary,
     policy: InvestmentPolicyStatement,
-    profile: InvestorProfile
+    profile: InvestorProfile,
 ) -> RebalanceProposal:
-    """Optimize portfolio weights by generating buy/sell proposals."""
-    total_val = max(summary.net_liquidation, 1.0)
-    current_cash = summary.cash
-    
-    # 1. Analyze drift first
-    drift_analysis = analyze_policy_drift(positions, current_cash, total_val, policy)
-    drifts = drift_analysis["drifts"]
-    
-    proposed_trades: list[RebalanceProposalItem] = []
-    
-    # 2. Determine target allocations
-    target_cash_val = total_val * (policy.target_cash_percent / 100.0)
-    
-    # Minimum cash constraint: cash must be at least policy.minimum_cash
-    cash_floor = max(policy.minimum_cash, target_cash_val)
-    cash_diff = cash_floor - current_cash
-    
-    # We will accumulate adjustments
-    cash_to_raise = 0.0
-    if cash_diff > 0:
-        # We need to raise cash
-        cash_to_raise = cash_diff
-        
-    # Group positions into segments
-    single_stocks = [p for p in positions if not p.is_etf and p.asset_class != "OPT"]
-    speculative = [p for p in positions if p.is_speculative]
-    etfs = [p for p in positions if p.is_etf]
-    
-    # 3. Check for specific concentration trims first
-    # 3a. Single stock concentration limits
-    for pos in single_stocks:
-        weight = pos.portfolio_weight
-        if weight > policy.max_single_stock_weight:
-            excess_weight = weight - policy.max_single_stock_weight
-            excess_val = total_val * (excess_weight / 100.0)
-            
-            qty = excess_val / max(pos.market_price, 0.01)
-            proposed_trades.append(
-                RebalanceProposalItem(
-                    symbol=pos.symbol,
-                    current_weight=round(pos.portfolio_weight, 2),
-                    target_weight=round(policy.max_single_stock_weight, 2),
-                    current_value=round(pos.market_value, 2),
-                    proposed_trade_value=round(-excess_val, 2),
-                    proposed_trade_qty=round(-qty, 2),
-                    action="Sell",
-                    reason=f"Trim single stock concentration (current weight {weight:.2f}% exceeds limit of {policy.max_single_stock_weight}%)."
-                )
-            )
-            cash_to_raise -= excess_val # reduces cash_to_raise or increases cash pool
-            
-    # 3b. Speculative basket concentration limits
-    total_spec_weight = drift_analysis["speculative_percent"]
-    if total_spec_weight > policy.max_speculative_weight and speculative:
-        spec_excess_weight = total_spec_weight - policy.max_speculative_weight
-        spec_excess_val = total_val * (spec_excess_weight / 100.0)
-        
-        # Trim speculative positions pro-rata
-        total_spec_val = sum(p.market_value for p in speculative) or 1.0
-        for pos in speculative:
-            # Check if this speculative stock wasn't already trimmed above
-            existing_trade = next((t for t in proposed_trades if t.symbol == pos.symbol), None)
-            if existing_trade:
-                continue
-                
-            share = pos.market_value / total_spec_val
-            trim_val = spec_excess_val * share
-            qty = trim_val / max(pos.market_price, 0.01)
-            
-            target_weight = max(0.0, pos.portfolio_weight - (trim_val / total_val * 100))
-            proposed_trades.append(
-                RebalanceProposalItem(
-                    symbol=pos.symbol,
-                    current_weight=round(pos.portfolio_weight, 2),
-                    target_weight=round(target_weight, 2),
-                    current_value=round(pos.market_value, 2),
-                    proposed_trade_value=round(-trim_val, 2),
-                    proposed_trade_qty=round(-qty, 2),
-                    action="Sell",
-                    reason=f"Trim speculative exposure to stay under default {policy.max_speculative_weight}% spec limit."
-                )
-            )
-            cash_to_raise -= trim_val
+    """Generate a bounded, deterministic rebalance review proposal.
 
-    # 4. Handle asset class drift
-    # If equities is overall underweight (and we have excess cash), we buy benchmark ETFs
-    equity_drift_pct = drifts["equity"]["drift"]
-    if equity_drift_pct < -policy.rebalancing_drift_threshold and current_cash > cash_floor:
-        # Underweight equity, buy benchmark ETF
-        cash_pool = current_cash - cash_floor
-        buy_val = min(cash_pool, abs(total_val * (equity_drift_pct / 100.0)))
-        
-        benchmark_symbol = policy.benchmark or "SPY"
-        # See if we already hold it
-        existing_pos = next((p for p in positions if p.symbol == benchmark_symbol), None)
-        curr_w = existing_pos.portfolio_weight if existing_pos else 0.0
-        curr_v = existing_pos.market_value if existing_pos else 0.0
-        price = existing_pos.market_price if existing_pos else 500.0 # fallback price
-        
-        qty = buy_val / price
-        target_w = curr_w + (buy_val / total_val * 100)
-        
+    The solver does not invent market prices, does not sell more than a current long
+    position, and does not count the same sale twice when satisfying concentration
+    and cash-floor constraints. It remains a review proposal rather than an optimizer
+    because tax lots, spreads, commissions, settlement, and expected returns are not
+    available.
+    """
+
+    _validate_policy(policy)
+    if summary.net_liquidation <= 0:
+        raise ValueError("Net liquidation must be positive before rebalancing")
+
+    total_value = summary.net_liquidation
+    current_cash = summary.cash
+    cash_floor = max(policy.minimum_cash, total_value * policy.target_cash_percent / 100.0)
+    drift = analyze_policy_drift(positions, current_cash, total_value, policy)
+
+    long_positions = [position for position in positions if position.quantity > 0 and position.market_value > 0]
+    by_symbol = {position.symbol: position for position in long_positions}
+    planned_sales: dict[str, float] = defaultdict(float)
+    sale_reasons: dict[str, list[str]] = defaultdict(list)
+
+    def plan_sale(position: Position, requested_value: float, reason: str) -> None:
+        if requested_value <= 0:
+            return
+        remaining_value = max(0.0, position.market_value - planned_sales[position.symbol])
+        sale_value = min(requested_value, remaining_value)
+        if sale_value < MINIMUM_TRADE_VALUE:
+            return
+        planned_sales[position.symbol] += sale_value
+        sale_reasons[position.symbol].append(reason)
+
+    # 1. Enforce single-name limits.
+    for position in long_positions:
+        if position.is_etf or position.asset_class in {"OPT", "FOP"}:
+            continue
+        current_weight = position.market_value / total_value * 100.0
+        if current_weight > policy.max_single_stock_weight:
+            target_value = total_value * policy.max_single_stock_weight / 100.0
+            plan_sale(
+                position,
+                position.market_value - target_value,
+                f"Reduce single-name exposure to the {policy.max_single_stock_weight:.2f}% policy limit.",
+            )
+
+    # 2. Enforce the speculative basket after accounting for single-name sales.
+    speculative = [position for position in long_positions if position.is_speculative]
+    speculative_value_after_planned_sales = sum(
+        max(0.0, position.market_value - planned_sales[position.symbol]) for position in speculative
+    )
+    speculative_limit_value = total_value * policy.max_speculative_weight / 100.0
+    speculative_excess = max(0.0, speculative_value_after_planned_sales - speculative_limit_value)
+    if speculative_excess > 0 and speculative_value_after_planned_sales > 0:
+        for position in speculative:
+            remaining = max(0.0, position.market_value - planned_sales[position.symbol])
+            share = remaining / speculative_value_after_planned_sales
+            plan_sale(
+                position,
+                speculative_excess * share,
+                f"Reduce the speculative basket to the {policy.max_speculative_weight:.2f}% policy limit.",
+            )
+
+    # 3. Satisfy the cash floor without double-counting sales already planned.
+    required_cash_raise = max(0.0, cash_floor - current_cash)
+    cash_from_planned_sales = sum(planned_sales.values())
+    additional_cash_needed = max(0.0, required_cash_raise - cash_from_planned_sales)
+
+    # If equity is materially overweight, the equity drift itself may require more
+    # selling than the cash floor. Use the larger requirement.
+    equity_drift = float(drift["drifts"]["equity"]["drift"])
+    equity_reduction_needed = (
+        total_value * equity_drift / 100.0
+        if equity_drift > policy.rebalancing_drift_threshold
+        else 0.0
+    )
+    additional_sale_target = max(additional_cash_needed, equity_reduction_needed - cash_from_planned_sales)
+
+    if additional_sale_target > 0:
+        # Prefer broad ETFs, then largest non-speculative core positions. Positions
+        # already partially sold remain eligible up to their unsold market value.
+        candidates = sorted(
+            long_positions,
+            key=lambda position: (
+                0 if position.is_etf else 1 if not position.is_speculative else 2,
+                -position.market_value,
+            ),
+        )
+        remaining_target = additional_sale_target
+        for position in candidates:
+            if remaining_target < MINIMUM_TRADE_VALUE:
+                break
+            available = max(0.0, position.market_value - planned_sales[position.symbol])
+            if available < MINIMUM_TRADE_VALUE:
+                continue
+            sale_value = min(available, remaining_target)
+            before = planned_sales[position.symbol]
+            plan_sale(position, sale_value, "Raise the required cash buffer or reduce equity drift.")
+            remaining_target -= planned_sales[position.symbol] - before
+
+    proposed_trades: list[RebalanceProposalItem] = []
+    for symbol, sale_value in sorted(planned_sales.items()):
+        position = by_symbol[symbol]
+        if position.market_price <= 0:
+            continue
+        quantity = min(position.quantity, sale_value / position.market_price)
+        actual_value = quantity * position.market_price
+        if actual_value < MINIMUM_TRADE_VALUE:
+            continue
+        target_weight = max(0.0, (position.market_value - actual_value) / total_value * 100.0)
         proposed_trades.append(
             RebalanceProposalItem(
-                symbol=benchmark_symbol,
-                current_weight=round(curr_w, 2),
-                target_weight=round(target_w, 2),
-                current_value=round(curr_v, 2),
-                proposed_trade_value=round(buy_val, 2),
-                proposed_trade_qty=round(qty, 2),
-                action="Buy",
-                reason=f"Buy benchmark ETF {benchmark_symbol} to correct equity underweight drift ({equity_drift_pct:.2f}%)."
+                symbol=symbol,
+                current_weight=round(position.market_value / total_value * 100.0, 2),
+                target_weight=round(target_weight, 2),
+                current_value=round(position.market_value, 2),
+                proposed_trade_value=round(-actual_value, 2),
+                proposed_trade_qty=round(-quantity, 6),
+                action="Sell",
+                reason=" ".join(dict.fromkeys(sale_reasons[symbol])),
             )
         )
-        cash_to_raise += buy_val
 
-    # If equities is overall overweight, and we need to raise cash, trim ETFs or single stocks pro-rata
-    if (equity_drift_pct > policy.rebalancing_drift_threshold or cash_to_raise > 0) and positions:
-        # Filter proposed sells so far to count how much cash we already raised
-        cash_raised_so_far = sum(abs(t.proposed_trade_value) for t in proposed_trades if t.action == "Sell")
-        still_needed = max(0.0, cash_to_raise - cash_raised_so_far)
-        
-        if still_needed > 0:
-            # Sell benchmark ETFs or largest holdings to raise cash
-            sellable_etfs = [p for p in etfs if not next((t for t in proposed_trades if t.symbol == p.symbol), None)]
-            if sellable_etfs:
-                # Sell from ETFs first to preserve single names
-                total_etf_mv = sum(p.market_value for p in sellable_etfs) or 1.0
-                for pos in sellable_etfs:
-                    share = pos.market_value / total_etf_mv
-                    trim_val = min(pos.market_value * 0.5, still_needed * share)
-                    qty = trim_val / max(pos.market_price, 0.01)
-                    target_w = max(0.0, pos.portfolio_weight - (trim_val / total_val * 100))
-                    proposed_trades.append(
-                        RebalanceProposalItem(
-                            symbol=pos.symbol,
-                            current_weight=round(pos.portfolio_weight, 2),
-                            target_weight=round(target_w, 2),
-                            current_value=round(pos.market_value, 2),
-                            proposed_trade_value=round(-trim_val, 2),
-                            proposed_trade_qty=round(-qty, 2),
-                            action="Sell",
-                            reason=f"Trim ETF holding to raise required cash buffer."
-                        )
+    # 4. Use excess cash to correct a material equity underweight only when a real,
+    # currently observed benchmark price exists. Never use a fabricated fallback.
+    if equity_drift < -policy.rebalancing_drift_threshold and current_cash > cash_floor:
+        benchmark = policy.benchmark.upper()
+        restricted = {item.upper() for item in profile.restrictions}
+        benchmark_position = next((position for position in long_positions if position.symbol.upper() == benchmark), None)
+        if benchmark_position and benchmark_position.market_price > 0 and benchmark not in restricted:
+            available_cash = current_cash - cash_floor
+            desired_purchase = min(available_cash, total_value * abs(equity_drift) / 100.0)
+            if desired_purchase >= MINIMUM_TRADE_VALUE:
+                quantity = desired_purchase / benchmark_position.market_price
+                proposed_trades.append(
+                    RebalanceProposalItem(
+                        symbol=benchmark,
+                        current_weight=round(benchmark_position.market_value / total_value * 100.0, 2),
+                        target_weight=round(
+                            (benchmark_position.market_value + desired_purchase) / total_value * 100.0,
+                            2,
+                        ),
+                        current_value=round(benchmark_position.market_value, 2),
+                        proposed_trade_value=round(desired_purchase, 2),
+                        proposed_trade_qty=round(quantity, 6),
+                        action="Buy",
+                        reason=f"Use cash above the policy floor to reduce the {abs(equity_drift):.2f}% equity underweight.",
                     )
-            else:
-                # Trimming core holdings if no ETFs are available
-                sellable_core = [p for p in single_stocks if not p.is_speculative and not next((t for t in proposed_trades if t.symbol == p.symbol), None)]
-                if sellable_core:
-                    total_core_mv = sum(p.market_value for p in sellable_core) or 1.0
-                    for pos in sellable_core:
-                        share = pos.market_value / total_core_mv
-                        trim_val = min(pos.market_value * 0.2, still_needed * share)
-                        qty = trim_val / max(pos.market_price, 0.01)
-                        target_w = max(0.0, pos.portfolio_weight - (trim_val / total_val * 100))
-                        proposed_trades.append(
-                            RebalanceProposalItem(
-                                symbol=pos.symbol,
-                                current_weight=round(pos.portfolio_weight, 2),
-                                target_weight=round(target_w, 2),
-                                current_value=round(pos.market_value, 2),
-                                proposed_trade_value=round(-trim_val, 2),
-                                proposed_trade_qty=round(-qty, 2),
-                                action="Sell",
-                                reason=f"Trim core holding pro-rata to raise cash floor."
-                            )
-                        )
+                )
 
-    # 5. Apply Transaction Cost Rule: Filter out proposed trades under $100
-    proposed_trades = [t for t in proposed_trades if abs(t.proposed_trade_value) >= 100.0]
-    
-    # 6. Calculate net cash impact of proposed trades
-    net_cash_impact = sum(
-        -t.proposed_trade_value if t.action == "Buy" else abs(t.proposed_trade_value)
-        for t in proposed_trades
-    )
-    
-    # 7. Apply Tax-Aware logic
-    tax_warning = ""
-    if profile.account_type in ("Taxable", "Margin"):
-        sells = [t.symbol for t in proposed_trades if t.action == "Sell"]
-        if sells:
+    cash_impact = -sum(item.proposed_trade_value for item in proposed_trades)
+
+    if profile.account_type in {"Taxable", "Margin"}:
+        sold_symbols = [item.symbol for item in proposed_trades if item.action == "Sell"]
+        if sold_symbols:
             tax_warning = (
-                f"WARNING: Account type is {profile.account_type}. Proposed sales of "
-                f"{', '.join(sells)} may trigger immediate realized capital gains. "
-                "Consider utilizing tax-loss harvesting or executing adjustments in "
-                "tax-advantaged accounts (TFSA/RRSP) to optimize tax outcomes."
+                f"Account type is {profile.account_type}. Sales of {', '.join(sold_symbols)} may realize gains or losses. "
+                "Tax lots, superficial-loss/wash-sale rules, commissions, and settlement are not modeled."
             )
         else:
-            tax_warning = "Account is taxable, but proposed adjustments do not trigger immediate sales."
+            tax_warning = "The account is taxable, but this proposal contains no sales. Tax lots are not modeled."
     else:
         tax_warning = (
-            f"Tax-free status confirmed: Account type is {profile.account_type} (TFSA/RRSP/Roth equivalent). "
-            "Trades can be executed without immediate tax liabilities."
+            f"Account type is {profile.account_type}. Immediate capital-gains tax is generally not modeled here; "
+            "account-specific contribution, withdrawal, and trading rules still require human review."
         )
-        
+
+    if policy.target_bond_percent > 0:
+        tax_warning += " Bond purchases are not proposed because no approved bond instrument or live price is configured."
+
     return RebalanceProposal(
         proposed_trades=proposed_trades,
-        cash_impact=round(net_cash_impact, 2),
-        tax_impact_warning=tax_warning
+        cash_impact=round(cash_impact, 2),
+        tax_impact_warning=tax_warning,
     )

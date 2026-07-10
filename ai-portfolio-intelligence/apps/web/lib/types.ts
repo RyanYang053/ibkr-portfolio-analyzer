@@ -161,3 +161,47 @@ export type EvidenceText = {
   text: string;
   evidence_ids: string[];
 };
+
+export type OptionsStrategyDetails = {
+  name: string;
+  type: string;
+  expiration: string;
+  strikes: string;
+  net_credit_debit: number;
+  max_profit: string;
+  max_loss: string;
+  breakeven: number;
+  probability_of_profit: number;
+  rationale: string;
+  eligible: boolean;
+  eligibility_reason: string;
+};
+
+export type OptionsStrategyReport = {
+  symbol: string;
+  stock_price: number;
+  implied_volatility: number;
+  iv_percentile: number;
+  implied_move_percent: number;
+  strategies: OptionsStrategyDetails[];
+  market_sentiment: string;
+  human_review_required: boolean;
+  disclaimer: string;
+  provider: string;
+  provider_error?: string;
+  asOf: string;
+  dataSource: "IBKR" | "Polygon" | "Tradier" | "GeminiGroundedSearch" | "Mock";
+  isMock: boolean;
+  quoteDelaySeconds?: number;
+  sourceUrls?: string[];
+  warnings: string[];
+  provenance?: {
+    live_portfolio_data: boolean;
+    live_market_data: boolean;
+    cached_data: boolean;
+    mock_fallback_data: boolean;
+    web_grounded_context: boolean;
+  };
+};
+
+

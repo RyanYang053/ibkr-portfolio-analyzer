@@ -1,47 +1,67 @@
+from __future__ import annotations
+
+import re
+import sys
+from datetime import date, timedelta
+from statistics import fmean
 from typing import Optional
+
 from app.schemas.domain import Position, StockScore, utc_now
 
 
-MODEL_WEIGHTS = {
+MODEL_WEIGHTS: dict[str, dict[str, float]] = {
     "universal": {
-        "business_quality": 15,
+        "business_quality": 18,
         "growth": 15,
-        "profitability": 15,
-        "balance_sheet": 10,
+        "profitability": 17,
+        "balance_sheet": 12,
         "valuation": 15,
         "technical_trend": 10,
-        "catalyst_news": 10,
-        "portfolio_fit": 10,
+        "catalyst_news": 5,
+        "portfolio_fit": 8,
     },
     "mega_cap_quality": {
-        "business_quality": 20,
-        "growth": 15,
+        "business_quality": 22,
+        "growth": 14,
         "profitability": 20,
-        "balance_sheet": 10,
+        "balance_sheet": 12,
         "valuation": 15,
-        "technical_trend": 10,
-        "catalyst_news": 5,
-        "portfolio_fit": 5,
-    },
-    "etf": {
-        "market_trend": 25,
-        "index_valuation": 20,
-        "earnings_growth": 15,
-        "macro_environment": 15,
-        "drawdown_opportunity": 10,
-        "portfolio_fit": 15,
+        "technical_trend": 8,
+        "catalyst_news": 3,
+        "portfolio_fit": 6,
     },
     "speculative_growth": {
-        "revenue_product_progress": 20,
-        "cash_runway": 20,
-        "dilution_risk": 15,
-        "technology_product_milestone": 15,
+        "business_quality": 8,
+        "growth": 22,
+        "profitability": 10,
+        "balance_sheet": 20,
         "valuation": 10,
-        "technical_trend": 10,
+        "technical_trend": 12,
+        "catalyst_news": 8,
+        "portfolio_fit": 10,
+    },
+    "etf": {
+        "market_trend": 35,
+        "drawdown_opportunity": 20,
+        "valuation": 10,
         "catalyst_news": 5,
-        "portfolio_fit": 5,
+        "portfolio_fit": 30,
     },
 }
+
+
+def _clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def _linear(value: float, low: float, high: float) -> float:
+    if high <= low:
+        raise ValueError("high must be greater than low")
+    return _clamp((value - low) / (high - low) * 100.0)
+
+
+def _average(values: list[float]) -> float | None:
+    return fmean(values) if values else None
 
 
 def _interpret(score: float) -> str:
@@ -56,225 +76,272 @@ def _interpret(score: float) -> str:
     return "Broken/high-risk"
 
 
-def _base_sub_scores(position: Position) -> dict[str, float]:
-    valuation = 78 if position.unrealized_pnl < position.market_value * 0.25 else 64
-    technical = 72 if position.market_price >= position.avg_cost else 42
-    portfolio_fit = 82
-    if position.portfolio_weight > 12:
-        portfolio_fit = 56
-    if position.is_speculative and position.portfolio_weight > 3:
-        portfolio_fit = 45
-    return {
-        "business_quality": 78,
-        "growth": 74,
-        "profitability": 72,
-        "balance_sheet": 75,
-        "valuation": valuation,
-        "technical_trend": technical,
-        "catalyst_news": 68,
-        "portfolio_fit": portfolio_fit,
+def _portfolio_fit(position: Position) -> float:
+    score = 90.0
+    absolute_weight = abs(position.portfolio_weight)
+    if absolute_weight > 8.0:
+        score -= min(35.0, (absolute_weight - 8.0) * 4.0)
+    if position.is_speculative and absolute_weight > 3.0:
+        score -= min(35.0, (absolute_weight - 3.0) * 8.0)
+    return _clamp(score)
+
+
+def _news_score(news_list: list[dict]) -> tuple[float | None, list[str]]:
+    if not news_list:
+        return None, []
+
+    bullish = {"beat", "beats", "upgrade", "upgraded", "profit", "profitable", "growth", "approval", "contract"}
+    bearish = {"miss", "misses", "downgrade", "downgraded", "investigation", "fraud", "dilution", "loss", "warning"}
+    score = 50.0
+    evidence: list[str] = []
+    for item in news_list[:10]:
+        title = str(item.get("title", ""))
+        words = set(re.findall(r"[a-z]+", title.lower()))
+        positive_hits = words & bullish
+        negative_hits = words & bearish
+        score += 4.0 * len(positive_hits)
+        score -= 5.0 * len(negative_hits)
+        if positive_hits or negative_hits:
+            evidence.append(title)
+    return _clamp(score), evidence[:3]
+
+
+def _technical_score(technicals) -> float:
+    trend_scores = {
+        "strong uptrend": 90.0,
+        "uptrend": 75.0,
+        "neutral": 55.0,
+        "weakening": 40.0,
+        "downtrend": 25.0,
+        "strong downtrend": 10.0,
     }
+    trend = trend_scores.get(technicals.trend_classification.lower(), 50.0)
+    rsi = technicals.rsi_14
+    if 40.0 <= rsi <= 65.0:
+        momentum = 75.0
+    elif 30.0 <= rsi < 40.0 or 65.0 < rsi <= 75.0:
+        momentum = 55.0
+    elif rsi < 30.0:
+        momentum = 45.0
+    else:
+        momentum = 30.0
+    macd = 65.0 if technicals.macd_histogram > 0 else 35.0 if technicals.macd_histogram < 0 else 50.0
+    return fmean([trend, momentum, macd])
+
+
+def _stock_fundamental_scores(fundamentals) -> dict[str, float]:
+    scores: dict[str, float] = {}
+
+    quality_parts = [
+        _linear(fundamentals.gross_margin, 0.15, 0.75),
+        _linear(fundamentals.operating_margin, -0.10, 0.35),
+    ]
+    scores["business_quality"] = fmean(quality_parts)
+    scores["growth"] = _linear(fundamentals.revenue_growth_yoy, -0.10, 0.35)
+
+    profitability_parts = [_linear(fundamentals.operating_margin, -0.15, 0.35)]
+    if fundamentals.fcf_yield is not None:
+        profitability_parts.append(_linear(fundamentals.fcf_yield, -0.03, 0.08))
+    elif fundamentals.free_cash_flow != 0:
+        profitability_parts.append(75.0 if fundamentals.free_cash_flow > 0 else 15.0)
+    scores["profitability"] = fmean(profitability_parts)
+
+    capital = abs(fundamentals.cash) + abs(fundamentals.total_debt)
+    if capital > 0:
+        net_cash_ratio = (fundamentals.cash - fundamentals.total_debt) / capital
+        scores["balance_sheet"] = _clamp(50.0 + 50.0 * net_cash_ratio)
+
+    valuation_parts: list[float] = []
+    if fundamentals.pe_forward is not None and fundamentals.pe_forward > 0:
+        valuation_parts.append(_clamp(110.0 - fundamentals.pe_forward * 2.5))
+    if fundamentals.ev_sales is not None and fundamentals.ev_sales >= 0:
+        valuation_parts.append(_clamp(105.0 - fundamentals.ev_sales * 5.0))
+    if fundamentals.fcf_yield is not None:
+        valuation_parts.append(_linear(fundamentals.fcf_yield, -0.02, 0.08))
+    valuation = _average(valuation_parts)
+    if valuation is not None:
+        scores["valuation"] = valuation
+
+    return scores
+
+
+def _weighted_score(sub_scores: dict[str, float], weights: dict[str, float]) -> tuple[float | None, float]:
+    total_model_weight = sum(weights.values())
+    available_weight = sum(weight for factor, weight in weights.items() if factor in sub_scores)
+    if available_weight <= 0 or total_model_weight <= 0:
+        return None, 0.0
+    score = sum(sub_scores[factor] * weights[factor] for factor in sub_scores if factor in weights) / available_weight
+    return _clamp(score), available_weight / total_model_weight
 
 
 def score_stock(position: Position, allow_mock: Optional[bool] = None) -> StockScore:
-    portfolio_fit = 82.0
-    if position.portfolio_weight > 12:
-        portfolio_fit = 56.0
-    if position.is_speculative and position.portfolio_weight > 3:
-        portfolio_fit = 45.0
-
-    # Fetch dynamic inputs for GBDT model
     from app.core.config import settings
-    import sys
+
     if allow_mock is None:
-        allow_mock = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+        allow_mock = settings.broker_mode == "mock_ibkr_readonly" or "pytest" in sys.modules
 
     fundamentals = None
+    technicals = None
+    news_list: list[dict] = []
+    history_source = "missing"
+
     try:
         from app.services.fundamentals.mock_provider import MockFundamentalProvider
+
         fundamentals = MockFundamentalProvider(allow_mock=allow_mock).get_fundamentals(position.symbol)
     except Exception:
-        pass
+        fundamentals = None
 
-    technicals = None
     try:
         from app.services.market_data.mock_provider import MockMarketDataProvider
         from app.services.technicals.indicators import calculate_technical_indicators
-        history = MockMarketDataProvider(allow_mock=allow_mock).get_historical_prices(position.symbol, utc_now().date(), utc_now().date())
-        closes = [item["close"] for item in history]
+
+        today = utc_now().date()
+        history = MockMarketDataProvider(allow_mock=allow_mock).get_historical_prices(
+            position.symbol,
+            today - timedelta(days=400),
+            today,
+        )
+        closes = [float(item["close"]) for item in history]
+        history_source = str(history[-1].get("source", "unknown")) if history else "missing"
         technicals = calculate_technical_indicators(position.symbol, closes)
     except Exception:
-        pass
+        technicals = None
 
-    news_list = []
     try:
         from app.services.market_data.mock_provider import MockMarketDataProvider
+
         news_list = MockMarketDataProvider(allow_mock=allow_mock).get_recent_news(position.symbol)
     except Exception:
-        pass
+        news_list = []
 
-    if not allow_mock and (fundamentals is None or technicals is None):
-        missing_data = []
-        if not fundamentals:
-            missing_data.append("Verified fundamental score inputs")
-            missing_data.append("Verified valuation score inputs")
-        if not technicals:
-            missing_data.append("Verified technical score inputs")
-        if not news_list:
-            missing_data.append("Verified catalyst score inputs")
-
-        explanation = f"Stock score for {position.symbol} could not be calculated because live fundamental or technical data was not found."
-        return StockScore(
-            symbol=position.symbol,
-            stock_type=position.stock_type,
-            final_score=None,
-            interpretation="Data Not Found",
-            sub_scores={"portfolio_fit": portfolio_fit},
-            explanation=explanation,
-            supporting_evidence=[
-                f"Portfolio weight: {position.portfolio_weight:.2f}%",
-                f"Unrealized P&L: {position.unrealized_pnl:.2f} {position.currency}",
-                f"Stock type: {position.stock_type}",
-            ],
-            missing_data=missing_data,
-            confidence="Low",
-            data_timestamp=utc_now(),
-        )
-
-    # Extract features for Decision Trees
-    pe_forward = fundamentals.pe_forward if fundamentals else None
-    ev_sales = fundamentals.ev_sales if fundamentals else None
-    operating_margin = fundamentals.operating_margin if fundamentals else None
-    revenue_growth_yoy = fundamentals.revenue_growth_yoy if fundamentals else None
-    cash = fundamentals.cash if fundamentals else 1.0
-    total_debt = fundamentals.total_debt if fundamentals else 0.0
-
-    rsi_14 = technicals.rsi_14 if technicals else None
-    trend_classification = technicals.trend_classification.lower() if technicals else "unknown"
-
-    # Evaluate news sentiment
-    sentiment_score = 5.0
-    bullish_keywords = {"growth", "exceeds", "upgrade", "profit", "buy", "beat", "positive", "strong", "higher"}
-    bearish_keywords = {"falls", "misses", "downgrade", "investigation", "risk", "negative", "weak", "lower", "loss"}
-    for item in news_list:
-        title = item.get("title", "").lower()
-        words = set(title.split())
-        if words & bullish_keywords:
-            sentiment_score += 1.5
-        if words & bearish_keywords:
-            sentiment_score -= 1.5
-    sentiment_score = max(0.0, min(10.0, sentiment_score))
-
-    # GBDT Tree 1: Valuation & Operating Margins
-    t1_score = 0.0
-    if pe_forward is not None:
-        if pe_forward < 20.0:
-            t1_score = 15.0 if (operating_margin is not None and operating_margin > 0.15) else 10.0
-        else:
-            t1_score = 6.0 if (operating_margin is not None and operating_margin > 0.25) else 3.0
-    else:
-        if ev_sales is not None:
-            t1_score = 10.0 if ev_sales < 5.0 else 5.0
-        else:
-            t1_score = 5.0
-
-    # GBDT Tree 2: Growth & Leverage
-    t2_score = 0.0
-    if revenue_growth_yoy is not None:
-        if revenue_growth_yoy > 0.10:
-            t2_score = 20.0 if total_debt < cash else 14.0
-        else:
-            t2_score = 10.0 if (operating_margin is not None and operating_margin > 0.25) else 5.0
-    else:
-        t2_score = 8.0
-
-    # GBDT Tree 3: Technical Indicators
-    t3_score = 0.0
-    if rsi_14 is not None:
-        if 30.0 <= rsi_14 <= 70.0:
-            t3_score = 15.0 if trend_classification in {"uptrend", "bullish"} else 10.0
-        elif rsi_14 < 30.0:
-            t3_score = 8.0
-        else:
-            t3_score = 5.0
-    else:
-        t3_score = 9.0
-
-    # GBDT Tree 4: Sentiment
-    t4_score = sentiment_score
-
-    # Compute sub scores
-    sub_scores = {
-        "business_quality": round(65.0 + (operating_margin or 0.0) * 30.0, 2),
-        "growth": round(50.0 + (revenue_growth_yoy or 0.0) * 100.0, 2),
-        "profitability": round(50.0 + (operating_margin or 0.0) * 100.0, 2),
-        "balance_sheet": round(80.0 - (total_debt / max(cash, 1.0)) * 10.0, 2),
-        "valuation": round(35.0 + t1_score * 3.5, 2),
-        "technical_trend": round(30.0 + t3_score * 4.5, 2),
-        "catalyst_news": round(50.0 + t4_score * 4.5, 2),
-        "portfolio_fit": portfolio_fit
-    }
-
-    # Bound all sub_scores
-    for k, v in sub_scores.items():
-        sub_scores[k] = max(0.0, min(100.0, v))
-
-    # Calculate weighted final score
-    weights = MODEL_WEIGHTS["speculative_growth"] if position.is_speculative else MODEL_WEIGHTS["universal"]
-    weighted_sum = 0.0
-    total_weight = 0.0
-    for key, weight in weights.items():
-        if key in sub_scores:
-            weighted_sum += sub_scores[key] * weight
-            total_weight += weight
-    final_score = round(weighted_sum / total_weight, 2) if total_weight > 0 else 70.0
-
-    # Check verified datasets and missing categories
-    missing_data = []
-    if not fundamentals:
-        missing_data.append("Verified fundamental score inputs")
-        missing_data.append("Verified valuation score inputs")
-    if not technicals:
-        missing_data.append("Verified technical score inputs")
-    if not news_list:
-        missing_data.append("Verified catalyst score inputs")
-
-    if len(missing_data) >= 3:
-        confidence = "Low"
-    elif len(missing_data) > 0:
-        confidence = "Medium"
-    else:
-        confidence = "High"
-
-    supporting_evidence = [
+    sub_scores: dict[str, float] = {"portfolio_fit": _portfolio_fit(position)}
+    evidence = [
         f"Portfolio weight: {position.portfolio_weight:.2f}%",
         f"Unrealized P&L: {position.unrealized_pnl:.2f} {position.currency}",
-        f"Stock type: {position.stock_type}",
+        f"Security classification: {position.stock_type}",
     ]
-    if fundamentals:
-        supporting_evidence.append(f"Operating Margin: {operating_margin * 100:.1f}%" if operating_margin is not None else "Operating Margin: N/A")
-        supporting_evidence.append(f"Revenue Growth YoY: {revenue_growth_yoy * 100:.1f}%" if revenue_growth_yoy is not None else "Revenue Growth YoY: N/A")
-    if technicals:
-        supporting_evidence.append(f"RSI (14): {rsi_14:.1f}" if rsi_14 is not None else "RSI (14): N/A")
-        supporting_evidence.append(f"Trend Classification: {trend_classification.capitalize()}")
+    missing_data: list[str] = []
 
-    explanation = (
-        f"The stock quality score of {final_score:.1f} ({_interpret(final_score)}) was evaluated locally "
-        "using a pre-trained gradient-boosting decision tree (GBDT) ensemble. "
-    )
-    if missing_data:
-        explanation += f"Note: Some categories ({', '.join(missing_data)}) are unverified, which reduces score confidence to {confidence}."
+    if position.is_etf:
+        model_name = "etf"
+        if technicals is not None:
+            sub_scores["market_trend"] = _technical_score(technicals)
+            sub_scores["drawdown_opportunity"] = _clamp(-technicals.drawdown_from_52w_high * 4.0)
+            evidence.extend(
+                [
+                    f"RSI (14): {technicals.rsi_14:.2f}",
+                    f"Trend: {technicals.trend_classification}",
+                    f"Drawdown from 52-week high: {technicals.drawdown_from_52w_high:.2f}%",
+                ]
+            )
+        else:
+            missing_data.append("Verified ETF price history")
+        # The current provider does not supply index-level earnings yield, holdings
+        # valuation, expense ratio, tracking error, or liquidity metrics.
+        missing_data.append("ETF valuation and implementation metrics")
     else:
-        explanation += "All fundamental, technical, and news catalyst inputs were verified successfully."
+        model_name = (
+            "speculative_growth"
+            if position.is_speculative
+            else position.stock_type
+            if position.stock_type in MODEL_WEIGHTS
+            else "universal"
+        )
+        if fundamentals is not None and not str(fundamentals.source).endswith("_etf"):
+            sub_scores.update(_stock_fundamental_scores(fundamentals))
+            evidence.extend(
+                [
+                    f"Revenue growth YoY: {fundamentals.revenue_growth_yoy * 100:.2f}%",
+                    f"Operating margin: {fundamentals.operating_margin * 100:.2f}%",
+                    f"Fundamental source: {fundamentals.source}",
+                    f"Fundamental report date: {fundamentals.report_date.isoformat()}",
+                ]
+            )
+            if (date.today() - fundamentals.report_date).days > 180:
+                missing_data.append("Fresh fundamental filing data")
+        else:
+            missing_data.extend(["Verified fundamental inputs", "Verified valuation inputs"])
+
+        if technicals is not None:
+            sub_scores["technical_trend"] = _technical_score(technicals)
+            evidence.extend(
+                [
+                    f"RSI (14): {technicals.rsi_14:.2f}",
+                    f"MACD histogram: {technicals.macd_histogram:.4f}",
+                    f"Trend: {technicals.trend_classification}",
+                ]
+            )
+        else:
+            missing_data.append("Verified technical inputs")
+
+    catalyst_score, catalyst_evidence = _news_score(news_list)
+    if catalyst_score is not None:
+        sub_scores["catalyst_news"] = catalyst_score
+        evidence.extend(f"News signal: {headline}" for headline in catalyst_evidence)
+    else:
+        missing_data.append("Recent catalyst/news inputs")
+
+    weights = MODEL_WEIGHTS[model_name]
+    raw_score, coverage = _weighted_score(sub_scores, weights)
+
+    input_sources = {
+        str(getattr(fundamentals, "source", "missing")),
+        history_source,
+        *(str(item.get("source", "missing")) for item in news_list),
+    }
+    uses_mock = any(source.startswith("mock") for source in input_sources)
+    if uses_mock:
+        missing_data.append("Live inputs (demo/mock data is active)")
+
+    # Do not emit a composite score when less than 60% of the model is supported.
+    final_score = round(raw_score, 2) if raw_score is not None and coverage >= 0.60 else None
+    missing_data = list(dict.fromkeys(missing_data))
+
+    if final_score is None:
+        confidence = "Low"
+        interpretation = "Data Not Found"
+    elif uses_mock:
+        confidence = "Medium"
+        interpretation = _interpret(final_score)
+    elif coverage >= 0.90 and not missing_data:
+        confidence = "High"
+        interpretation = _interpret(final_score)
+    elif coverage >= 0.75:
+        confidence = "Medium-High"
+        interpretation = _interpret(final_score)
+    elif coverage >= 0.60:
+        confidence = "Medium"
+        interpretation = _interpret(final_score)
+    else:
+        confidence = "Low"
+        interpretation = "Data Not Found"
+
+    rounded_sub_scores = {key: round(value, 2) for key, value in sub_scores.items()}
+    if final_score is None:
+        explanation = (
+            f"No composite score is produced for {position.symbol}: only {coverage * 100:.1f}% of the "
+            "declared model weight has usable inputs. A minimum of 60% is required."
+        )
+    else:
+        explanation = (
+            f"{position.symbol} received a deterministic weighted-factor score of {final_score:.1f} "
+            f"({_interpret(final_score)}), with {coverage * 100:.1f}% model coverage. "
+            "This is an auditable rule-based model, not a trained machine-learning model and not a forecast of returns."
+        )
+        if missing_data:
+            explanation += f" Confidence is limited by: {', '.join(missing_data)}."
+
+    evidence.append(f"Model coverage: {coverage * 100:.1f}%")
 
     return StockScore(
         symbol=position.symbol,
         stock_type=position.stock_type,
         final_score=final_score,
-        interpretation=_interpret(final_score),
-        sub_scores=sub_scores,
+        interpretation=interpretation,
+        sub_scores=rounded_sub_scores,
         explanation=explanation,
-        supporting_evidence=supporting_evidence,
+        supporting_evidence=evidence,
         missing_data=missing_data,
         confidence=confidence,
         data_timestamp=utc_now(),

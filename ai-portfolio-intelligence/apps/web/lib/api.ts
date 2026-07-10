@@ -1,4 +1,4 @@
-import type { AIStatus, AIStockReport, Alert, BrokerStatus, PortfolioRisk, PortfolioSummary, Position, Recommendation } from "./types";
+import type { AIStatus, AIStockReport, Alert, BrokerStatus, PortfolioRisk, PortfolioSummary, Position, Recommendation, OptionsStrategyReport } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -444,6 +444,11 @@ export async function getAdvancedRiskMetrics(accountId?: string): Promise<any> {
     portfolio_beta_qqq: null,
     value_at_risk_95: null,
     conditional_var_95: null,
+    sharpe_ratio: null,
+    sortino_ratio: null,
+    jensens_alpha: null,
+    tracking_error: null,
+    information_ratio: null,
     correlation_matrix: {},
     factor_exposures: {},
     stress_tests: [],
@@ -464,3 +469,24 @@ export async function getPerformanceAttribution(accountId?: string): Promise<any
     methodology: "Unavailable"
   });
 }
+
+export async function getOptionsStrategy(symbol: string): Promise<OptionsStrategyReport> {
+  return getJson<OptionsStrategyReport>(`/stocks/${symbol}/options-strategy`, {
+    symbol,
+    stock_price: 0,
+    implied_volatility: 0,
+    iv_percentile: 0,
+    implied_move_percent: 0,
+    strategies: [],
+    market_sentiment: "IBKR not connected or option parameters unavailable.",
+    human_review_required: true,
+    disclaimer: "This is fallback data. Please configure your API client.",
+    provider: "deterministic_fallback",
+    asOf: new Date().toISOString(),
+    dataSource: "Mock",
+    isMock: true,
+    warnings: ["Fallback data: failed to connect to portfolio API."]
+  });
+}
+
+

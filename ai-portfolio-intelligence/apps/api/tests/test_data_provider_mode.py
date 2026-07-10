@@ -43,8 +43,9 @@ def test_score_stock_withholds_score_in_live_mode_without_data():
     assert score.final_score is None
     assert score.interpretation == "Data Not Found"
     assert "portfolio_fit" in score.sub_scores
-    assert len(score.sub_scores) == 1
-    assert "fundamental" in score.explanation.lower() or "technical" in score.explanation.lower()
+    # Partial sub-scores may exist (e.g. portfolio_fit, catalyst_news) but composite is withheld below 60% coverage.
+    assert len(score.sub_scores) >= 1
+    assert "60%" in score.explanation
 
 
 def test_stock_endpoint_raises_404_for_invalid_symbol_in_live_mode():

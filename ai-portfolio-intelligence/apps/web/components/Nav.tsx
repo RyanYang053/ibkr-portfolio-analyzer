@@ -50,11 +50,11 @@ export function Nav() {
         <Search className="absolute left-2.5 top-2.5 text-zinc-400" size={13} />
       </form>
 
-      <nav className="grid gap-1">
+      <nav className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-1">
         {items.map((item) => {
           const Icon = item.icon;
           return (
-            <Link key={item.href} className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-panel" href={item.href}>
+            <Link key={item.href} className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-panel transition-colors" href={item.href}>
               <Icon size={17} aria-hidden />
               {item.label}
             </Link>

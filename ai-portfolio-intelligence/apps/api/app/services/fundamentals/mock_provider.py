@@ -63,8 +63,6 @@ class MockFundamentalProvider:
                     gross_margin = findata.get("grossMargins", {}).get("raw")
                     operating_margin = findata.get("operatingMargins", {}).get("raw")
                     fcf = findata.get("freeCashflow", {}).get("raw")
-                    if fcf is None:
-                        fcf = findata.get("operatingCashflow", {}).get("raw")
 
                     cash = findata.get("totalCash", {}).get("raw")
                     total_debt = findata.get("totalDebt", {}).get("raw")

@@ -200,3 +200,45 @@ def analysis(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
         "recommendation": build_recommendation(position),
         "last_ai_report": cached,
     }
+
+
+@router.get("/{symbol}/options-strategy")
+def options_strategy(symbol: str, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+    position = _position(symbol, adapter)
+    is_demo = demo_mode_enabled()
+    allow_mock = is_demo
+    provider = MockMarketDataProvider(allow_mock=allow_mock)
+    technicals_data = None
+    try:
+        history = provider.get_historical_prices(symbol.upper(), date.today() - timedelta(days=260), date.today())
+        closes = [item["close"] for item in history]
+        if len(closes) >= 200:
+            indicators = calculate_technical_indicators(symbol.upper(), closes)
+            technicals_data = {
+                "trend_classification": indicators.trend_classification,
+                "rsi_14": indicators.rsi_14,
+                "drawdown_from_52w_high": indicators.drawdown_from_52w_high,
+            }
+    except Exception:
+        pass
+
+    cash_available = 15000.0
+    account_type = "Margin"
+    try:
+        accounts = adapter.get_accounts()
+        if accounts:
+            summary_data = adapter.get_account_summary(accounts[0].id)
+            cash_available = summary_data.cash
+            account_type = accounts[0].account_type
+    except Exception:
+        pass
+
+    from app.services.ai.report_generator import generate_options_strategy_report
+    return generate_options_strategy_report(
+        position, 
+        technicals_data, 
+        cash_available=cash_available, 
+        account_type=account_type
+    )
+
+

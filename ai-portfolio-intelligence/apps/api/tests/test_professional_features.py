@@ -160,7 +160,7 @@ def test_rebalancing_solver():
     assert len(sells) > 0
     assert any(t.symbol == "AAPL" for t in sells)
     assert any(t.symbol == "IONQ" for t in sells)
-    assert "realized capital gains" in proposal.tax_impact_warning
+    assert "may realize gains or losses" in proposal.tax_impact_warning
 
 
 def test_advanced_risk_and_stress_tests():

@@ -277,3 +277,68 @@ def build_portfolio_memo_prompt(*, summary: Any, positions: list[Position], risk
         + "4. Evaluate suitability and data quality explicitly and require human review.\n\n"
         + json.dumps(payload, indent=2, sort_keys=True)
     )
+
+
+OPTIONS_STRATEGY_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "symbol": {"type": "string"},
+        "strategies": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "e.g. Covered Call, Cash-Secured Put, Bull Call Spread"},
+                    "type": {"type": "string", "description": "income | defensive | bullish | bearish"},
+                    "expiration": {"type": "string", "description": "Expiration date format YYYY-MM-DD"},
+                    "selected_strikes": {"type": "string", "description": "e.g. Sell 195 Call"},
+                    "target_contract_symbols": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Exact symbols from the provided options chain list, e.g. ['AAPL260717C00195000']"
+                    },
+                    "rationale": {"type": "string", "description": "Why this specific strategy and these strike contracts align with current stock metrics and research."},
+                },
+                "required": [
+                    "name",
+                    "type",
+                    "expiration",
+                    "selected_strikes",
+                    "target_contract_symbols",
+                    "rationale",
+                ]
+            }
+        },
+        "market_sentiment": {"type": "string", "description": "Educational summary of the volatility and market sentiment."},
+        "human_review_required": {"type": "boolean"},
+        "disclaimer": {"type": "string"}
+    },
+    "required": [
+        "symbol",
+        "strategies",
+        "market_sentiment",
+        "human_review_required",
+        "disclaimer",
+    ]
+}
+
+
+def build_options_strategy_prompt(*, symbol: str, current_price: float, trend: str, action: str, options_chain: list[dict[str, Any]]) -> str:
+    payload = {
+        "symbol": symbol,
+        "current_price": current_price,
+        "technical_trend": trend,
+        "action_recommendation": action,
+        "available_options_chain": options_chain,
+        "required_disclaimer": DISCLAIMER,
+    }
+    return (
+        "You are a professional options strategist designing educational options structures. Analyze the provided stock and options chain data.\n"
+        + "Do not invent options contracts. You must select from the provided 'available_options_chain' list only.\n"
+        + "Recommend two strategy candidates (one conservative income strategy e.g. Covered Call or Cash-Secured Put, and one risk-defined directional strategy e.g. Bull Call Spread or Bear Put Spread) that align with the technical trend and action.\n"
+        + "Ensure you output only educational strategy candidates, never order recommendations or direct buy/sell commands.\n"
+        + "Return strict JSON only. Do not wrap JSON in markdown.\n\n"
+        + json.dumps(payload, indent=2, default=str)
+    )
+
+

@@ -1,33 +1,53 @@
-from app.schemas.domain import Position, Recommendation
+from __future__ import annotations
+
+from app.schemas.domain import Position, Provenance, Recommendation
 from app.services.scoring.stock_score import score_stock
 
 
 def _action_for(score: float, position: Position) -> str:
-    if position.is_speculative and position.portfolio_weight > 3:
+    absolute_weight = abs(position.portfolio_weight)
+    if position.is_speculative and absolute_weight > 3.0:
         return "Trim Review"
-    if score >= 85 and position.portfolio_weight < 8:
+    if score >= 85.0 and absolute_weight < 8.0:
         return "Strong Add"
-    if score >= 70 and position.portfolio_weight < 10:
+    if score >= 70.0 and absolute_weight < 10.0:
         return "Add"
-    if score >= 62:
+    if score >= 62.0:
         return "Hold"
-    if score >= 50:
+    if score >= 50.0:
         return "Watch"
-    if score >= 40:
+    if score >= 40.0:
         return "Exit Review"
     return "Avoid"
 
 
 def build_recommendation(position: Position) -> Recommendation:
     score = score_stock(position)
-    inputs_verified = not score.missing_data
-    action = _action_for(score.final_score, position) if inputs_verified and score.final_score is not None else "Data Insufficient"
+    decision_grade = score.final_score is not None and score.confidence in {"High", "Medium-High"}
+    action = _action_for(score.final_score, position) if decision_grade else "Data Insufficient"
 
-    explanation = (
-        f"{position.symbol} is categorized as {action}. The current score is a placeholder "
-        "heuristic and cannot support an add, trim, or exit category until live fundamental, "
-        "technical, valuation, and catalyst inputs are verified."
+    if action == "Data Insufficient":
+        explanation = (
+            f"{position.symbol} remains Data Insufficient because the research model does not have enough "
+            f"verified coverage for a decision category. {score.explanation}"
+        )
+    else:
+        explanation = (
+            f"{position.symbol} is categorized as {action} from an auditable weighted-factor score of "
+            f"{score.final_score:.1f} with {score.confidence} confidence. The category is decision support "
+            "only and must be reviewed against valuation, portfolio constraints, taxes, and current filings."
+        )
+
+    missing_lower = " ".join(score.missing_data).lower()
+    mock_active = "mock" in missing_lower or "demo" in missing_lower
+    provenance = Provenance(
+        live_portfolio_data=position.account_id not in {"MOCK-001", "MOCK-002", "WATCHLIST_ONLY", "SYNTHETIC_RESEARCH"},
+        live_market_data=not mock_active and "technical" not in missing_lower,
+        cached_data=False,
+        mock_fallback_data=mock_active,
+        web_grounded_context=False,
     )
+
     return Recommendation(
         symbol=position.symbol,
         action=action,  # type: ignore[arg-type]
@@ -42,7 +62,8 @@ def build_recommendation(position: Position) -> Recommendation:
         data_freshness={
             "portfolio": position.updated_at.isoformat(),
             "score": score.data_timestamp.isoformat(),
-            "market_data": "unverified",
-            "fundamentals": "unverified",
+            "market_data": "present in model" if "technical" not in missing_lower else "missing or stale",
+            "fundamentals": "present in model" if "fundamental" not in missing_lower else "missing or stale",
         },
+        provenance=provenance,
     )

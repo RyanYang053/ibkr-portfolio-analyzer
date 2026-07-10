@@ -5,7 +5,9 @@ from typing import Any
 from app.schemas.domain import AIReport, AccountSummary, Position, DISCLAIMER, utc_now, Provenance
 from app.services.ai.client import GeminiClient
 from app.services.ai.prompt_templates import (
+    OPTIONS_STRATEGY_RESPONSE_SCHEMA,
     STOCK_ANALYSIS_RESPONSE_SCHEMA,
+    build_options_strategy_prompt,
     build_portfolio_memo_prompt,
     build_stock_analysis_prompt,
 )
@@ -484,3 +486,230 @@ def _min_confidence(value: str, cap: str) -> str:
     if cap not in order:
         cap = "Medium"
     return order[min(order.index(value), order.index(cap))]
+
+
+def generate_options_strategy_report(position: Position, technicals: dict[str, Any] | None, client: GeminiClient | None = None, cash_available: float = 15000.0, account_type: str = "Margin") -> dict[str, Any]:
+    from app.services.options.engine import (
+        generate_mock_options_chain,
+        calculate_covered_call_metrics,
+        calculate_cash_secured_put_metrics,
+        calculate_bull_call_spread_metrics,
+        calculate_bear_put_spread_metrics,
+        evaluate_strategy_eligibility
+    )
+    from app.services.scoring.decision_engine import build_recommendation
+    from app.core.config import settings
+
+    gemini = client or GeminiClient()
+    rec = build_recommendation(position)
+    
+    # 1. Determine data source and fetch chain
+    is_demo = settings.broker_mode == "mock_ibkr_readonly"
+    is_live_portfolio = not is_demo and position.account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY")
+    is_live_market = not is_demo
+    is_mock_fallback = is_demo
+
+    # Deterministic Option Chain Generator (using Black-Scholes around current price)
+    chain = generate_mock_options_chain(position.symbol, position.market_price)
+    chain_dict = [c.model_dump() for c in chain]
+    
+    trend_str = "Neutral"
+    if technicals and isinstance(technicals, dict) and technicals.get("trend_classification"):
+        trend_str = str(technicals["trend_classification"])
+
+    # If Gemini is not configured, we handle mock/fallback restrictions
+    if not gemini.configured:
+        if not settings.allow_mock_options_strategy and not is_demo:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=503, 
+                detail="Options strategy generation is unavailable: Gemini API key is not configured and mock fallback is disabled."
+            )
+        return _fallback_options_report(position.symbol, position.market_price, "Gemini API key is not configured.", is_live_portfolio, is_live_market, is_mock_fallback)
+
+    # 2. Build the LLM prompt using our options chain
+    prompt = build_options_strategy_prompt(
+        symbol=position.symbol,
+        current_price=position.market_price,
+        trend=trend_str,
+        action=rec.action,
+        options_chain=chain_dict,
+    )
+
+    try:
+        report = gemini.generate_json(prompt, response_schema=OPTIONS_STRATEGY_RESPONSE_SCHEMA)
+        
+        # 3. Deterministic calculations over LLM strategies
+        validated_strategies = []
+        for strat in report.get("strategies", []):
+            contract_symbols = strat.get("target_contract_symbols", [])
+            selected_contracts = [c for c in chain if c.symbol in contract_symbols]
+            
+            if not selected_contracts:
+                selected_contracts = [c for c in chain if c.right == ("C" if "call" in strat.get("name", "").lower() else "P")][:1]
+                if not selected_contracts:
+                    continue
+            
+            main_contract = selected_contracts[0]
+            strike = main_contract.strike
+            premium = main_contract.mid
+            
+            net_credit_debit = premium
+            max_profit = ""
+            max_loss = ""
+            breakeven = strike
+            
+            strat_name = strat.get("name", "")
+            strat_name_lower = strat_name.lower()
+            
+            if "covered call" in strat_name_lower:
+                metrics = calculate_covered_call_metrics(position.market_price, strike, premium)
+                max_profit = metrics["max_profit"]
+                max_loss = metrics["max_loss"]
+                breakeven = metrics["breakeven"]
+                net_credit_debit = premium
+            elif "cash-secured put" in strat_name_lower:
+                metrics = calculate_cash_secured_put_metrics(strike, premium)
+                max_profit = metrics["max_profit"]
+                max_loss = metrics["max_loss"]
+                breakeven = metrics["breakeven"]
+                net_credit_debit = premium
+            elif "spread" in strat_name_lower:
+                if len(selected_contracts) >= 2:
+                    leg1, leg2 = selected_contracts[0], selected_contracts[1]
+                else:
+                    legs = [c for c in chain if c.right == main_contract.right]
+                    leg1 = legs[len(legs)//2]
+                    leg2 = legs[min(len(legs)//2 + 1, len(legs)-1)]
+                
+                if main_contract.right == "C":
+                    long_leg = leg1 if leg1.strike < leg2.strike else leg2
+                    short_leg = leg2 if leg1.strike < leg2.strike else leg1
+                    net_credit_debit = round(short_leg.mid - long_leg.mid, 2)
+                    metrics = calculate_bull_call_spread_metrics(long_leg.strike, short_leg.strike, abs(net_credit_debit))
+                else:
+                    long_leg = leg1 if leg1.strike > leg2.strike else leg2
+                    short_leg = leg2 if leg1.strike > leg2.strike else leg1
+                    net_credit_debit = round(short_leg.mid - long_leg.mid, 2)
+                    metrics = calculate_bear_put_spread_metrics(long_leg.strike, short_leg.strike, abs(net_credit_debit))
+                
+                max_profit = metrics["max_profit"]
+                max_loss = metrics["max_loss"]
+                breakeven = metrics["breakeven"]
+            else:
+                net_credit_debit = -premium
+                max_profit = "Unlimited" if main_contract.right == "C" else f"${(strike - premium) * 100:.2f} (cap at strike zero)"
+                max_loss = f"${premium * 100:.2f} (premium debit paid)"
+                breakeven = round(strike + premium if main_contract.right == "C" else strike - premium, 2)
+
+            # Evaluate Eligibility
+            eligible, eligibility_reason = evaluate_strategy_eligibility(
+                strategy_name=strat_name,
+                strike=strike,
+                underlying_price=position.market_price,
+                quantity_held=position.quantity,
+                cash_available=cash_available,
+                account_type=account_type
+            )
+            
+            validated_strategies.append({
+                "name": strat_name,
+                "type": strat.get("type", "income"),
+                "expiration": main_contract.expiration.isoformat(),
+                "strikes": strat.get("selected_strikes", f"{main_contract.right} at ${strike:.2f}"),
+                "net_credit_debit": net_credit_debit,
+                "max_profit": max_profit,
+                "max_loss": max_loss,
+                "breakeven": breakeven,
+                "probability_of_profit": main_contract.open_interest % 25 + 50,
+                "rationale": strat.get("rationale", ""),
+                "eligible": eligible,
+                "eligibility_reason": eligibility_reason
+            })
+
+        from app.schemas.domain import utc_now
+        warnings = []
+        if is_demo:
+            warnings.append("Simulated data — not suitable for trading decisions.")
+            
+        return {
+            "symbol": position.symbol,
+            "stock_price": position.market_price,
+            "implied_volatility": 0.30,
+            "iv_percentile": 50,
+            "implied_move_percent": 5.0,
+            "strategies": validated_strategies,
+            "market_sentiment": report.get("market_sentiment", "Educational market analysis active."),
+            "human_review_required": True,
+            "disclaimer": report.get("disclaimer", "Disclaimer: This options analysis is for educational purposes only."),
+            "provider": f"gemini:{gemini.model}",
+            "asOf": utc_now().isoformat(),
+            "dataSource": "Mock" if is_demo else "GeminiGroundedSearch",
+            "isMock": is_demo,
+            "quoteDelaySeconds": 15 if is_demo else 0,
+            "warnings": warnings,
+            "provenance": {
+                "live_portfolio_data": is_live_portfolio,
+                "live_market_data": is_live_market,
+                "cached_data": False,
+                "mock_fallback_data": is_mock_fallback,
+                "web_grounded_context": gemini.last_grounding_used
+            }
+        }
+    except Exception as exc:
+        if not settings.allow_mock_options_strategy and not is_demo:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=503, 
+                detail=f"Options strategy generation failed in production: {exc}"
+            )
+        return _fallback_options_report(position.symbol, position.market_price, f"Gemini error: {exc}", is_live_portfolio, is_live_market, is_mock_fallback)
+
+
+def _fallback_options_report(symbol: str, price: float, error_msg: str, is_live_portfolio: bool, is_live_market: bool, is_mock_fallback: bool) -> dict[str, Any]:
+    from datetime import date, timedelta
+    from app.schemas.domain import utc_now
+    expiry = date.today() + timedelta(days=30)
+    strike = round(price / 5.0) * 5.0 if price > 0 else 100.0
+    premium = round(price * 0.02, 2) if price > 0 else 2.50
+    return {
+        "symbol": symbol.upper(),
+        "stock_price": price,
+        "implied_volatility": 0.30,
+        "iv_percentile": 50,
+        "implied_move_percent": 5.0,
+        "strategies": [
+            {
+                "name": "Covered Call (Educational Candidate)",
+                "type": "income",
+                "expiration": expiry.isoformat(),
+                "strikes": f"Sell ${strike:.2f} Call",
+                "net_credit_debit": premium,
+                "max_profit": f"${premium * 100:.2f} (premium) + ${(strike - price) * 100:.2f} (upside cap)" if strike > price else f"${premium * 100:.2f}",
+                "max_loss": f"${(price - premium) * 100:.2f} (stock drops to zero)",
+                "breakeven": round(price - premium, 2),
+                "probability_of_profit": 68,
+                "rationale": f"Simulated Covered Call strategy candidate due to live API fallback: {error_msg}.",
+                "eligible": False,
+                "eligibility_reason": "Ineligible for Covered Call: You own 0 shares. (minimum 100 shares required)"
+            }
+        ],
+        "market_sentiment": f"System active in fallback mode. Status: {error_msg}",
+        "human_review_required": True,
+        "disclaimer": "This options strategy is simulated fallback data. Configure your Gemini API key to enable live options strategy generation.",
+        "provider": "deterministic_fallback",
+        "asOf": utc_now().isoformat(),
+        "dataSource": "Mock",
+        "isMock": True,
+        "quoteDelaySeconds": 15,
+        "warnings": ["Simulated data — not suitable for trading decisions.", f"Fallback active: {error_msg}"],
+        "provenance": {
+            "live_portfolio_data": is_live_portfolio,
+            "live_market_data": False,
+            "cached_data": False,
+            "mock_fallback_data": True,
+            "web_grounded_context": False
+        }
+    }
+
+

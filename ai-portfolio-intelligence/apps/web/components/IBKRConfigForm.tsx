@@ -132,7 +132,7 @@ export function IBKRConfigForm({
             <strong>Port Guidelines:</strong> IB Gateway uses <code>4001</code> (Live) / <code>4002</code> (Paper). TWS uses <code>7496</code> (Live) / <code>7497</code> (Paper).
           </p>
           <p>
-            Ensure <strong>"Enable ActiveX and Socket Clients"</strong> is checked in TWS settings under Configuration → API → Settings.
+            Ensure <strong>&quot;Enable ActiveX and Socket Clients&quot;</strong> is checked in TWS settings under Configuration → API → Settings.
           </p>
         </div>
       ) : (

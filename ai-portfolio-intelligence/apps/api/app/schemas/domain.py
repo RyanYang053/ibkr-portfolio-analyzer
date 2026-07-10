@@ -273,6 +273,11 @@ class AdvancedRiskMetrics(BaseModel):
     portfolio_beta_qqq: Optional[float]
     value_at_risk_95: Optional[float]
     conditional_var_95: Optional[float]
+    sharpe_ratio: Optional[float] = None
+    sortino_ratio: Optional[float] = None
+    jensens_alpha: Optional[float] = None
+    tracking_error: Optional[float] = None
+    information_ratio: Optional[float] = None
     correlation_matrix: dict[str, dict[str, float]]
     factor_exposures: dict[str, float]
     stress_tests: list[StressScenario]

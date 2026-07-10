@@ -1,240 +1,288 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from typing import Optional
+
 from fastapi import APIRouter, Depends
 
 from app.api.deps import broker_not_configured_error, get_broker_adapter
+from app.schemas.domain import AccountSummary, InvestmentPolicyStatement, InvestorProfile, Position, utc_now
 from app.services.broker.base import BrokerAdapter
+from app.services.broker.ibkr_readonly import get_exchange_rate
+from app.services.data_quality.validation import validate_portfolio_snapshot
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
-
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
 
-from typing import Optional
-from app.schemas.domain import AccountSummary, Position, utc_now, InvestorProfile, InvestmentPolicyStatement
-from app.services.broker.ibkr_readonly import get_exchange_rate
+def _position_group_key(position: Position) -> tuple[str, str, str, str]:
+    # The current domain model has no IBKR conId. Keeping listing currency and
+    # exchange in the key is safer than merging every identical ticker.
+    return (
+        position.symbol.upper(),
+        position.asset_class.upper(),
+        position.exchange.upper(),
+        position.currency.upper(),
+    )
+
 
 def _get_consolidated_summary_and_positions(adapter: BrokerAdapter) -> tuple[AccountSummary, list[Position]]:
     accounts = adapter.get_accounts()
     if not accounts:
         raise broker_not_configured_error(Exception("No accounts found"))
-    
+
     if len(accounts) == 1:
-        acct_id = accounts[0].id
-        summary = adapter.get_account_summary(acct_id)
-        positions = adapter.get_positions(acct_id)
-        consolidated_summary = summary.model_copy(update={"account_id": "all"})
-        consolidated_positions = [p.model_copy(update={"account_id": "all"}) for p in positions]
-        return consolidated_summary, consolidated_positions
-        
-    summaries = []
-    all_positions = []
-    for acct in accounts:
+        account_id = accounts[0].id
+        summary = adapter.get_account_summary(account_id).model_copy(update={"account_id": "all"})
+        positions = [
+            position.model_copy(update={"account_id": "all"})
+            for position in adapter.get_positions(account_id)
+        ]
+        return summary, positions
+
+    summaries: list[AccountSummary] = []
+    all_positions: list[Position] = []
+    failures: list[str] = []
+    for account in accounts:
         try:
-            summaries.append(adapter.get_account_summary(acct.id))
-            all_positions.extend(adapter.get_positions(acct.id))
-        except Exception:
-            pass
-            
+            summaries.append(adapter.get_account_summary(account.id))
+            all_positions.extend(adapter.get_positions(account.id))
+        except Exception as exc:
+            failures.append(f"{account.id}: {exc}")
+
+    # Accuracy-first behavior: never present a partial consolidated portfolio as
+    # complete. The caller can request individual accounts to isolate the failure.
+    if failures:
+        raise broker_not_configured_error(
+            RuntimeError("Incomplete consolidated snapshot: " + "; ".join(failures))
+        )
     if not summaries:
-        raise broker_not_configured_error(Exception("Failed to get summaries for any account"))
-        
-    base_currency = summaries[0].base_currency
-    
-    net_liq = 0.0
-    cash = 0.0
-    buying_power = 0.0
-    margin_req = 0.0
-    excess_liq = 0.0
-    unrealized = 0.0
-    realized = 0.0
-    
-    for s in summaries:
-        rate = get_exchange_rate(s.base_currency, base_currency)
-        net_liq += s.net_liquidation * rate
-        cash += s.cash * rate
-        buying_power += s.buying_power * rate
-        margin_req += s.margin_requirement * rate
-        excess_liq += s.excess_liquidity * rate
-        unrealized += s.total_unrealized_pnl * rate
-        realized += s.total_realized_pnl * rate
-        
+        raise broker_not_configured_error(Exception("Failed to get summaries for all accounts"))
+
+    base_currency = summaries[0].base_currency.upper()
+
+    def converted(value: float, currency: str) -> float:
+        return value * get_exchange_rate(currency, base_currency)
+
     consolidated_summary = AccountSummary(
         account_id="all",
-        net_liquidation=round(net_liq, 2),
-        cash=round(cash, 2),
-        buying_power=round(buying_power, 2),
-        margin_requirement=round(margin_req, 2),
-        excess_liquidity=round(excess_liq, 2),
-        total_unrealized_pnl=round(unrealized, 2),
-        total_realized_pnl=round(realized, 2),
+        net_liquidation=round(sum(converted(item.net_liquidation, item.base_currency) for item in summaries), 2),
+        cash=round(sum(converted(item.cash, item.base_currency) for item in summaries), 2),
+        buying_power=round(sum(converted(item.buying_power, item.base_currency) for item in summaries), 2),
+        margin_requirement=round(sum(converted(item.margin_requirement, item.base_currency) for item in summaries), 2),
+        excess_liquidity=round(sum(converted(item.excess_liquidity, item.base_currency) for item in summaries), 2),
+        total_unrealized_pnl=round(
+            sum(converted(item.total_unrealized_pnl, item.base_currency) for item in summaries), 2
+        ),
+        total_realized_pnl=round(
+            sum(converted(item.total_realized_pnl, item.base_currency) for item in summaries), 2
+        ),
         base_currency=base_currency,
-        data_timestamp=utc_now()
+        # Use the oldest component timestamp so freshness checks cannot be hidden by
+        # a newer account response.
+        data_timestamp=min(item.data_timestamp for item in summaries),
     )
-    
-    # Consolidate positions
-    from collections import defaultdict
-    grouped = defaultdict(list)
-    for p in all_positions:
-        grouped[p.symbol].append(p)
-        
-    consolidated_positions = []
-    total_val = max(net_liq, 1.0)
-    
-    for symbol, group in grouped.items():
-        first = group[0]
-        total_qty = sum(p.quantity for p in group)
 
-        # Convert each position's monetary values to base_currency before summing
-        total_mv = 0.0
-        total_unrealized = 0.0
-        total_realized = 0.0
-        weighted_cost_sum = 0.0
-        for p in group:
-            rate = get_exchange_rate(p.currency, base_currency)
-            total_mv += p.market_value * rate
-            total_unrealized += p.unrealized_pnl * rate
-            total_realized += p.realized_pnl * rate
-            weighted_cost_sum += p.avg_cost * p.quantity * rate
-        
-        if total_qty > 0:
-            avg_cost = weighted_cost_sum / total_qty
-        else:
-            avg_cost = 0.0
-            
-        weight = round(total_mv / total_val * 100, 2)
-        
-        consolidated_positions.append(Position(
-            account_id="all",
-            symbol=symbol,
-            company_name=first.company_name,
-            asset_class=first.asset_class,
-            quantity=total_qty,
-            avg_cost=round(avg_cost, 2),
-            market_price=first.market_price,
-            market_value=round(total_mv, 2),
-            unrealized_pnl=round(total_unrealized, 2),
-            realized_pnl=round(total_realized, 2),
-            currency=base_currency,
-            exchange=first.exchange,
-            sector=first.sector,
-            industry=first.industry,
-            portfolio_weight=weight,
-            stock_type=first.stock_type,
-            is_etf=first.is_etf,
-            is_speculative=first.is_speculative,
-            updated_at=first.updated_at
-        ))
-        
+    grouped: dict[tuple[str, str, str, str], list[Position]] = defaultdict(list)
+    for position in all_positions:
+        grouped[_position_group_key(position)].append(position)
+
+    total_value = consolidated_summary.net_liquidation
+    denominator = total_value if total_value != 0 else 1.0
+    consolidated_positions: list[Position] = []
+
+    for group in grouped.values():
+        first = group[0]
+        total_quantity = sum(position.quantity for position in group)
+        total_market_value_base = 0.0
+        total_unrealized_base = 0.0
+        total_realized_base = 0.0
+        absolute_quantity = 0.0
+        weighted_cost_base = 0.0
+        weighted_price_base = 0.0
+
+        for position in group:
+            rate = get_exchange_rate(position.currency, base_currency)
+            quantity_weight = abs(position.quantity)
+            total_market_value_base += position.market_value * rate
+            total_unrealized_base += position.unrealized_pnl * rate
+            total_realized_base += position.realized_pnl * rate
+            absolute_quantity += quantity_weight
+            weighted_cost_base += position.avg_cost * rate * quantity_weight
+            weighted_price_base += position.market_price * rate * quantity_weight
+
+        average_cost_base = weighted_cost_base / absolute_quantity if absolute_quantity else 0.0
+        market_price_base = weighted_price_base / absolute_quantity if absolute_quantity else 0.0
+        weight = total_market_value_base / denominator * 100.0
+
+        consolidated_positions.append(
+            Position(
+                account_id="all",
+                symbol=first.symbol,
+                company_name=first.company_name,
+                asset_class=first.asset_class,
+                quantity=total_quantity,
+                avg_cost=round(average_cost_base, 6),
+                market_price=round(market_price_base, 6),
+                market_value=round(total_market_value_base, 2),
+                unrealized_pnl=round(total_unrealized_base, 2),
+                realized_pnl=round(total_realized_base, 2),
+                currency=base_currency,
+                exchange=first.exchange,
+                sector=first.sector,
+                industry=first.industry,
+                portfolio_weight=round(weight, 4),
+                stock_type=first.stock_type,
+                is_etf=first.is_etf,
+                is_speculative=first.is_speculative,
+                updated_at=min(position.updated_at for position in group),
+            )
+        )
+
     return consolidated_summary, consolidated_positions
 
 
-def _resolve_account_data(adapter: BrokerAdapter, account_id: Optional[str]) -> tuple[AccountSummary, list[Position]]:
+def _resolve_account_data(
+    adapter: BrokerAdapter,
+    account_id: Optional[str],
+) -> tuple[AccountSummary, list[Position]]:
     try:
         if not account_id or account_id == "all":
             accounts = adapter.get_accounts()
             if not accounts:
-                raise Exception("No accounts found")
+                raise RuntimeError("No accounts found")
             if len(accounts) == 1:
-                acct_id = accounts[0].id
-                summary = adapter.get_account_summary(acct_id)
-                positions = adapter.get_positions(acct_id)
+                resolved_id = accounts[0].id
+                summary = adapter.get_account_summary(resolved_id)
+                positions = adapter.get_positions(resolved_id)
                 if account_id == "all":
                     summary = summary.model_copy(update={"account_id": "all"})
-                    positions = [p.model_copy(update={"account_id": "all"}) for p in positions]
+                    positions = [position.model_copy(update={"account_id": "all"}) for position in positions]
                 return summary, positions
-            # When account_id is "all" or unspecified with multiple accounts,
-            # default to consolidated view to match the frontend dropdown.
             return _get_consolidated_summary_and_positions(adapter)
-        else:
-            return adapter.get_account_summary(account_id), adapter.get_positions(account_id)
+        return adapter.get_account_summary(account_id), adapter.get_positions(account_id)
     except Exception as exc:
         raise broker_not_configured_error(exc) from exc
 
 
 @router.get("/summary")
 def summary(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    account_summary, positions = _resolve_account_data(adapter, account_id)
-    risk_analysis = analyze_portfolio_risk(account_summary, positions)
-    
-    from app.services.suitability.engine import get_investor_profile, check_position_suitability
+    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    data_quality = validate_portfolio_snapshot(account_summary, account_positions)
+    risk_analysis = analyze_portfolio_risk(account_summary, account_positions)
+
+    from app.services.suitability.engine import check_position_suitability, get_investor_profile
+
     active_id = account_id or account_summary.account_id or "default"
     profile = get_investor_profile(active_id)
-    suitability_warnings = []
-    for pos in positions:
-        suitability_warnings.extend(check_position_suitability(profile, pos))
-        
-    sorted_positions = sorted(positions, key=lambda p: p.market_value, reverse=True)
+    suitability_warnings: list[str] = []
+    for position in account_positions:
+        suitability_warnings.extend(check_position_suitability(profile, position))
+
+    sorted_positions = sorted(account_positions, key=lambda position: abs(position.market_value), reverse=True)
     return {
         "summary": account_summary,
         "risk": risk_analysis,
         "positions": sorted_positions[:5],
-        "suitability_warnings": suitability_warnings
+        "suitability_warnings": suitability_warnings,
+        "data_quality": data_quality,
     }
+
+
+@router.get("/data-quality")
+def data_quality(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    return validate_portfolio_snapshot(account_summary, account_positions)
 
 
 @router.get("/snapshots")
 def snapshots(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
     if account_id == "all":
-        summary, _ = _resolve_account_data(adapter, "all")
-        return [summary]
+        account_summary, _ = _resolve_account_data(adapter, "all")
+        return [account_summary]
     if not account_id:
-        accounts = adapter.get_accounts()
-        return [adapter.get_account_summary(a.id) for a in accounts]
-    summary, _ = _resolve_account_data(adapter, account_id)
-    return [summary]
+        return [adapter.get_account_summary(account.id) for account in adapter.get_accounts()]
+    account_summary, _ = _resolve_account_data(adapter, account_id)
+    return [account_summary]
 
 
 @router.get("/positions")
 def positions(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    _, positions = _resolve_account_data(adapter, account_id)
-    return positions
+    _, account_positions = _resolve_account_data(adapter, account_id)
+    return account_positions
 
 
 @router.get("/allocation")
 def allocation(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    _, positions = _resolve_account_data(adapter, account_id)
-    total = sum(position.market_value for position in positions)
-    if total <= 0:
-        total = 1.0
+    account_summary, account_positions = _resolve_account_data(adapter, account_id)
     return {
-        "by_sector": _group_percent(positions, total, "sector"),
-        "by_currency": _group_percent(positions, total, "currency"),
-        "by_asset_class": _group_percent(positions, total, "asset_class"),
+        "by_sector": _group_percent(account_positions, account_summary.base_currency, "sector"),
+        "by_currency": _group_percent(account_positions, account_summary.base_currency, "currency"),
+        "by_asset_class": _group_percent(account_positions, account_summary.base_currency, "asset_class"),
+        "methodology": "Gross absolute market-value allocation after base-currency conversion.",
     }
 
 
 @router.get("/performance")
 def performance(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    summary_data, _ = _resolve_account_data(adapter, account_id)
+    account_summary, _ = _resolve_account_data(adapter, account_id)
+
+    from app.services.portfolio.pnl_tracker import get_pnl_history
+
+    active_id = account_id or account_summary.account_id or "default"
+    history = get_pnl_history(None if active_id == "all" else active_id)
+    history = sorted(history, key=lambda item: (item.date, item.timestamp))
+    latest = history[-1] if history else None
+
     return {
-        "total_unrealized_pnl": summary_data.total_unrealized_pnl,
-        "total_realized_pnl": summary_data.total_realized_pnl,
-        "daily_return": 0.003,
-        "benchmark_comparison": {"SPY": 0.0018, "QQQ": 0.0026},
+        "total_unrealized_pnl": account_summary.total_unrealized_pnl,
+        "total_realized_pnl": account_summary.total_realized_pnl,
+        # Never label raw net-liquidation changes as investment return until cash
+        # flows are imported and time-weighted returns can be calculated.
+        "daily_return": None,
+        "benchmark_comparison": {},
+        "account_value_change": latest.daily_pnl if latest else None,
+        "account_value_change_percent": latest.daily_pnl_percent if latest else None,
+        "data_quality": {
+            "cash_flow_adjustment": "missing",
+            "benchmark_series": "missing",
+            "history_observations": len(history),
+        },
+        "methodology": (
+            "Daily return and benchmark alpha are withheld because transaction cash flows and aligned "
+            "benchmark total-return series are not available. Account-value change is shown separately."
+        ),
     }
 
 
 @router.get("/risk")
 def risk(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    summary_data, positions = _resolve_account_data(adapter, account_id)
-    return analyze_portfolio_risk(summary_data, positions)
+    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    return analyze_portfolio_risk(account_summary, account_positions)
 
 
-def _group_percent(positions, total: float, field: str) -> dict[str, float]:
-    grouped: dict[str, float] = {}
+def _group_percent(positions: list[Position], base_currency: str, field: str) -> dict[str, float]:
+    grouped: dict[str, float] = defaultdict(float)
     for position in positions:
-        grouped[getattr(position, field)] = grouped.get(getattr(position, field), 0) + position.market_value
-    return {key: round(value / total * 100, 2) for key, value in grouped.items()}
+        rate = get_exchange_rate(position.currency, base_currency)
+        grouped[str(getattr(position, field) or "Unknown")] += abs(position.market_value * rate)
+    total = sum(grouped.values())
+    if total <= 0:
+        return {key: 0.0 for key in sorted(grouped)}
+    return {key: round(value / total * 100.0, 2) for key, value in sorted(grouped.items())}
 
 
 @router.get("/profile", response_model=InvestorProfile)
 def get_profile(account_id: Optional[str] = "default"):
     from app.services.suitability.engine import get_investor_profile
+
     return get_investor_profile(account_id)
 
 
 @router.post("/profile")
 def update_profile(profile: InvestorProfile, account_id: Optional[str] = "default"):
     from app.services.suitability.engine import save_investor_profile
+
     save_investor_profile(profile, account_id)
     return {"status": "success", "message": "Investor profile updated successfully"}
 
@@ -242,35 +290,41 @@ def update_profile(profile: InvestorProfile, account_id: Optional[str] = "defaul
 @router.get("/policy", response_model=InvestmentPolicyStatement)
 def get_policy(account_id: Optional[str] = "default"):
     from app.services.policy.engine import get_portfolio_policy
+
     return get_portfolio_policy(account_id)
 
 
 @router.post("/policy")
 def update_policy(policy: InvestmentPolicyStatement, account_id: Optional[str] = "default"):
     from app.services.policy.engine import save_portfolio_policy
+
     save_portfolio_policy(policy, account_id)
     return {"status": "success", "message": "Investment Policy Statement updated successfully"}
 
 
 @router.get("/advanced-risk")
-def get_advanced_portfolio_risk(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
-    from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
+def get_advanced_portfolio_risk(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
     from app.services.portfolio.pnl_tracker import get_pnl_history
-    
-    summary, positions = _resolve_account_data(adapter, account_id)
-    active_id = account_id or summary.account_id or "default"
+    from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
+
+    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    active_id = account_id or account_summary.account_id or "default"
     history = get_pnl_history(None if active_id == "all" else active_id)
-    
-    return calculate_advanced_risk_metrics(positions, summary, history)
+    return calculate_advanced_risk_metrics(account_positions, account_summary, history)
 
 
 @router.get("/attribution")
-def get_portfolio_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+def get_portfolio_attribution(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+):
     from app.services.attribution.engine import calculate_performance_attribution
     from app.services.portfolio.pnl_tracker import get_pnl_history
-    
-    summary, positions = _resolve_account_data(adapter, account_id)
-    active_id = account_id or summary.account_id or "default"
+
+    account_summary, account_positions = _resolve_account_data(adapter, account_id)
+    active_id = account_id or account_summary.account_id or "default"
     history = get_pnl_history(None if active_id == "all" else active_id)
-    
-    return calculate_performance_attribution(positions, history)
+    return calculate_performance_attribution(account_positions, history)

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash"
     ai_timeout_seconds: float = 60.0
+    allow_mock_options_strategy: bool = False
+
 
 
 settings = Settings()

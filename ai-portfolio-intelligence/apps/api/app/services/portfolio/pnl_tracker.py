@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import tempfile
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Optional
-from pydantic import BaseModel
+from threading import Lock
+from typing import Optional
 
-from app.services.broker.base import BrokerAdapter
-from app.schemas.domain import Position, AccountSummary
+from pydantic import BaseModel, Field
+
+from app.schemas.domain import AccountSummary, Position
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 HISTORY_FILE = os.path.join(DATA_DIR, "pnl_history.json")
+_FILE_LOCK = Lock()
 
 
 class PositionPnL(BaseModel):
@@ -21,214 +25,254 @@ class PositionPnL(BaseModel):
     unrealized_pnl: float
     daily_pnl: float
     daily_pnl_percent: float
+    quantity_changed: bool = False
 
 
 class PortfolioPnLSnapshot(BaseModel):
-    date: str  # YYYY-MM-DD
-    timestamp: str  # ISO timestamp
+    date: str
+    timestamp: str
     net_liquidation: float
     cash: float
     buying_power: float
     margin_requirement: float
+    # Compatibility fields: these are account-value changes, not cash-flow-adjusted
+    # investment performance.
     daily_pnl: float
     daily_pnl_percent: float
     positions: list[PositionPnL]
     is_mock: bool = False
+    external_cash_flow: float | None = None
+    investment_return_percent: float | None = None
+    data_quality: dict[str, str] = Field(default_factory=dict)
 
+
+def _history_path(account_id: Optional[str], is_demo: bool) -> str:
+    if is_demo:
+        return HISTORY_FILE
+    return os.path.join(DATA_DIR, f"pnl_history_{account_id or 'default'}.json")
+
+
+def _is_demo_mode() -> bool:
+    import sys
+
+    from app.core.config import settings
+
+    return settings.broker_mode == "mock_ibkr_readonly" or "pytest" in sys.modules
+
+
+def _atomic_write(path: str, payload: list[dict]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with _FILE_LOCK:
+        fd, temporary_path = tempfile.mkstemp(prefix="pnl_history_", suffix=".tmp", dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, path)
+        finally:
+            if os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
 
 def get_pnl_history(account_id: Optional[str] = None) -> list[PortfolioPnLSnapshot]:
-    """Load or initialize PnL history, optionally for a specific account or consolidated 'all'."""
-    import sys
-    from app.core.config import settings
-    is_demo = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+    """Load PnL/account-value history for one account or demo mode.
 
-    if is_demo:
-        history_file = HISTORY_FILE
-        if not os.path.exists(history_file):
-            _initialize_mock_history(history_file)
-    else:
-        active_id = account_id or "default"
-        history_file = os.path.join(DATA_DIR, f"pnl_history_{active_id}.json")
+    Corrupted history is surfaced as an error rather than silently converted into an
+    empty time series, because silent loss of history can invalidate risk metrics.
+    """
 
-    try:
-        if not os.path.exists(history_file):
-            return []
-        with open(history_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            history = [PortfolioPnLSnapshot(**item) for item in data]
-            if not is_demo:
-                history = [entry for entry in history if not entry.is_mock]
-            return history
-    except Exception:
+    is_demo = _is_demo_mode()
+    history_file = _history_path(account_id, is_demo)
+    if is_demo and not os.path.exists(history_file):
+        _initialize_mock_history(history_file)
+    if not os.path.exists(history_file):
         return []
 
+    try:
+        with _FILE_LOCK, open(history_file, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"PnL history is unreadable: {history_file}") from exc
 
-def record_pnl_snapshot(summary: AccountSummary, positions: list[Position], account_id: Optional[str] = None) -> PortfolioPnLSnapshot:
-    """Record a new PnL snapshot, calculating daily changes relative to the last recorded entry."""
-    import sys
-    from app.core.config import settings
-    is_demo = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
+    if not isinstance(raw, list):
+        raise RuntimeError(f"PnL history must contain a JSON array: {history_file}")
 
+    history = [PortfolioPnLSnapshot(**item) for item in raw]
+    if not is_demo:
+        history = [entry for entry in history if not entry.is_mock]
+    return sorted(history, key=lambda item: (item.date, item.timestamp))
+
+
+def record_pnl_snapshot(
+    summary: AccountSummary,
+    positions: list[Position],
+    account_id: Optional[str] = None,
+) -> PortfolioPnLSnapshot:
+    """Record an end-of-day account-value snapshot.
+
+    `daily_pnl` is retained for API compatibility but is explicitly an account-value
+    change. A true investment return is withheld until deposits, withdrawals,
+    transfers, dividends, fees, and trade cash flows are imported.
+    """
+
+    is_demo = _is_demo_mode()
     active_account_id = account_id or summary.account_id or "default"
     history = get_pnl_history(None if is_demo else active_account_id)
-    
-    today_str = date.today().isoformat()
-    # Filter out existing entries for today to avoid duplicate entries for the same date
-    history = [item for item in history if item.date != today_str]
 
+    today = date.today().isoformat()
+    history = [item for item in history if item.date != today]
     last_entry = history[-1] if history else None
 
-    # Calculate daily PnL relative to last net_liquidation
     is_transition = False
     if last_entry and last_entry.is_mock and last_entry.net_liquidation > 0:
         deviation = abs(last_entry.net_liquidation - summary.net_liquidation) / last_entry.net_liquidation
-        if deviation > 0.05:
-            is_transition = True
+        is_transition = deviation > 0.05
 
-    if last_entry and not is_transition and last_entry.net_liquidation > 0:
-        daily_pnl = summary.net_liquidation - last_entry.net_liquidation
-        daily_pnl_percent = (daily_pnl / last_entry.net_liquidation) * 100
+    if last_entry and not is_transition and last_entry.net_liquidation != 0:
+        account_value_change = summary.net_liquidation - last_entry.net_liquidation
+        account_value_change_percent = account_value_change / abs(last_entry.net_liquidation) * 100.0
     else:
-        daily_pnl = 0.0
-        daily_pnl_percent = 0.0
+        account_value_change = 0.0
+        account_value_change_percent = 0.0
 
-    # Build position level PnLs
     positions_pnl: list[PositionPnL] = []
-    for pos in positions:
-        if pos.quantity <= 0:
+    for position in positions:
+        if position.quantity == 0:
             continue
-        
-        # Try to find corresponding position from last entry to compute daily PnL
-        pos_daily_pnl = 0.0
-        pos_daily_pnl_pct = 0.0
+
+        position_change = 0.0
+        position_change_percent = 0.0
+        quantity_changed = False
         if last_entry and not is_transition:
-            last_pos = next((p for p in last_entry.positions if p.symbol == pos.symbol), None)
-            if last_pos and last_pos.market_price > 0:
-                pos_daily_pnl = (pos.market_price - last_pos.market_price) * pos.quantity
-                pos_daily_pnl_pct = ((pos.market_price - last_pos.market_price) / last_pos.market_price) * 100
-        
+            previous = next((item for item in last_entry.positions if item.symbol == position.symbol), None)
+            if previous and previous.market_price > 0:
+                quantity_changed = abs(previous.quantity - position.quantity) > 1e-9
+                # Use the prior quantity to isolate price P&L. This naturally handles
+                # short positions; trade effects remain outside this estimate.
+                position_change = previous.quantity * (position.market_price - previous.market_price)
+                position_change_percent = (
+                    (position.market_price / previous.market_price - 1.0) * 100.0
+                )
+
         positions_pnl.append(
             PositionPnL(
-                symbol=pos.symbol,
-                quantity=pos.quantity,
-                market_price=pos.market_price,
-                market_value=pos.market_value,
-                unrealized_pnl=pos.unrealized_pnl,
-                daily_pnl=round(pos_daily_pnl, 2),
-                daily_pnl_percent=round(pos_daily_pnl_pct, 2)
+                symbol=position.symbol,
+                quantity=position.quantity,
+                market_price=position.market_price,
+                market_value=position.market_value,
+                unrealized_pnl=position.unrealized_pnl,
+                daily_pnl=round(position_change, 2),
+                daily_pnl_percent=round(position_change_percent, 4),
+                quantity_changed=quantity_changed,
             )
         )
 
-    new_snapshot = PortfolioPnLSnapshot(
-        date=today_str,
+    snapshot = PortfolioPnLSnapshot(
+        date=today,
         timestamp=datetime.now(timezone.utc).isoformat(),
         net_liquidation=round(summary.net_liquidation, 2),
         cash=round(summary.cash, 2),
         buying_power=round(summary.buying_power, 2),
         margin_requirement=round(summary.margin_requirement, 2),
-        daily_pnl=round(daily_pnl, 2),
-        daily_pnl_percent=round(daily_pnl_percent, 2),
+        daily_pnl=round(account_value_change, 2),
+        daily_pnl_percent=round(account_value_change_percent, 4),
         positions=positions_pnl,
-        is_mock=is_demo
+        is_mock=is_demo,
+        external_cash_flow=None,
+        investment_return_percent=None,
+        data_quality={
+            "daily_pnl": "account_value_change_not_cash_flow_adjusted",
+            "investment_return": "withheld_missing_external_cash_flows",
+            "position_pnl": "price_effect_estimate; quantity changes flagged",
+        },
     )
 
-    history.append(new_snapshot)
-    
-    # Save back to account-specific file (only if not demo/test mode)
-    history_file = os.path.join(DATA_DIR, f"pnl_history_{active_account_id}.json") if (active_account_id and not is_demo) else HISTORY_FILE
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(history_file, "w", encoding="utf-8") as f:
-        json.dump([item.model_dump() for item in history], f, indent=2)
+    history.append(snapshot)
+    history_file = _history_path(None if is_demo else active_account_id, is_demo)
+    _atomic_write(history_file, [item.model_dump() for item in history])
+    return snapshot
 
-    return new_snapshot
+
+def _stable_offset(symbol: str, index: int) -> int:
+    digest = hashlib.sha256(f"{symbol}:{index}".encode("utf-8")).digest()
+    return digest[0] % 5 - 2
 
 
 def _initialize_mock_history(target_file: str = HISTORY_FILE) -> None:
-    """Generate 14 days of realistic looking mock portfolio PnL history."""
-    os.makedirs(DATA_DIR, exist_ok=True)
-    
+    """Generate reproducible demo history, clearly labeled as mock."""
+
     start_date = date.today() - timedelta(days=14)
     history: list[PortfolioPnLSnapshot] = []
-    
-    # Seed values based on the MockIBKRAdapter holdings and cash
-    # Total initial portfolio value ~ $156,000
-    base_net_liq = 156000.0
-    cash = 32500.0
-    buying_power = 125000.0
-    margin_req = 18500.0
-    
-    mock_securities = {
-        "QQQ": (68, 405.0),
-        "SPY": (52, 485.0),
-        "MSFT": (45, 338.0),
-        "META": (27, 410.0),
-        "GOOGL": (70, 132.0),
-        "SOXX": (38, 196.0),
-        "SOFI": (650, 8.4),
-        "CRM": (31, 215.0),
-        "CELH": (120, 42.0),
-        "NKE": (78, 82.0),
-        "IONQ": (400, 11.0),
-        "LAES": (900, 1.6),
-        "INFQ": (750, 2.1)
+    base_net_liquidation = 156_000.0
+    cash = 32_500.0
+    buying_power = 125_000.0
+    margin_requirement = 18_500.0
+
+    original_lots = {
+        "QQQ": (68.0, 405.0),
+        "SPY": (52.0, 485.0),
+        "MSFT": (45.0, 338.0),
+        "META": (27.0, 410.0),
+        "GOOGL": (70.0, 132.0),
+        "SOXX": (38.0, 196.0),
+        "SOFI": (650.0, 8.4),
+        "CRM": (31.0, 215.0),
+        "CELH": (120.0, 42.0),
+        "NKE": (78.0, 82.0),
+        "IONQ": (400.0, 11.0),
+        "LAES": (900.0, 1.6),
+        "INFQ": (750.0, 2.1),
     }
+    current_prices = {symbol: cost for symbol, (_, cost) in original_lots.items()}
+    daily_changes = [-0.4, 0.8, 1.2, -0.6, -1.1, 1.5, 0.4, -0.2, 0.7, 1.1, -0.5, 1.8, 0.6, -0.3, 0.9]
 
-    # Deterministic daily performance modifiers to simulate realistic runs/dips
-    daily_pnl_pcts = [-0.4, 0.8, 1.2, -0.6, -1.1, 1.5, 0.4, -0.2, 0.7, 1.1, -0.5, 1.8, 0.6, -0.3, 0.9]
-
-    current_net_liq = base_net_liq
-    for i in range(15):
-        curr_date = start_date + timedelta(days=i)
-        
-        # Skip weekends to simulate market hours (though crypto/mock can be daily, business days look cleaner)
-        if curr_date.weekday() >= 5:
+    current_net_liquidation = base_net_liquidation
+    for index in range(15):
+        current_date = start_date + timedelta(days=index)
+        if current_date.weekday() >= 5:
             continue
-            
-        pct_change = daily_pnl_pcts[i % len(daily_pnl_pcts)]
-        pnl_val = current_net_liq * (pct_change / 100.0)
-        prev_net_liq = current_net_liq
-        current_net_liq += pnl_val
 
-        # Update position prices based on daily performance
-        positions: list[PositionPnL] = []
-        for symbol, (qty, avg_cost) in mock_securities.items():
-            # Apply individual stock volatility
-            stock_pct = pct_change + (hash(symbol + str(i)) % 5 - 2) * 0.4
-            price = avg_cost * (1.0 + (stock_pct / 100.0))
-            # Keep track for next iterations
-            mock_securities[symbol] = (qty, price)
-            
-            mkt_val = qty * price
-            unrealized = (price - avg_cost) * qty
-            pos_pnl = mkt_val * (stock_pct / 100.0)
-            
-            positions.append(
+        portfolio_change_percent = daily_changes[index % len(daily_changes)]
+        account_value_change = current_net_liquidation * portfolio_change_percent / 100.0
+        current_net_liquidation += account_value_change
+        position_rows: list[PositionPnL] = []
+
+        for symbol, (quantity, original_cost) in original_lots.items():
+            security_change_percent = portfolio_change_percent + _stable_offset(symbol, index) * 0.4
+            previous_price = current_prices[symbol]
+            current_price = previous_price * (1.0 + security_change_percent / 100.0)
+            current_prices[symbol] = current_price
+            market_value = quantity * current_price
+            position_rows.append(
                 PositionPnL(
                     symbol=symbol,
-                    quantity=float(qty),
-                    market_price=round(price, 2),
-                    market_value=round(mkt_val, 2),
-                    unrealized_pnl=round(unrealized, 2),
-                    daily_pnl=round(pos_pnl, 2),
-                    daily_pnl_percent=round(stock_pct, 2)
+                    quantity=quantity,
+                    market_price=round(current_price, 4),
+                    market_value=round(market_value, 2),
+                    unrealized_pnl=round((current_price - original_cost) * quantity, 2),
+                    daily_pnl=round((current_price - previous_price) * quantity, 2),
+                    daily_pnl_percent=round(security_change_percent, 4),
                 )
             )
 
         history.append(
             PortfolioPnLSnapshot(
-                date=curr_date.isoformat(),
-                timestamp=datetime.combine(curr_date, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
-                net_liquidation=round(current_net_liq, 2),
-                cash=round(cash, 2),
-                buying_power=round(buying_power, 2),
-                margin_requirement=round(margin_req, 2),
-                daily_pnl=round(pnl_val, 2),
-                daily_pnl_percent=round(pct_change, 2),
-                positions=positions,
-                is_mock=True
+                date=current_date.isoformat(),
+                timestamp=datetime.combine(current_date, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
+                net_liquidation=round(current_net_liquidation, 2),
+                cash=cash,
+                buying_power=buying_power,
+                margin_requirement=margin_requirement,
+                daily_pnl=round(account_value_change, 2),
+                daily_pnl_percent=round(portfolio_change_percent, 4),
+                positions=position_rows,
+                is_mock=True,
+                data_quality={
+                    "daily_pnl": "mock_account_value_change",
+                    "investment_return": "mock_demo_only",
+                },
             )
         )
 
-    with open(target_file, "w", encoding="utf-8") as f:
-        json.dump([item.model_dump() for item in history], f, indent=2)
+    _atomic_write(target_file, [item.model_dump() for item in history])
