@@ -120,6 +120,7 @@ def calculate_performance_returns(
     history: list[PortfolioPnLSnapshot],
     base_currency: str,
     fx_resolver: Callable[[str, str], float],
+    allow_mock: bool = True,
 ) -> PerformanceReturns:
     transactions = get_transactions(account_id)
     cash_flows_by_date = external_cash_flows_by_date(transactions, base_currency, fx_resolver)
@@ -142,11 +143,15 @@ def calculate_performance_returns(
     xirr_flows = build_xirr_cash_flows(transactions, terminal_nav, terminal_date, base_currency, fx_resolver)
     xirr = calculate_xirr(xirr_flows)
 
+    from app.services.portfolio.benchmark_returns import align_benchmark_comparison
+
+    benchmark_comparison = align_benchmark_comparison(history, allow_mock=allow_mock)
     has_cash_flows = bool(transactions)
     data_quality = {
         "cash_flow_adjustment": "sufficient" if has_cash_flows else "missing",
         "history_observations": str(len(history)),
         "transaction_count": str(len(transactions)),
+        "benchmark_series": str(benchmark_comparison.get("status", "missing")),
     }
     methodology = (
         "Time-weighted return compounds daily investment returns after removing dated external cash flows. "
@@ -162,6 +167,7 @@ def calculate_performance_returns(
         period_days=period_days,
         observation_count=len(history),
         daily_returns=daily_rows,
+        benchmark_comparison=benchmark_comparison,
         data_quality=data_quality,
         methodology=methodology,
     )

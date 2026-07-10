@@ -252,7 +252,7 @@ def performance(account_id: Optional[str] = None, adapter: BrokerAdapter = Depen
         "time_weighted_return": returns.time_weighted_return,
         "time_weighted_return_annualized": returns.time_weighted_return_annualized,
         "xirr": returns.xirr,
-        "benchmark_comparison": {},
+        "benchmark_comparison": returns.benchmark_comparison,
         "account_value_change": latest.daily_pnl if latest else None,
         "account_value_change_percent": latest.daily_pnl_percent if latest else None,
         "data_quality": returns.data_quality,
@@ -367,4 +367,47 @@ def get_portfolio_attribution(
         history,
         base_currency=account_summary.base_currency,
         fx_resolver=get_exchange_rate,
+        account_id=None if active_id == "all" else active_id,
     )
+
+
+@router.get("/tax-lots")
+def tax_lot_attribution(account_id: Optional[str] = None, adapter: BrokerAdapter = Depends(get_broker_adapter)):
+    from app.services.portfolio.tax_lots import build_tax_lot_attribution
+    from app.services.portfolio.transaction_store import get_transactions, sync_transactions
+
+    account_summary, _ = _resolve_account_data(adapter, account_id)
+    active_id = account_id or account_summary.account_id or "default"
+    if active_id == "all":
+        active_id = adapter.get_accounts()[0].id
+    transactions = get_transactions(active_id)
+    if not transactions:
+        sync_transactions(adapter, active_id)
+        transactions = get_transactions(active_id)
+    return build_tax_lot_attribution(active_id, transactions)
+
+
+@router.get("/fundamentals/{symbol}/point-in-time")
+def point_in_time_fundamentals(symbol: str, as_of: Optional[str] = None):
+    from datetime import date as date_type
+
+    from app.services.fundamentals.mock_provider import MockFundamentalProvider
+    from app.services.fundamentals.snapshot_store import get_point_in_time_fundamentals, seed_walk_forward_demo_records
+
+    as_of_date = date_type.fromisoformat(as_of) if as_of else date_type.today()
+    snapshot = get_point_in_time_fundamentals(symbol, as_of_date)
+    if snapshot is None:
+        provider = MockFundamentalProvider(allow_mock=True)
+        base = provider.get_fundamentals(symbol)
+        seed_walk_forward_demo_records(symbol, base)
+        snapshot = get_point_in_time_fundamentals(symbol, as_of_date)
+    if snapshot is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=f"No point-in-time fundamentals for {symbol.upper()} on {as_of_date}")
+    return {
+        "symbol": symbol.upper(),
+        "as_of_date": as_of_date.isoformat(),
+        "snapshot": snapshot,
+        "point_in_time": True,
+    }

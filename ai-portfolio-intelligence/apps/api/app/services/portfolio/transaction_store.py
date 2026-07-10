@@ -92,7 +92,20 @@ def sync_transactions(adapter: BrokerAdapter, account_id: str, lookback_days: in
     end_date = date.today()
     start_date = end_date.fromordinal(end_date.toordinal() - lookback_days)
     fetched = adapter.get_transactions(account_id, start_date, end_date)
-    return save_transactions(account_id, fetched)
+
+    from app.core.config import settings
+    from app.services.broker.flex_query import fetch_flex_transactions, flex_query_configured, mock_flex_transactions
+
+    flex_rows: list[Transaction] = []
+    try:
+        if flex_query_configured():
+            flex_rows = fetch_flex_transactions(account_id)
+        elif settings.broker_mode == "mock_ibkr_readonly":
+            flex_rows = mock_flex_transactions(account_id)
+    except Exception:
+        flex_rows = []
+
+    return save_transactions(account_id, fetched + flex_rows)
 
 
 def external_cash_flow_amount(txn: Transaction) -> float:

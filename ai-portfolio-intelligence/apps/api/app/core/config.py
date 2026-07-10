@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     ibkr_port: int = 4001
     ibkr_client_id: int = 10
     ibkr_account_id: Optional[str] = None
+    ibkr_flex_token: Optional[str] = None
+    ibkr_flex_query_id: Optional[str] = None
+    ibkr_flex_activity_query_id: Optional[str] = None
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash"
     ai_timeout_seconds: float = 60.0

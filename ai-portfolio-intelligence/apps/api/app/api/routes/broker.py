@@ -110,6 +110,32 @@ def positions(account_id: str, adapter: BrokerAdapter = Depends(get_broker_adapt
         raise broker_not_configured_error(exc) from exc
 
 
+@router.post("/sync-flex")
+def sync_flex(account_id: str, adapter: BrokerAdapter = Depends(get_broker_adapter)) -> dict[str, object]:
+    from app.core.config import settings
+    from app.services.broker.flex_query import fetch_flex_transactions, flex_query_configured, mock_flex_transactions
+    from app.services.portfolio.transaction_store import save_transactions
+
+    try:
+        if flex_query_configured():
+            rows = fetch_flex_transactions(account_id)
+            source = "ibkr_flex_query"
+        elif settings.broker_mode == "mock_ibkr_readonly":
+            rows = mock_flex_transactions(account_id)
+            source = "mock_flex_query"
+        else:
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=400,
+                detail="IBKR Flex Query is not configured. Set IBKR_FLEX_TOKEN and IBKR_FLEX_QUERY_ID.",
+            )
+        merged = save_transactions(account_id, rows)
+        return {"status": "synced", "source": source, "transaction_count": len(merged)}
+    except Exception as exc:
+        raise broker_not_configured_error(exc) from exc
+
+
 @router.get("/accounts/{account_id}/transactions")
 def transactions(
     account_id: str,

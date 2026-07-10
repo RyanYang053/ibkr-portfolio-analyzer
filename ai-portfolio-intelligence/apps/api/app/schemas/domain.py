@@ -82,7 +82,18 @@ class Transaction(BaseModel):
     symbol: str
     trade_date: date
     settlement_date: Optional[date] = None
-    action: Literal["buy", "sell", "dividend", "fee", "interest", "fx", "deposit", "withdrawal"]
+    action: Literal[
+        "buy",
+        "sell",
+        "dividend",
+        "fee",
+        "interest",
+        "fx",
+        "deposit",
+        "withdrawal",
+        "transfer",
+        "corporate_action",
+    ]
     quantity: float
     price: float
     commission: float
@@ -308,6 +319,8 @@ class PerformanceAttribution(BaseModel):
     interaction_effect: Optional[float] = None
     total_active_return: Optional[float] = None
     brinson_by_sector: dict[str, dict[str, float]] = Field(default_factory=dict)
+    tax_lot_realized_by_symbol: dict[str, float] = Field(default_factory=dict)
+    tax_lot_total_realized: Optional[float] = None
 
 
 class PerformanceReturns(BaseModel):
@@ -317,8 +330,50 @@ class PerformanceReturns(BaseModel):
     period_days: int
     observation_count: int
     daily_returns: list[dict[str, float | str]]
+    benchmark_comparison: dict[str, float | str | None] = Field(default_factory=dict)
     data_quality: dict[str, str]
     methodology: str
+
+
+class TaxLot(BaseModel):
+    account_id: str
+    symbol: str
+    con_id: Optional[int] = None
+    quantity: float
+    cost_basis_per_share: float
+    acquired_date: date
+    currency: str
+    source: str = "transaction_ledger"
+
+
+class RealizedLotAttribution(BaseModel):
+    symbol: str
+    realized_gain_loss: float
+    short_term_gain_loss: float
+    long_term_gain_loss: float
+    quantity_sold: float
+    proceeds: float
+    cost_basis: float
+    method: str = "fifo"
+
+
+class TaxLotAttributionReport(BaseModel):
+    account_id: str
+    lots_open: list[TaxLot]
+    realized_by_symbol: list[RealizedLotAttribution]
+    total_realized_gain_loss: float
+    total_short_term: float
+    total_long_term: float
+    data_quality: dict[str, str]
+    methodology: str
+
+
+class FundamentalSnapshotRecord(BaseModel):
+    symbol: str
+    as_of_date: date
+    snapshot: FundamentalSnapshot
+    point_in_time: bool = True
+    source: str
 
 
 class ScoreCalibrationReport(BaseModel):

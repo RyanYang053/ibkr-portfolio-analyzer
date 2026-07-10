@@ -132,13 +132,24 @@ def calculate_performance_attribution(
     history: list[PortfolioPnLSnapshot],
     base_currency: str = "USD",
     fx_resolver=None,
+    account_id: str | None = None,
 ) -> PerformanceAttribution:
     import sys
 
     from app.services.broker.ibkr_readonly import get_exchange_rate
+    from app.services.portfolio.tax_lots import realized_gain_by_symbol
+    from app.services.portfolio.transaction_store import get_transactions
 
     if fx_resolver is None:
         fx_resolver = get_exchange_rate
+
+    tax_lot_realized: dict[str, float] = {}
+    tax_lot_total: float | None = None
+    if account_id:
+        transactions = get_transactions(account_id)
+        tax_lot_realized = realized_gain_by_symbol(transactions, account_id)
+        if tax_lot_realized:
+            tax_lot_total = round(sum(tax_lot_realized.values()), 2)
 
     security_selection: dict[str, float] = {}
     sector_allocation: dict[str, float] = defaultdict(float)
@@ -258,10 +269,13 @@ def calculate_performance_attribution(
         interaction_effect=interaction_effect,
         total_active_return=total_active_return,
         brinson_by_sector=brinson_by_sector,
+        tax_lot_realized_by_symbol=tax_lot_realized,
+        tax_lot_total_realized=tax_lot_total,
         data_quality={
             "benchmark_data": data_quality_benchmark,
             "cash_flow_adjustment": cash_flow_status,
             "brinson_attribution": "sufficient" if brinson_by_sector else "missing",
+            "tax_lot_realized": "sufficient" if tax_lot_realized else "missing",
         },
         methodology=methodology,
     )
