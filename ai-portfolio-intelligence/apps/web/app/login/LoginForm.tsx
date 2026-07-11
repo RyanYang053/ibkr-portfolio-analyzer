@@ -1,12 +1,18 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { login } from "@/lib/auth";
+
+function readNextPath(): string {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+  return new URLSearchParams(window.location.search).get("next") || "/";
+}
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -18,8 +24,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await login(email, password);
-      const next = searchParams.get("next") || "/";
-      router.replace(next);
+      router.replace(readNextPath());
       router.refresh();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Login failed");
@@ -36,9 +41,10 @@ export default function LoginPage() {
           Authenticate to access portfolio intelligence. Public registration is disabled by default.
         </p>
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <label className="block text-sm">
+          <label htmlFor="login-email" className="block text-sm">
             <span className="mb-1 block font-medium">Email</span>
             <input
+              id="login-email"
               type="email"
               required
               autoComplete="email"
@@ -47,9 +53,10 @@ export default function LoginPage() {
               className="w-full rounded-md border border-line px-3 py-2 text-sm"
             />
           </label>
-          <label className="block text-sm">
+          <label htmlFor="login-password" className="block text-sm">
             <span className="mb-1 block font-medium">Password</span>
             <input
+              id="login-password"
               type="password"
               required
               autoComplete="current-password"
