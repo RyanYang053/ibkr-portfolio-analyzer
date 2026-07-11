@@ -36,7 +36,7 @@ services:
       SCHEDULER_RUN_IN_API: "false"
       DISABLE_AUTH_ENFORCEMENT: ${DISABLE_AUTH_ENFORCEMENT:-false}
       BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:-}
-      SEC_EDGAR_USER_AGENT: ${SEC_EDGAR_USER_AGENT:-PortfolioIntelligence/1.0 ops@example.com}
+      SEC_EDGAR_USER_AGENT: ${SEC_EDGAR_USER_AGENT:-PortfolioIntelligence/1.0 ops@example.org}
     ports:
       - "8000:8000"
     depends_on:

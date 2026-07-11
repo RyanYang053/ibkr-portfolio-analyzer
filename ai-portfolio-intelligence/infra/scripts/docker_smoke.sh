@@ -13,7 +13,7 @@ export PERSISTENCE_BACKEND="${PERSISTENCE_BACKEND:-postgres}"
 export BROKER_MODE="${BROKER_MODE:-mock_ibkr_readonly}"
 export DISABLE_AUTH_ENFORCEMENT="${DISABLE_AUTH_ENFORCEMENT:-false}"
 export DISABLE_AUTH_MIDDLEWARE="${DISABLE_AUTH_MIDDLEWARE:-false}"
-export SEC_EDGAR_USER_AGENT="${SEC_EDGAR_USER_AGENT:-PortfolioIntelligence/1.0 ops@example.com}"
+export SEC_EDGAR_USER_AGENT="${SEC_EDGAR_USER_AGENT:-PortfolioIntelligence/1.0 ops@example.org}"
 
 API_BASE="${API_BASE:-http://127.0.0.1:8000}"
 WEB_BASE="${WEB_BASE:-http://127.0.0.1:3000}"
@@ -27,6 +27,11 @@ cleanup() {
 trap cleanup EXIT
 
 docker compose -f "${COMPOSE_FILE}" up -d --build postgres api scheduler web
+
+if ! docker compose -f "${COMPOSE_FILE}" ps --status running --services | grep -qx api; then
+  docker compose -f "${COMPOSE_FILE}" logs api || true
+  exit 1
+fi
 
 for attempt in $(seq 1 60); do
   if curl -fsS "${API_BASE}/health/live" >/dev/null; then
