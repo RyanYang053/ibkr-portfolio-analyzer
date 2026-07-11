@@ -139,7 +139,7 @@ jobs:
         run: |
           uvicorn app.main:app --host 127.0.0.1 --port 8000 &
           for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
               break
             fi
             if [[ "${attempt}" -eq 30 ]]; then
@@ -162,7 +162,7 @@ jobs:
         run: |
           npm --workspace apps/web run start -- --hostname 127.0.0.1 --port 3000 &
           for attempt in $(seq 1 60); do
-            WEB_LOGIN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login)"
+            WEB_LOGIN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login 2>/dev/null || echo 000)"
             if [[ "${WEB_LOGIN_STATUS}" == "200" ]]; then
               break
             fi
