@@ -4,8 +4,8 @@ Revision ID: 0005_auth_identity
 Revises: 0004_scheduler_retries
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0005_auth_identity"
 down_revision = "0004_scheduler_retries"

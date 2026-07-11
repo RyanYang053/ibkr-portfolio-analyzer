@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from datetime import date, datetime
-
-import pytest
+from datetime import datetime
 
 from app.services import scheduler
-from app.services.scheduler_lease import SchedulerLeaseHeartbeat, SchedulerLeaseLost
 
 
 class _NoopLease:

@@ -1,8 +1,7 @@
 import json
 from typing import Any
 
-from app.schemas.domain import Position, DISCLAIMER
-
+from app.schemas.domain import DISCLAIMER, Position
 
 STOCK_ANALYST_SYSTEM_FRAMEWORK = """
 You are a professional investment research analyst for a read-only portfolio
@@ -227,8 +226,8 @@ def build_portfolio_memo_prompt(
     }
 
     try:
-        from app.services.suitability.engine import get_investor_profile, check_position_suitability
-        from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
+        from app.services.policy.engine import analyze_policy_drift, get_portfolio_policy
+        from app.services.suitability.engine import check_position_suitability, get_investor_profile
 
         active_id = getattr(summary, "account_id", "default")
         from app.services.broker.ibkr_readonly import get_exchange_rate

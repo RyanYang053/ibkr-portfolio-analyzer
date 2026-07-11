@@ -233,7 +233,7 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: ruff check app tests
-      - run: mypy app --follow-imports=skip
+      - run: mypy app --explicit-package-bases --follow-imports=skip --cache-dir=${{ runner.temp }}/mypy_cache
 
   api-coverage:
     runs-on: ubuntu-latest
@@ -292,6 +292,7 @@ jobs:
       JWT_SECRET: ci-production-e2e-secret
       BOOTSTRAP_TOKEN: ci-production-e2e-bootstrap
       BROKER_MODE: mock_ibkr_readonly
+      SEC_EDGAR_USER_AGENT: PortfolioIntelligence/1.0 ci@example.org
     services:
       postgres:
         image: postgres:16
@@ -314,6 +315,9 @@ jobs:
       - run: python -m pip install --upgrade pip
       - working-directory: ai-portfolio-intelligence/apps/api
         run: pip install -r requirements.txt
+      - name: Run migrations
+        working-directory: ai-portfolio-intelligence/apps/api
+        run: alembic upgrade head
       - name: Start API
         working-directory: ai-portfolio-intelligence/apps/api
         run: |

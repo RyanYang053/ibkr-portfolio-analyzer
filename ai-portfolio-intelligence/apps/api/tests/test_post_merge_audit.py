@@ -6,9 +6,9 @@ from datetime import date
 import pytest
 
 from app.schemas.domain import Transaction
+from app.services.fundamentals.snapshot_store import save_snapshot_record
 from app.services.market_data.fx_store import _lookup_rate
 from app.services.portfolio.corporate_actions import parse_corporate_action
-from app.services.fundamentals.snapshot_store import save_snapshot_record
 from app.services.portfolio.tax_lots import build_tax_lot_attribution
 from app.services.risk.advanced_risk import _historical_metrics
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from app.schemas.domain import Transaction
-from app.services.portfolio.pnl_decomposition import _signed_notional, _convert_amount
+from app.services.portfolio.pnl_decomposition import _convert_amount, _signed_notional
 
 
 def test_dividend_reversal_reduces_income():

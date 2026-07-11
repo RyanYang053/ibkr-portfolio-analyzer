@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
 from app.core.config import settings
 from app.db.option_contract_repo import upsert_contract
 from app.schemas.domain import Position, utc_now

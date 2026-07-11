@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from app.services.portfolio_construction.advanced_optimizer import OptimizationConstraints, verify_optimization_constraints
+from app.services.portfolio_construction.advanced_optimizer import (
+    OptimizationConstraints,
+    verify_optimization_constraints,
+)
 
 
 def test_no_trade_baseline_satisfies_zero_turnover():

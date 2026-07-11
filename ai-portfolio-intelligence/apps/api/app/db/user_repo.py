@@ -277,6 +277,7 @@ def assert_bootstrap_owner_available() -> None:
         return
 
     from fastapi import HTTPException
+
     from app.db.session import SessionLocal
 
     with SessionLocal() as session:

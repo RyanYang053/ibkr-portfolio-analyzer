@@ -6,7 +6,6 @@ from typing import Any
 from app.schemas.domain import Position, utc_now
 from app.services.ai.thesis_tracker import evaluate_thesis
 
-
 CONFIDENCE_ORDER = ["Low", "Medium", "Medium-High", "High"]
 
 

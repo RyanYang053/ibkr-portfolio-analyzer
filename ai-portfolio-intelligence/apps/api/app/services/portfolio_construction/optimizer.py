@@ -56,7 +56,7 @@ def _aligned_daily_returns(
     returns_by_instrument: dict[InstrumentKey, list[float]] = {}
     for instrument in instruments:
         daily: list[float] = []
-        for left, right in zip(ordered_dates, ordered_dates[1:]):
+        for left, right in zip(ordered_dates, ordered_dates[1:], strict=False):
             prior = closes_by_instrument[instrument][left]
             current = closes_by_instrument[instrument][right]
             if prior <= 0:
@@ -428,7 +428,7 @@ def generate_portfolio_optimization(
         projected = _project_weights(covariance_symbols, raw_weights, policy, sectors, etf_instruments)
         target_full_weights = [weight * target_budget for weight in projected]
 
-    full_weights = {instrument: weight for instrument, weight in zip(covariance_symbols, target_full_weights)}
+    full_weights = {instrument: weight for instrument, weight in zip(covariance_symbols, target_full_weights, strict=False)}
     for position in positions:
         if _instrument_key(position) in modeled_keys:
             continue
@@ -490,10 +490,10 @@ def generate_portfolio_optimization(
         weight_vector,
         shrinkage=settings.optimization_return_shrinkage,
     )
-    expected_return_annual = sum(weight * mean for weight, mean in zip(weight_vector, expected_returns))
+    expected_return_annual = sum(weight * mean for weight, mean in zip(weight_vector, expected_returns, strict=False))
     variance = 0.0
-    for i, left in enumerate(covariance_symbols):
-        for j, right in enumerate(covariance_symbols):
+    for i, _left in enumerate(covariance_symbols):
+        for j, _right in enumerate(covariance_symbols):
             variance += weight_vector[i] * covariance[i][j] * weight_vector[j] * TRADING_DAYS
     expected_vol_annual = math.sqrt(max(variance, 0.0))
     risk_free_rate = float(getattr(settings, "risk_free_rate_annual", 0.0))

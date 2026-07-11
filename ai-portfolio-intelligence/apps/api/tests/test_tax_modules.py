@@ -5,8 +5,8 @@ from datetime import date
 from app.schemas.domain import Transaction
 from app.services.portfolio.tax_lots import build_tax_lot_attribution
 from app.services.tax.canadian_acb import build_canadian_acb_report
-from app.services.tax.us_tax_lots import build_us_tax_lot_report
 from app.services.tax.models import TaxLotMethod
+from app.services.tax.us_tax_lots import build_us_tax_lot_report
 
 
 def _txn(**kwargs) -> Transaction:

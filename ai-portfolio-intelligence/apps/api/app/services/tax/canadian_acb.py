@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
-from typing import Callable, Literal, Optional
+from typing import Callable, Optional
 
 from app.schemas.domain import Transaction
-from app.services.portfolio.corporate_actions import apply_corporate_action_to_lots, parse_corporate_action
+from app.services.portfolio.corporate_actions import parse_corporate_action
 from app.services.tax.models import RealizedTaxLot, TaxAttributionReport, TaxLotMethod, TaxLotSnapshot
 
 

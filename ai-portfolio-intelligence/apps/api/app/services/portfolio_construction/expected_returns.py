@@ -51,7 +51,7 @@ def shrink_expected_returns(
     if not expected:
         return equilibrium
     alpha = max(0.0, min(1.0, shrinkage))
-    return [alpha * eq + (1.0 - alpha) * value for value, eq in zip(expected, equilibrium)]
+    return [alpha * eq + (1.0 - alpha) * value for value, eq in zip(expected, equilibrium, strict=False)]
 
 
 def fundamental_scenario_returns(

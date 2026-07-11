@@ -6,7 +6,6 @@ from app.api.deps import get_broker_adapter
 from app.core.security import create_access_token
 from app.main import app
 from app.services.broker.mock_ibkr import MockIBKRAdapter
-from app.services.watchlist_store import load_user_watchlist, symbol_on_user_watchlist
 
 
 @pytest.fixture

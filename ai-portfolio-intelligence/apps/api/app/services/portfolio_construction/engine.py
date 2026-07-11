@@ -105,7 +105,7 @@ def generate_rebalance_proposal(
         raise ValueError(
             "Duplicate position keys require a conId-aware rebalance proposal schema; refusing to merge distinct contracts."
         )
-    by_key = {key: item for key, item in zip(position_keys, long_positions)}
+    by_key = {key: item for key, item in zip(position_keys, long_positions, strict=False)}
     planned_sales: dict[PositionKey, float] = defaultdict(float)
     sale_reasons: dict[PositionKey, list[str]] = defaultdict(list)
 

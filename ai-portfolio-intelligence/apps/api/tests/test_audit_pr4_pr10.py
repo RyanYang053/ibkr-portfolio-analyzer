@@ -12,7 +12,7 @@ from app.services.portfolio.performance_returns import (
     calculate_time_weighted_return,
 )
 from app.services.portfolio.pnl_decomposition import calculate_pnl_decomposition
-from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot, PositionPnL
+from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
 from app.services.portfolio.transaction_store import save_transactions
 from app.services.risk.factor_model import _matrix_ols
 from app.services.scoring.stock_score import score_stock

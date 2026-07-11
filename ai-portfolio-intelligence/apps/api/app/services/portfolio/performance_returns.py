@@ -115,7 +115,7 @@ def _subperiod_twr_interval_return(
 
     boundaries = [interval_start, *flow_dates, interval_end]
     compounded = 1.0
-    for left, right in zip(boundaries, boundaries[1:]):
+    for left, right in zip(boundaries, boundaries[1:], strict=False):
         beginning = nav_by_date[left]
         ending = nav_by_date[right]
         if beginning <= 0:

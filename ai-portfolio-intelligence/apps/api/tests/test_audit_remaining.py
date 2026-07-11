@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
 from app.db.broker_sync_batch_repo import create_broker_sync_batch, read_broker_sync_batch
+from app.schemas.domain import Position, utc_now
 from app.services.attribution.benchmark_weights import benchmark_sector_weights_as_of
 from app.services.attribution.engine import calculate_brinson_attribution
 from app.services.options.engine import calculate_bs_greeks
 from app.services.research.event_taxonomy import classify_news_event
-from app.schemas.domain import Position, utc_now
 
 
 def _position(symbol: str = "MSFT", sector: str = "Technology", market_value: float = 30000) -> Position:

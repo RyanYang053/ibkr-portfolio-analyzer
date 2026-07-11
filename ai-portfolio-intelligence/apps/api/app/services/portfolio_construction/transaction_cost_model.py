@@ -58,7 +58,7 @@ def portfolio_turnover_cost(
     cost_inputs: list[TransactionCostInputs],
 ) -> TransactionCostEstimate:
     totals = TransactionCostEstimate(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    for index, (current, target) in enumerate(zip(current_weights, target_weights)):
+    for index, (current, target) in enumerate(zip(current_weights, target_weights, strict=False)):
         delta = abs(target - current) * total_portfolio_value
         if delta <= 0:
             continue

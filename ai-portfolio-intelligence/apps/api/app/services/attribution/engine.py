@@ -199,13 +199,13 @@ def calculate_performance_attribution(
 ) -> PerformanceAttribution:
     import sys
 
-    from app.services.broker.ibkr_readonly import get_exchange_rate
-    from app.services.portfolio.tax_lots import realized_gain_by_symbol
-    from app.services.portfolio.transaction_store import get_transactions
     from app.services.attribution.brinson_ledger import (
         beginning_sector_weights,
         sector_returns_from_ledger,
     )
+    from app.services.broker.ibkr_readonly import get_exchange_rate
+    from app.services.portfolio.tax_lots import realized_gain_by_symbol
+    from app.services.portfolio.transaction_store import get_transactions
 
     if fx_resolver is None:
         fx_resolver = get_exchange_rate

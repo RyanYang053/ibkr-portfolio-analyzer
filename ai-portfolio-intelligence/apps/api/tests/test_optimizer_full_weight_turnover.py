@@ -3,7 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.services.portfolio_construction.advanced_optimizer import OptimizationConstraints, verify_optimization_constraints
+from app.services.portfolio_construction.advanced_optimizer import (
+    OptimizationConstraints,
+    verify_optimization_constraints,
+)
 
 
 def test_full_portfolio_turnover_uses_absolute_current_weights():
@@ -21,7 +24,7 @@ def test_full_portfolio_turnover_uses_absolute_current_weights():
     feasible = verify_optimization_constraints([0.22, 0.38], constraints)
     assert feasible["feasible"] is True
     assert feasible["slack"]["budget"] == round(0.6 - 0.6, 6)
-    turnover = sum(abs(a - b) for a, b in zip([0.22, 0.38], [0.2, 0.1]))
+    turnover = sum(abs(a - b) for a, b in zip([0.22, 0.38], [0.2, 0.1], strict=False))
     assert turnover == pytest.approx(0.3)
     infeasible = verify_optimization_constraints([0.35, 0.35], constraints)
     assert infeasible["feasible"] is False

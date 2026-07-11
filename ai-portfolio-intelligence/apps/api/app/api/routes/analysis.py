@@ -2,14 +2,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.account_deps import resolve_authorized_account_id, resolve_authorized_account_ids
+from app.api.account_deps import resolve_authorized_account_id
 from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.services.broker.base import BrokerAdapter
 from app.services.portfolio.account_scope import find_portfolio_position
 from app.services.portfolio.snapshot import gate_professional_response
 from app.services.scoring.decision_engine import build_recommendation
-
 
 router = APIRouter(
     prefix="/recommendations",

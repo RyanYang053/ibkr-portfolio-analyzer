@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.broker.base import BrokerAdapter
 
-
 FORBIDDEN_ROUTES = {
     "/orders/submit",
     "/orders/place",

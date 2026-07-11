@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.services.portfolio.period_mark_engine import _matched_signed_quantity, trade_timing_effect
 from app.schemas.domain import Transaction
+from app.services.portfolio.period_mark_engine import _matched_signed_quantity, trade_timing_effect
 
 
 def test_matched_signed_quantity_long():

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import HTTPException
-
 from app.api.account_deps import resolve_authorized_account_ids
 from app.api.auth_deps import Principal
 from app.schemas.domain import AccountSummary, Position

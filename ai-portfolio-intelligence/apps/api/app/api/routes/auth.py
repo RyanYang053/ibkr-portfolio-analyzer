@@ -1,15 +1,14 @@
-from pydantic import BaseModel, EmailStr, Field
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, EmailStr, Field
 
-from app.api.auth_deps import Principal, get_current_principal
-from app.api.invitation_store import accept_invitation, get_invitation
 from app.api.account_access_store import grant_account_access
 from app.api.account_deps import WILDCARD_ACCOUNT
+from app.api.auth_deps import Principal, get_current_principal
+from app.api.invitation_store import accept_invitation, get_invitation
 from app.api.user_store import bump_token_version, get_user, owner_exists, save_user
 from app.core.config import settings
 from app.core.rate_limit import check_login_allowed, clear_login_failures, record_login_failure
 from app.core.security import create_access_token, hash_password, verify_password
-
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -51,7 +50,7 @@ def bootstrap_owner(payload: BootstrapRequest) -> dict[str, str]:
     if settings.persistence_backend == "postgres":
         from app.db.user_repo import bootstrap_owner_transactionally
 
-        user = bootstrap_owner_transactionally(email, password_hash, payload.name)
+        bootstrap_owner_transactionally(email, password_hash, payload.name)
     else:
         if owner_exists():
             raise HTTPException(status_code=409, detail="An owner account already exists")

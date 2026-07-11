@@ -136,7 +136,7 @@ def _pearson(xs: list[float], ys: list[float]) -> Optional[float]:
         return None
     x_mean = mean(xs)
     y_mean = mean(ys)
-    numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys))
+    numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys, strict=False))
     x_var = sum((x - x_mean) ** 2 for x in xs)
     y_var = sum((y - y_mean) ** 2 for y in ys)
     if x_var <= 0 or y_var <= 0:

@@ -1,9 +1,9 @@
 from datetime import date
 
+from app.schemas.domain import Position, utc_now
 from app.services.fundamentals.providers import edgar_provider
 from app.services.portfolio.pnl_period_effects import compute_period_price_and_realized_effects
 from app.services.risk.advanced_risk import _risk_contribution
-from app.schemas.domain import Position, utc_now
 
 
 def test_edgar_as_of_filters_future_filings(monkeypatch):

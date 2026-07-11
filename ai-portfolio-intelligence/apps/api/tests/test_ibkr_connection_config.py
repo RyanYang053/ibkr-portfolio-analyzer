@@ -1,7 +1,11 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.broker.ibkr_readonly import allocate_readonly_client_id, configure_runtime_ibkr, get_runtime_ibkr_config
+from app.services.broker.ibkr_readonly import (
+    allocate_readonly_client_id,
+    configure_runtime_ibkr,
+    get_runtime_ibkr_config,
+)
 
 
 def test_configure_ibkr_endpoint_accepts_local_gateway_settings_without_credentials():

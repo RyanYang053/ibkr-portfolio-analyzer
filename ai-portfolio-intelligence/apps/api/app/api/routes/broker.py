@@ -6,17 +6,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.account_access_store import grant_account_access
 from app.api.account_deps import ensure_account_access, filter_accounts_for_principal
+from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
+from app.core.audit import log_audit_action
+from app.core.config import settings
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.ibkr_readonly import configure_runtime_ibkr, get_runtime_ibkr_config
-from app.core.audit import log_audit_action
-
-
-from app.core.config import settings
-
 
 router = APIRouter(
     prefix="/broker",
@@ -180,9 +177,13 @@ def sync_flex(
 ) -> dict[str, object]:
     ensure_account_access(account_id, principal)
     from app.core.config import settings
-    from app.services.broker.flex_query import fetch_flex_cash_ledger, flex_activity_query_configured, mock_flex_transactions
+    from app.services.broker.flex_query import (
+        fetch_flex_cash_ledger,
+        flex_activity_query_configured,
+        mock_flex_transactions,
+    )
     from app.services.portfolio.ledger_coverage import build_ledger_coverage, save_ledger_coverage
-    from app.services.portfolio.transaction_store import load_transactions, save_transactions
+    from app.services.portfolio.transaction_store import save_transactions
 
     if flex_activity_query_configured():
         flex_result = fetch_flex_cash_ledger(account_id)

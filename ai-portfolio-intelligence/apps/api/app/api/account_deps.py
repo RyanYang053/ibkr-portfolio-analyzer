@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException
 
-from app.api.account_access_store import list_accessible_accounts, user_has_account_access
+from app.api.account_access_store import list_accessible_accounts
 from app.api.auth_deps import Principal, auth_enforcement_active, get_current_principal
 from app.api.deps import get_broker_adapter
 from app.services.broker.base import BrokerAdapter

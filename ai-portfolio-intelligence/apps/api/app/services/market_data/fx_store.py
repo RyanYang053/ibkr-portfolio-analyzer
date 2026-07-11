@@ -9,8 +9,8 @@ from datetime import date, datetime, timedelta, timezone
 from threading import Lock
 from typing import Optional, Protocol
 
-from app.services.market_data.http_client import request_with_retry
 from app.core.config import settings
+from app.services.market_data.http_client import request_with_retry
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 FX_STORE_FILE = os.path.join(DATA_DIR, "historical_fx_rates.json")
@@ -91,7 +91,7 @@ def _fetch_yahoo_fx_series(from_curr: str, to_curr: str, start_date: date, end_d
     timestamps = result[0].get("timestamp") or []
     closes = (result[0].get("indicators", {}).get("quote") or [{}])[0].get("close") or []
     series: dict[str, float] = {}
-    for timestamp, close in zip(timestamps, closes):
+    for timestamp, close in zip(timestamps, closes, strict=False):
         if close is None or not math.isfinite(float(close)) or float(close) <= 0:
             continue
         day = datetime.fromtimestamp(int(timestamp), tz=timezone.utc).date().isoformat()

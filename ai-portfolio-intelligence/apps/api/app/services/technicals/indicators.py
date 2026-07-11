@@ -52,13 +52,13 @@ def _rsi(values: list[float], window: int = 14) -> float:
     if len(values) <= window:
         raise ValueError(f"Need at least {window + 1} prices for RSI")
 
-    changes = [current - previous for previous, current in zip(values, values[1:])]
+    changes = [current - previous for previous, current in zip(values, values[1:], strict=False)]
     gains = [max(change, 0.0) for change in changes]
     losses = [max(-change, 0.0) for change in changes]
 
     average_gain = sum(gains[:window]) / window
     average_loss = sum(losses[:window]) / window
-    for gain, loss in zip(gains[window:], losses[window:]):
+    for gain, loss in zip(gains[window:], losses[window:], strict=False):
         average_gain = ((window - 1) * average_gain + gain) / window
         average_loss = ((window - 1) * average_loss + loss) / window
 
@@ -81,7 +81,7 @@ def _macd(values: list[float]) -> tuple[float, float, float]:
     slow = _ema_series(values, 26)
     fast_offset = 26 - 12
     aligned_fast = fast[fast_offset:]
-    macd_series = [fast_value - slow_value for fast_value, slow_value in zip(aligned_fast, slow)]
+    macd_series = [fast_value - slow_value for fast_value, slow_value in zip(aligned_fast, slow, strict=False)]
     if len(macd_series) < 9:
         raise ValueError("Need enough prices to calculate the MACD signal")
     signal = _ema(macd_series, 9)

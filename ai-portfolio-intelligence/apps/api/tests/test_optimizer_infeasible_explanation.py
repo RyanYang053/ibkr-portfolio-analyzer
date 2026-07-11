@@ -3,7 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.services.portfolio_construction.advanced_optimizer import OptimizationConstraints, solve_min_variance_with_constraints
+from app.services.portfolio_construction.advanced_optimizer import (
+    OptimizationConstraints,
+    solve_min_variance_with_constraints,
+)
 
 
 def test_infeasible_problem_returns_explicit_status():

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from app.core.audit import get_audit_logs, log_audit_action
 from app.core.request_context import activate_request_context, clear_request_context
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+import time
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from itertools import count
 from threading import Lock
 from typing import Any
@@ -9,8 +10,6 @@ from typing import Any
 from app.core.config import settings
 from app.schemas.domain import AccountSummary, BrokerAccount, OpenOrderReadOnly, Position, Transaction
 from app.services.broker.base import BrokerAdapter
-
-import time
 
 EQUITY_LIKE_TYPES = frozenset({"STK", "ETF"})
 
@@ -335,7 +334,7 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
 
             # Calculate total value in base currency
             total_value_in_base = 0.0
-            for item, symbol, sec_type, quantity, avg_cost, market_price, market_value, currency in positions_data:
+            for _item, _symbol, _sec_type, _quantity, _avg_cost, _market_price, market_value, currency in positions_data:
                 rate = get_exchange_rate(currency, base_currency)
                 total_value_in_base += market_value * rate
 

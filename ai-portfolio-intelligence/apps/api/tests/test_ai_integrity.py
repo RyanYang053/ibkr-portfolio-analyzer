@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import date, datetime
 import asyncio
 import json
+from datetime import date, datetime
 
 import httpx
 import pytest
@@ -11,21 +11,21 @@ from fastapi import HTTPException
 from app.api.routes import ai as ai_routes
 from app.api.routes.pnl import create_pnl_snapshot
 from app.schemas.domain import AccountSummary, Position, utc_now
+from app.services import scheduler
 from app.services.ai.client import GeminiClient
 from app.services.ai.prompt_templates import build_portfolio_memo_prompt
 from app.services.ai.structured_outputs import build_structured_stock_context
 from app.services.ai.thesis_tracker import evaluate_thesis
+from app.services.attribution.engine import calculate_performance_attribution
+from app.services.broker.ibkr_readonly import _ensure_sync_event_loop, get_exchange_rate
 from app.services.fundamentals.mock_provider import MockFundamentalProvider
 from app.services.guardrails.engine import append_compliance_disclaimer
 from app.services.market_data.mock_provider import MockMarketDataProvider
-from app.services.risk.portfolio_risk import analyze_portfolio_risk
-from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
-from app.services.attribution.engine import calculate_performance_attribution
-from app.services.broker.ibkr_readonly import _ensure_sync_event_loop, get_exchange_rate
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
+from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
+from app.services.risk.portfolio_risk import analyze_portfolio_risk
 from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
-from app.services import scheduler
 
 
 def _position() -> Position:

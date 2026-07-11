@@ -5,7 +5,13 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from app.schemas.domain import Position, utc_now
-from app.services.options.contract_filters import OptionLiquidityPolicy, is_liquid, is_otm_call, is_otm_put, spread_percent
+from app.services.options.contract_filters import (
+    OptionLiquidityPolicy,
+    is_liquid,
+    is_otm_call,
+    is_otm_put,
+    spread_percent,
+)
 from app.services.options.engine import OptionContract, calculate_bs_price
 from app.services.risk.advanced_risk import OptionStressResult, _option_stress_loss
 

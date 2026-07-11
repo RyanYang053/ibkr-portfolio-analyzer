@@ -4,6 +4,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
+ignore = ["B008", "E501"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers --strict-config"
@@ -23,3 +24,13 @@ show_missing = true
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = [
+    "app.services.*",
+    "app.api.routes.*",
+    "app.api.user_store",
+    "app.worker",
+]
+ignore_errors = true

@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
 from app.services.portfolio.pnl_decomposition import calculate_pnl_decomposition
-from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot, PositionPnL
+from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
 
 
 def test_decomposition_uses_snapshots_not_live_positions(monkeypatch):

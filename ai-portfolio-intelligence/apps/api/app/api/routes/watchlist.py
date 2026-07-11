@@ -10,7 +10,6 @@ from app.core.audit import log_audit_action
 from app.services import watchlist_store
 from app.services.tenant_scope import tenant_user_id
 
-
 router = APIRouter(
     prefix="/watchlist",
     tags=["watchlist"],

@@ -169,8 +169,7 @@ def build_deterministic_options_report(
         raise ValueError("options chain is required")
 
     policy = liquidity_policy or (_relaxed_policy_for_demo() if is_demo else OptionLiquidityPolicy())
-    now = datetime.now(timezone.utc)
-    spot = position.market_price
+    datetime.now(timezone.utc)
     strategies = build_validated_strategy_candidates(
         position,
         chain,

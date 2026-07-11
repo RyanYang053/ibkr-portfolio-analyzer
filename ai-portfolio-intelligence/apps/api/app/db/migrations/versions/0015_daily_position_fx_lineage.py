@@ -4,8 +4,8 @@ Revision ID: 0015_daily_position_fx_lineage
 Revises: 0013_identity_and_invitation_hardening
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0015_daily_position_fx_lineage"
 down_revision = "0013_identity_and_invitation_hardening"

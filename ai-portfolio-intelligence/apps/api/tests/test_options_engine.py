@@ -1,19 +1,17 @@
+
 import pytest
-from datetime import date
 from fastapi.testclient import TestClient
-from app.main import app
+
 from app.api.deps import get_broker_adapter
 from app.core.config import settings
+from app.main import app
 from app.services.broker.mock_ibkr import MockIBKRAdapter
 from app.services.options.engine import (
-    calculate_bs_price,
-    calculate_bs_greeks,
-    generate_mock_options_chain,
-    calculate_covered_call_metrics,
-    calculate_cash_secured_put_metrics,
     calculate_bull_call_spread_metrics,
+    calculate_cash_secured_put_metrics,
     evaluate_strategy_eligibility,
 )
+
 
 def validate_schema(instance, schema):
     """Simple validator to check OPTIONS_STRATEGY_RESPONSE_SCHEMA constraints without external jsonschema dependency."""

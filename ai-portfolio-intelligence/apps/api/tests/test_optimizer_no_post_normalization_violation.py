@@ -3,7 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.services.portfolio_construction.advanced_optimizer import OptimizationConstraints, solve_min_variance_with_constraints
+from app.services.portfolio_construction.advanced_optimizer import (
+    OptimizationConstraints,
+    solve_min_variance_with_constraints,
+)
 
 
 def test_solver_does_not_post_normalize_away_from_target_budget():

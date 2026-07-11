@@ -167,9 +167,9 @@ def calculate_pnl_decomposition(
     closing_positions: list = []
     if covers_period:
         from app.db.portfolio_snapshot_repo import (
+            _valid_uuid,
             read_position_rows,
             require_complete_snapshot,
-            _valid_uuid,
         )
         from app.services.portfolio.pnl_period_effects import compute_period_effects
 

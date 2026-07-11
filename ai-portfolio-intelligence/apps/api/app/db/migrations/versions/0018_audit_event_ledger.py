@@ -4,8 +4,8 @@ Revision ID: 0018_audit_event_ledger
 Revises: 0017_edgar_fact_lineage
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0018_audit_event_ledger"

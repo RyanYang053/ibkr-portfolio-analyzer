@@ -5,21 +5,21 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.account_deps import resolve_authorized_account_id, resolve_authorized_account_ids
 from app.api.auth_deps import Principal, get_current_principal, require_scope
-from app.api.account_deps import ensure_account_access, resolve_authorized_account_id, resolve_authorized_account_ids
 from app.api.deps import broker_not_configured_error, get_broker_adapter
-from app.schemas.domain import AccountSummary, InvestmentPolicyStatement, InvestorProfile, Position, utc_now
+from app.core.audit import log_audit_action
+from app.schemas.domain import AccountSummary, InvestmentPolicyStatement, InvestorProfile, Position
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.ibkr_readonly import get_exchange_rate
 from app.services.data_quality.validation import (
-    prepare_professional_response,
-    require_analytics_safe,
-    validate_and_gate_snapshot,
-    validate_portfolio_snapshot,
+  prepare_professional_response,
+  require_analytics_safe,
+  validate_and_gate_snapshot,
+  validate_portfolio_snapshot,
 )
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
 from app.services.tenant_scope import tenant_user_id
-from app.core.audit import log_audit_action
 
 router = APIRouter(
     prefix="/portfolio",
@@ -614,10 +614,9 @@ def get_portfolio_attribution(
     principal: Principal = Depends(get_current_principal),
 ):
     from app.services.attribution.engine import calculate_performance_attribution
-    from app.services.portfolio.pnl_tracker import get_pnl_history
-
     from app.services.market_data.fx_store import make_transaction_fx_resolver
     from app.services.portfolio.account_scope import require_single_account_id
+    from app.services.portfolio.pnl_tracker import get_pnl_history
 
     account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
     validation = validate_and_gate_snapshot(account_summary, account_positions)
@@ -687,10 +686,10 @@ def tax_lot_attribution(
     from datetime import date as date_type
 
     from app.services.market_data.fx_store import make_transaction_fx_resolver
-    from app.services.portfolio.tax_lots import build_tax_lot_attribution
-    from app.services.portfolio.pnl_tracker import get_pnl_history
-    from app.services.portfolio.transaction_store import get_transactions, sync_transactions
     from app.services.portfolio.account_scope import require_single_account_id
+    from app.services.portfolio.pnl_tracker import get_pnl_history
+    from app.services.portfolio.tax_lots import build_tax_lot_attribution
+    from app.services.portfolio.transaction_store import get_transactions, sync_transactions
     from app.services.suitability.engine import get_investor_profile
 
     account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
@@ -727,8 +726,8 @@ def rebalance_proposal(
     principal: Principal = Depends(get_current_principal),
 ):
     from app.services.policy.engine import get_portfolio_policy
-    from app.services.portfolio_construction.engine import generate_rebalance_proposal
     from app.services.portfolio.account_scope import require_single_account_id
+    from app.services.portfolio_construction.engine import generate_rebalance_proposal
     from app.services.suitability.engine import get_investor_profile
 
     account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
@@ -748,8 +747,8 @@ def optimize_portfolio(
     principal: Principal = Depends(get_current_principal),
 ):
     from app.services.policy.engine import get_portfolio_policy
-    from app.services.portfolio_construction.optimizer import generate_portfolio_optimization
     from app.services.portfolio.account_scope import require_single_account_id
+    from app.services.portfolio_construction.optimizer import generate_portfolio_optimization
     from app.services.suitability.engine import get_investor_profile
 
     account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)

@@ -1,5 +1,6 @@
 import json
 import os
+
 from app.schemas.domain import InvestorProfile, Position, Recommendation
 from app.services.tenant_scope import auth_scoped_defaults_enabled
 

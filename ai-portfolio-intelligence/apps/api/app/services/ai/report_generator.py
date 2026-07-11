@@ -4,7 +4,8 @@ import math
 from datetime import date
 from typing import Any
 
-from app.schemas.domain import AIReport, AccountSummary, Position, DISCLAIMER, utc_now, Provenance
+from app.core.config import settings
+from app.schemas.domain import DISCLAIMER, AccountSummary, AIReport, Position, Provenance, utc_now
 from app.services.ai.client import GeminiClient
 from app.services.ai.prompt_templates import (
     OPTIONS_STRATEGY_RESPONSE_SCHEMA,
@@ -16,12 +17,11 @@ from app.services.ai.prompt_templates import (
 from app.services.ai.structured_outputs import build_claim, build_structured_stock_context, evaluate_confidence_limits
 from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.market_data.mock_provider import MockMarketDataProvider
+from app.services.provenance import build_report_provenance
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
 from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
 from app.services.technicals.indicators import calculate_technical_indicators
-from app.core.config import settings
-from app.services.provenance import build_report_provenance
 
 
 def _derive_provenance(positions: list[Position], *, web_grounded: bool = False) -> Provenance:
@@ -36,8 +36,8 @@ def generate_daily_portfolio_memo(
     calculation_run_ids: list[str] | None = None,
 ) -> AIReport:
     risk = analyze_portfolio_risk(summary, positions)
-    from app.services.portfolio.pnl_tracker import get_pnl_history
     from app.services.portfolio.period_contributors import period_position_contributors
+    from app.services.portfolio.pnl_tracker import get_pnl_history
 
     history = get_pnl_history(summary.account_id or "default")
     contributors, detractors = period_position_contributors(history)
@@ -49,11 +49,10 @@ def generate_daily_portfolio_memo(
 
     provenance = _derive_provenance(positions)
 
-    from app.services.suitability.engine import get_investor_profile, check_position_suitability
-    from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
-    from app.services.guardrails.engine import append_compliance_disclaimer
-
     from app.services.broker.ibkr_readonly import get_exchange_rate
+    from app.services.guardrails.engine import append_compliance_disclaimer
+    from app.services.policy.engine import analyze_policy_drift, get_portfolio_policy
+    from app.services.suitability.engine import check_position_suitability, get_investor_profile
 
     active_id = summary.account_id or "default"
     profile = get_investor_profile(active_id, user_id=user_id)
@@ -144,7 +143,6 @@ def generate_stock_research_report(
     prompt = build_stock_analysis_prompt(position=context, score=None, recommendation=None)
 
     from app.services.ai.report_cache import set_cached_report
-    from app.core.config import settings
     is_demo = settings.broker_mode == "mock_ibkr_readonly"
     is_live_portfolio = not is_demo and position.account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY")
     
@@ -232,7 +230,6 @@ def generate_ai_portfolio_memo(
     )
     
     from app.services.ai.report_cache import set_cached_report
-    from app.core.config import settings
     is_demo = settings.broker_mode == "mock_ibkr_readonly"
     is_live_portfolio = not is_demo and summary.account_id not in ("MOCK-001", "MOCK-002", "SYNTHETIC_RESEARCH", "WATCHLIST_ONLY", "all")
     is_live_market = not is_demo
@@ -328,8 +325,8 @@ def _fallback_stock_report(position: Position, score, recommendation, context: d
     limits = evaluate_confidence_limits(context)
     action = limits["action_override"] or recommendation.action
     
-    from app.services.suitability.engine import get_investor_profile, check_position_suitability
-    from app.services.guardrails.engine import apply_recommendation_guardrails, append_compliance_disclaimer
+    from app.services.guardrails.engine import append_compliance_disclaimer, apply_recommendation_guardrails
+    from app.services.suitability.engine import check_position_suitability, get_investor_profile
     profile = get_investor_profile(position.account_id, user_id=user_id)
     suitability_warnings = check_position_suitability(profile, position)
     action, override_reason = apply_recommendation_guardrails(action, position.symbol, suitability_warnings)
@@ -412,7 +409,6 @@ def _fallback_stock_report(position: Position, score, recommendation, context: d
         "disclaimer": DISCLAIMER,
         "provider": "deterministic_fallback",
     }
-    from app.services.guardrails.engine import append_compliance_disclaimer
     return append_compliance_disclaimer(res)
 
 
@@ -440,8 +436,8 @@ def _sanitize_ai_report(
         action = limits["action_override"]
         
     # Apply suitability override if needed
-    from app.services.suitability.engine import get_investor_profile, check_position_suitability
-    from app.services.guardrails.engine import apply_recommendation_guardrails, append_compliance_disclaimer
+    from app.services.guardrails.engine import append_compliance_disclaimer, apply_recommendation_guardrails
+    from app.services.suitability.engine import check_position_suitability, get_investor_profile
     profile = get_investor_profile(position.account_id, user_id=user_id)
     suitability_warnings = check_position_suitability(profile, position)
     action, override_reason = apply_recommendation_guardrails(action, position.symbol, suitability_warnings)
@@ -488,7 +484,6 @@ def _sanitize_ai_report(
 
 
 def _build_context(position: Position, score, recommendation, *, user_id: str = "local-dev") -> dict[str, Any]:
-    from app.core.config import settings
     import sys
     allow_mock = (settings.broker_mode == "mock_ibkr_readonly") or ("pytest" in sys.modules)
 
@@ -607,15 +602,14 @@ def _min_confidence(value: str, cap: str) -> str:
 
 def generate_options_strategy_report(position: Position, technicals: dict[str, Any] | None, client: GeminiClient | None = None, cash_available: float = 15000.0, account_type: str = "Margin") -> dict[str, Any]:
     from app.services.options.engine import (
-        generate_mock_options_chain,
-        calculate_covered_call_metrics,
-        calculate_cash_secured_put_metrics,
-        calculate_bull_call_spread_metrics,
         calculate_bear_put_spread_metrics,
-        evaluate_strategy_eligibility
+        calculate_bull_call_spread_metrics,
+        calculate_cash_secured_put_metrics,
+        calculate_covered_call_metrics,
+        evaluate_strategy_eligibility,
+        generate_mock_options_chain,
     )
     from app.services.scoring.decision_engine import build_recommendation
-    from app.core.config import settings
 
     gemini = client or GeminiClient()
     rec = build_recommendation(position)
@@ -771,9 +765,10 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
         report = gemini.generate_json(prompt, response_schema=OPTIONS_STRATEGY_RESPONSE_SCHEMA)
         
         contract_by_symbol = {contract.symbol: contract for contract in chain}
-        from app.services.options.contract_filters import is_liquid
         from datetime import datetime, timezone
+
         from app.services.broker.ibkr_readonly import get_exchange_rate
+        from app.services.options.contract_filters import is_liquid
 
         liquidity_policy = OptionLiquidityPolicy() if not is_demo else _relaxed_policy_for_demo()
         now = datetime.now(timezone.utc)
@@ -996,12 +991,13 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             raise HTTPException(
                 status_code=503,
                 detail=f"Options strategy generation failed in production: {exc}",
-            )
+            ) from exc
         return _fallback_options_report(position.symbol, position.market_price, f"Gemini error: {exc}", is_live_portfolio, is_live_market, is_mock_fallback)
 
 
 def _fallback_options_report(symbol: str, price: float, error_msg: str, is_live_portfolio: bool, is_live_market: bool, is_mock_fallback: bool) -> dict[str, Any]:
     from datetime import date, timedelta
+
     from app.schemas.domain import utc_now
     expiry = date.today() + timedelta(days=30)
     strike = round(price / 5.0) * 5.0 if price > 0 else 100.0

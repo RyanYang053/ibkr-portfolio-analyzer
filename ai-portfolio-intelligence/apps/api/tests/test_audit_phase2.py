@@ -1,13 +1,15 @@
-from datetime import date, timedelta
-
-import pytest
+from datetime import date
 
 from app.schemas.domain import FundamentalSnapshot, Position, Transaction, utc_now
 from app.services.attribution.engine import calculate_brinson_attribution, calculate_performance_attribution
-from app.services.fundamentals.sector_models import get_sector_norms, resolve_scoring_model, score_fundamentals_for_sector
+from app.services.fundamentals.sector_models import (
+    get_sector_norms,
+    resolve_scoring_model,
+    score_fundamentals_for_sector,
+)
+from app.services.portfolio.ledger_coverage import external_cash_flow_amount
 from app.services.portfolio.performance_returns import calculate_time_weighted_return, calculate_xirr
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
-from app.services.portfolio.ledger_coverage import external_cash_flow_amount
 from app.services.portfolio.transaction_store import save_transactions
 from app.services.scoring.calibration import run_score_calibration
 

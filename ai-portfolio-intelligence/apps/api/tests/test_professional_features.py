@@ -1,32 +1,15 @@
-import os
-import pytest
-from datetime import date, datetime, timezone
-from app.schemas.domain import (
-    AccountSummary,
-    Position,
-    InvestorProfile,
-    InvestmentPolicyStatement,
-    utc_now
-)
-from app.services.suitability.engine import (
-    get_investor_profile,
-    save_investor_profile,
-    check_position_suitability,
-    check_recommendation_suitability
-)
-from app.services.policy.engine import (
-    get_portfolio_policy,
-    save_portfolio_policy,
-    analyze_policy_drift
-)
-from app.services.portfolio_construction.engine import generate_rebalance_proposal
-from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
+from app.schemas.domain import AccountSummary, InvestmentPolicyStatement, InvestorProfile, Position, utc_now
 from app.services.attribution.engine import calculate_performance_attribution
 from app.services.guardrails.engine import (
-    apply_recommendation_guardrails,
+    ROBO_DISCLOSURE,
     append_compliance_disclaimer,
-    ROBO_DISCLOSURE
+    apply_recommendation_guardrails,
 )
+from app.services.policy.engine import analyze_policy_drift
+from app.services.portfolio_construction.engine import generate_rebalance_proposal
+from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
+from app.services.suitability.engine import check_position_suitability
+
 
 def _make_mock_summary(net_liq=150000.0, cash=25000.0) -> AccountSummary:
     return AccountSummary(

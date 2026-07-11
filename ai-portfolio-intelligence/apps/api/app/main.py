@@ -1,13 +1,27 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from app.api.routes import admin, ai, alerts, analysis, auth, broker, chat, health, pnl, portfolio, reports, stocks, watchlist
+from app.api.routes import (
+    admin,
+    ai,
+    alerts,
+    analysis,
+    auth,
+    broker,
+    chat,
+    health,
+    pnl,
+    portfolio,
+    reports,
+    stocks,
+    watchlist,
+)
 from app.core.config import settings, validate_production_settings
 from app.core.request_context import activate_request_context, clear_request_context
 from app.services.scheduler import run_background_scheduler
@@ -79,7 +93,7 @@ app.include_router(pnl.router)
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def legacy_health() -> dict[str, str]:
     return {"status": "healthy", "mode": settings.broker_mode, "trading": "disabled", "live": "/health/live", "ready": "/health/ready"}
 
 
