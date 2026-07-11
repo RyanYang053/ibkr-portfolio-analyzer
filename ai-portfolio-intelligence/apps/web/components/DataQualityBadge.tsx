@@ -5,11 +5,14 @@ type DataQualityBadgeProps = {
 
 function tone(status: string): string {
   const normalized = status.toLowerCase();
-  if (["sufficient", "approved", "yes", "complete", "experimental"].includes(normalized)) {
+  if (["sufficient", "approved", "yes", "complete"].includes(normalized)) {
     return "border-accent/30 bg-teal-50 text-accent";
   }
-  if (["partial", "insufficient", "missing", "withheld", "not_computed"].includes(normalized)) {
+  if (["experimental", "provisional", "partial"].includes(normalized)) {
     return "border-amber-300 bg-amber-50 text-amber-800";
+  }
+  if (["missing", "withheld", "failed", "invalid", "not_computed"].includes(normalized)) {
+    return "border-red-300 bg-red-50 text-red-800";
   }
   return "border-line bg-panel text-zinc-700";
 }

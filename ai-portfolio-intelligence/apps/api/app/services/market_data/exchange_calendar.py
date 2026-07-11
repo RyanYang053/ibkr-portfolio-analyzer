@@ -86,6 +86,14 @@ def trading_sessions_between(start_exclusive: date, end_inclusive: date) -> int:
     return sessions
 
 
+def previous_trading_session(day: date) -> date:
+    """Return the most recent NYSE trading session strictly before ``day``."""
+    current = day - timedelta(days=1)
+    while not is_us_equity_trading_day(current):
+        current -= timedelta(days=1)
+    return current
+
+
 def normalize_period_return(period_return: float, trading_sessions: int) -> float | None:
     if trading_sessions <= 0 or period_return <= -1.0 or not (period_return == period_return):
         return None

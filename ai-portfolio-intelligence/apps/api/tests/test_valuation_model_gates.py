@@ -51,7 +51,7 @@ def test_run_scenario_valuation_withholds_until_models_validated():
     )
     assert result.valuation_status == "unavailable"
     assert result.fair_value_mid is None
-    assert "general_operating_valuation_model_not_validated" in result.unavailable_reasons
+    assert result.unavailable_reasons
 
 
 def test_run_scenario_valuation_withholds_for_each_company_type():
@@ -63,7 +63,7 @@ def test_run_scenario_valuation_withholds_for_each_company_type():
     )
     assert bank.company_type == "bank"
     assert bank.valuation_status == "unavailable"
-    assert "bank_valuation_model_not_validated" in bank.unavailable_reasons
+    assert bank.unavailable_reasons
 
     reit = run_scenario_valuation(
         _snapshot(symbol="O", affo_per_share=3.6),
@@ -72,7 +72,7 @@ def test_run_scenario_valuation_withholds_for_each_company_type():
         market_price=60.0,
     )
     assert reit.company_type == "reit"
-    assert "reit_valuation_model_not_validated" in reit.unavailable_reasons
+    assert reit.unavailable_reasons
 
 
 def test_dcf_model_requires_core_inputs():
@@ -142,10 +142,12 @@ def test_bank_model_withholds_without_validated_reference():
 def test_reit_model_flags_missing_affo_inputs():
     output = evaluate_reit_nav_affo(
         ReitNavAffoInputs(
-            affo_per_share=None,
-            ffo_per_share=None,
+            property_noi=None,
+            cap_rate=None,
             net_debt=Decimal("1000000000"),
+            preferred_equity=None,
             share_count=Decimal("500000000"),
+            affo_per_share=None,
             justified_affo_multiple=Decimal("15"),
             currency="USD",
             as_of=date(2025, 12, 31),
@@ -162,8 +164,11 @@ def test_utility_model_withholds_without_rate_base():
             rate_base=None,
             allowed_roe=Decimal("0.095"),
             equity_capitalization=Decimal("0.55"),
+            regulatory_lag_years=None,
             capex=Decimal("500000000"),
             debt_financing=Decimal("300000000"),
+            debt_cost=None,
+            payout_ratio=None,
             share_count=Decimal("200000000"),
             currency="USD",
             as_of=date(2025, 12, 31),

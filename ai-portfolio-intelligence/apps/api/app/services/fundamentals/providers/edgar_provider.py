@@ -8,7 +8,9 @@ from typing import Any
 
 import httpx
 
-from app.schemas.domain import FundamentalSnapshot
+from app.schemas.domain import FundamentalFieldLineage, FundamentalSnapshot
+from app.services.fundamentals.concept_resolver import ALL_REGISTRY_CONCEPTS, resolve_nonduplicative_debt
+from app.services.fundamentals.metric_lineage import lineage_from_rows, row_to_field_lineage
 
 SEC_COMPANY_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 SEC_TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"
@@ -21,31 +23,30 @@ YTD_H1_MIN_DAYS = 170
 YTD_H1_MAX_DAYS = 220
 YTD_9M_MIN_DAYS = 260
 YTD_9M_MAX_DAYS = 300
+RECONCILIATION_TOLERANCE = 0.02
 
 COMPANY_TYPE_CONCEPTS: dict[str, list[str]] = {
-    "general_operating": [
-        "Revenues",
-        "SalesRevenueNet",
-        "OperatingIncomeLoss",
-        "NetCashProvidedByUsedInOperatingActivities",
-        "PaymentsToAcquirePropertyPlantAndEquipment",
-        "GrossProfit",
-    ],
+    "general_operating": list(ALL_REGISTRY_CONCEPTS),
     "bank": [
         "InterestIncomeExpenseNet",
-        "NetIncomeLoss",
+        "NetIncomeLossAvailableToCommonStockholdersBasic",
+        "CommonStockholdersEquity",
         "StockholdersEquity",
         "Assets",
     ],
     "reit": [
         "NetIncomeLoss",
+        "FundsFromOperations",
+        "AdjustedFundsFromOperations",
         "RealEstateInvestmentPropertyNet",
         "PaymentsOfDividends",
+        "OccupancyRate",
     ],
     "utility": [
         "RegulatedAndUnregulatedOperatingRevenue",
         "OperatingIncomeLoss",
         "PropertyPlantAndEquipmentNet",
+        "RegulatoryAssets",
     ],
 }
 
@@ -138,6 +139,12 @@ def _parse_iso_date(value: str | None) -> date | None:
         return None
 
 
+def _period_end_then_filed(row: dict[str, Any]) -> tuple[date, date]:
+    end = _parse_iso_date(row.get("end")) or date.min
+    filed = _parse_iso_date(row.get("filed")) or date.min
+    return end, filed
+
+
 def _dedupe_restatements(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     latest_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
     for row in rows:
@@ -218,6 +225,186 @@ def _same_unit(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [row for row in rows if row.get("unit") == unit]
 
 
+def arithmetic_reconciliation_within_tolerance(
+    derived: float,
+    reported: float,
+    *,
+    tolerance: float = RECONCILIATION_TOLERANCE,
+) -> bool:
+    if reported == 0:
+        return abs(derived) <= tolerance
+    return abs(derived - reported) / abs(reported) <= tolerance
+
+
+def _standalone_quarters_for_fy(rows: list[dict[str, Any]], fy: int) -> dict[str, float] | None:
+    fy_rows = [row for row in rows if row.get("fy") == fy]
+    if not fy_rows:
+        return None
+
+    quarters: dict[str, float] = {}
+    for row in fy_rows:
+        fp = str(row.get("fp", "")).upper()
+        kind = _duration_kind(row)
+        if fp in {"Q1", "Q2", "Q3", "Q4"} and kind == "quarterly":
+            quarters[fp] = float(row["value"])
+
+    q1_row = next(
+        (row for row in fy_rows if str(row.get("fp", "")).upper() == "Q1" and _duration_kind(row) == "quarterly"),
+        None,
+    )
+    h1_row = next(
+        (row for row in fy_rows if str(row.get("fp", "")).upper() == "Q2" and _duration_kind(row) == "ytd_h1"),
+        None,
+    )
+    nine_row = next(
+        (row for row in fy_rows if str(row.get("fp", "")).upper() == "Q3" and _duration_kind(row) == "ytd_9m"),
+        None,
+    )
+    fy_row = next(
+        (row for row in fy_rows if str(row.get("fp", "")).upper() == "FY" and _duration_kind(row) == "annual"),
+        None,
+    )
+
+    if q1_row and h1_row and "Q2" not in quarters:
+        derived_q2 = float(h1_row["value"]) - float(q1_row["value"])
+        if not arithmetic_reconciliation_within_tolerance(
+            float(q1_row["value"]) + derived_q2,
+            float(h1_row["value"]),
+        ):
+            return None
+        quarters["Q2"] = derived_q2
+    if h1_row and nine_row and "Q3" not in quarters:
+        derived_q3 = float(nine_row["value"]) - float(h1_row["value"])
+        if not arithmetic_reconciliation_within_tolerance(
+            float(h1_row["value"]) + derived_q3,
+            float(nine_row["value"]),
+        ):
+            return None
+        quarters["Q3"] = derived_q3
+    if fy_row and nine_row and "Q4" not in quarters:
+        derived_q4 = float(fy_row["value"]) - float(nine_row["value"])
+        if not arithmetic_reconciliation_within_tolerance(
+            float(nine_row["value"]) + derived_q4,
+            float(fy_row["value"]),
+        ):
+            return None
+        quarters["Q4"] = derived_q4
+
+    if len(quarters) != 4:
+        return None
+    if fy_row is not None:
+        quarter_sum = sum(quarters.values())
+        if not arithmetic_reconciliation_within_tolerance(quarter_sum, float(fy_row["value"])):
+            return None
+    return quarters
+
+
+def derive_standalone_quarters(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    standalone: list[dict[str, Any]] = []
+    fiscal_years = sorted({int(row["fy"]) for row in rows if row.get("fy") is not None}, reverse=True)
+    for fy in fiscal_years:
+        quarters = _standalone_quarters_for_fy(rows, fy)
+        if quarters is None:
+            continue
+        for fp, value in quarters.items():
+            source = next(
+                (
+                    row
+                    for row in rows
+                    if row.get("fy") == fy and str(row.get("fp", "")).upper() == fp and _duration_kind(row) == "quarterly"
+                ),
+                None,
+            )
+            if source is not None:
+                standalone.append({**source, "value": value})
+            else:
+                standalone.append(
+                    {
+                        "concept": rows[0].get("concept"),
+                        "unit": rows[0].get("unit"),
+                        "value": value,
+                        "start": None,
+                        "end": None,
+                        "filed": None,
+                        "fy": fy,
+                        "fp": fp,
+                        "derivation": "derived_quarter",
+                    }
+                )
+    return standalone
+
+
+def _quarters_adjacent(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_end = _parse_iso_date(left.get("end"))
+    right_end = _parse_iso_date(right.get("end"))
+    if left_end is None or right_end is None:
+        return False
+    gap = (right_end - left_end).days
+    return 80 <= gap <= 120
+
+
+def consecutive_four_quarter_sequences(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    if not rows:
+        return []
+    unit = rows[0].get("unit")
+    candidates = [
+        row
+        for row in rows
+        if row.get("unit") == unit and _parse_iso_date(row.get("end")) is not None
+    ]
+    candidates.sort(key=lambda row: _parse_iso_date(row.get("end")) or date.min)
+
+    sequences: list[list[dict[str, Any]]] = []
+    for index in range(len(candidates) - 3):
+        window = candidates[index : index + 4]
+        ends = {_parse_iso_date(row.get("end")) for row in window}
+        if None in ends or len(ends) != 4:
+            continue
+        if any(not _quarters_adjacent(window[i], window[i + 1]) for i in range(3)):
+            continue
+        fps = {str(row.get("fp", "")).upper() for row in window}
+        if len(fps) != 4:
+            continue
+        sequences.append(window)
+    return sequences
+
+
+def _latest_ttm_duration_value(
+    facts: dict[str, Any],
+    concept: str,
+    *,
+    as_of: date | None = None,
+) -> tuple[float | None, list[dict[str, Any]]]:
+    rows = _same_unit(_rows_as_of(_point_in_time_values(facts, concept), as_of))
+    if not rows:
+        return None, []
+
+    standalone = derive_standalone_quarters(rows)
+    sequences = consecutive_four_quarter_sequences(standalone)
+    if sequences:
+        latest = max(sequences, key=lambda seq: _parse_iso_date(seq[-1].get("end")) or date.min)
+        return sum(float(row["value"]) for row in latest), latest
+
+    annual_rows = [row for row in rows if _duration_kind(row) == "annual"]
+    if annual_rows:
+        latest_annual = max(annual_rows, key=_period_end_then_filed)
+        return float(latest_annual["value"]), [latest_annual]
+
+    return None, []
+
+
+def _ttm_duration_value(
+    facts: dict[str, Any],
+    concept: str,
+    *,
+    as_of: date | None = None,
+) -> tuple[float | None, dict[str, Any] | None]:
+    value, sources = _latest_ttm_duration_value(facts, concept, as_of=as_of)
+    if value is None:
+        return None, None
+    return value, sources[-1] if sources else None
+
+
 def _latest_instant_value(
     facts: dict[str, Any],
     concept: str,
@@ -230,109 +417,39 @@ def _latest_instant_value(
         instant_rows = [row for row in rows if row.get("start") is None]
     if not instant_rows:
         return None, None
-    latest = max(
-        instant_rows,
-        key=lambda row: (
-            _parse_iso_date(row.get("end")) or date.min,
-            _parse_iso_date(row.get("filed")) or date.min,
-        ),
-    )
+    latest = max(instant_rows, key=_period_end_then_filed)
     return float(latest["value"]), latest
 
 
-def _standalone_quarters_for_fy(rows: list[dict[str, Any]], fy: int) -> dict[str, float] | None:
-    fy_rows = [row for row in rows if row.get("fy") == fy]
-    if not fy_rows:
-        return None
-
-    quarters: dict[str, float] = {}
-    for row in fy_rows:
-        fp = str(row.get("fp", "")).upper()
-        kind = _duration_kind(row)
-        if fp == "Q1" and kind == "quarterly":
-            quarters["Q1"] = float(row["value"])
-        elif fp == "Q2" and kind == "quarterly":
-            quarters["Q2"] = float(row["value"])
-        elif fp == "Q3" and kind == "quarterly":
-            quarters["Q3"] = float(row["value"])
-        elif fp == "Q4" and kind == "quarterly":
-            quarters["Q4"] = float(row["value"])
-
-    q1_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "Q1" and _duration_kind(row) == "quarterly"), None)
-    h1_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "Q2" and _duration_kind(row) == "ytd_h1"), None)
-    nine_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "Q3" and _duration_kind(row) == "ytd_9m"), None)
-    fy_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "FY" and _duration_kind(row) == "annual"), None)
-
-    if q1_row and h1_row and "Q2" not in quarters:
-        quarters["Q2"] = float(h1_row["value"]) - float(q1_row["value"])
-    if h1_row and nine_row and "Q3" not in quarters:
-        quarters["Q3"] = float(nine_row["value"]) - float(h1_row["value"])
-    if fy_row and nine_row and "Q4" not in quarters:
-        quarters["Q4"] = float(fy_row["value"]) - float(nine_row["value"])
-
-    if len(quarters) != 4:
-        return None
-    if any(value < 0 for value in quarters.values()):
-        return None
-    return quarters
-
-
-def _ttm_duration_value(
+def _instant_at_or_before(
     facts: dict[str, Any],
     concept: str,
+    as_of: date,
     *,
-    as_of: date | None = None,
+    filed_as_of: date | None = None,
 ) -> tuple[float | None, dict[str, Any] | None]:
-    rows = _same_unit(_rows_as_of(_point_in_time_values(facts, concept), as_of))
-    if not rows:
-        return None, None
-
-    annual_rows = [row for row in rows if _duration_kind(row) == "annual"]
-    if annual_rows:
-        latest_annual = max(
-            annual_rows,
-            key=lambda row: (
-                _parse_iso_date(row.get("end")) or date.min,
-                _parse_iso_date(row.get("filed")) or date.min,
-            ),
-        )
-        return float(latest_annual["value"]), latest_annual
-
-    fiscal_years = sorted({int(row["fy"]) for row in rows if row.get("fy") is not None}, reverse=True)
-    for fy in fiscal_years:
-        quarters = _standalone_quarters_for_fy(rows, fy)
-        if quarters is None:
+    rows = _same_unit(_point_in_time_values(facts, concept))
+    instant_rows = [row for row in rows if _duration_kind(row) == "instant" or row.get("start") is None]
+    filed_cutoff = filed_as_of or as_of
+    eligible: list[dict[str, Any]] = []
+    for row in instant_rows:
+        end = _parse_iso_date(row.get("end"))
+        filed = _parse_iso_date(row.get("filed"))
+        if end is None or end > as_of:
             continue
-        source_rows = [row for row in rows if row.get("fy") == fy]
-        source = max(
-            source_rows,
-            key=lambda row: (
-                _parse_iso_date(row.get("end")) or date.min,
-                _parse_iso_date(row.get("filed")) or date.min,
-            ),
-        )
-        return sum(quarters.values()), source
-
-    quarterly_rows = [
-        row
-        for row in rows
-        if str(row.get("fp", "")).upper() in {"Q1", "Q2", "Q3", "Q4"} and _duration_kind(row) == "quarterly"
-    ]
-    if len(quarterly_rows) >= 4:
-        latest_four = sorted(
-            quarterly_rows,
-            key=lambda row: (_parse_iso_date(row.get("end")) or date.min, str(row.get("fp", ""))),
-            reverse=True,
-        )[:4]
-        ends = {_parse_iso_date(row.get("end")) for row in latest_four}
-        if None not in ends and len(ends) == 4:
-            return sum(float(row["value"]) for row in latest_four), latest_four[0]
-
-    return None, None
+        if filed is not None and filed > filed_cutoff:
+            continue
+        eligible.append(row)
+    if not eligible:
+        return None, None
+    eligible = _dedupe_restatements(eligible)
+    latest = max(eligible, key=_period_end_then_filed)
+    return float(latest["value"]), latest
 
 
 def _lookup_cik(symbol: str) -> str | None:
     from app.db.sec_edgar_repo import cache_ticker_map, get_cached_ticker_map
+
     cached = get_cached_ticker_map()
     if cached is None:
         payload = _request_json(SEC_TICKER_MAP_URL)
@@ -367,17 +484,7 @@ def fetch_company_facts_payload(symbol: str) -> dict[str, Any] | None:
     if payload is None:
         return None
     observations: list[dict[str, Any]] = []
-    for concept in (
-        "Revenues",
-        "SalesRevenueNet",
-        "OperatingIncomeLoss",
-        "NetCashProvidedByUsedInOperatingActivities",
-        "PaymentsToAcquirePropertyPlantAndEquipment",
-        "GrossProfit",
-        "CashAndCashEquivalentsAtCarryingValue",
-        "LongTermDebtNoncurrent",
-        "StockholdersEquity",
-    ):
+    for concept in ALL_REGISTRY_CONCEPTS:
         observations.extend(_point_in_time_values(payload, concept))
     persist_company_facts(symbol_key, cik, payload, observations)
     _TTL_FACTS_CACHE[symbol_key] = (_cache_expiry(), payload)
@@ -400,6 +507,20 @@ def extract_xbrl_facts(
     return extracted
 
 
+def _build_field_lineage(
+    metric: str,
+    value: float | None,
+    sources: list[dict[str, Any]],
+    *,
+    derivation: str = "rolling_ttm",
+) -> FundamentalFieldLineage | None:
+    if value is None or not sources:
+        return None
+    if len(sources) == 1:
+        return row_to_field_lineage(metric, sources[0], derivation=derivation, value=value)
+    return lineage_from_rows(metric, sources, derivation=derivation, value=value)
+
+
 def fetch_edgar_fundamental_snapshot(
     symbol: str,
     *,
@@ -411,24 +532,94 @@ def fetch_edgar_fundamental_snapshot(
     if not payload:
         return None
 
-    revenue, revenue_source = _ttm_duration_value(payload, "Revenues", as_of=as_of)
+    field_lineage: dict[str, FundamentalFieldLineage] = {}
+    exclusions: list[str] = []
+
+    revenue, revenue_sources = _latest_ttm_duration_value(payload, "Revenues", as_of=as_of)
     if revenue is None:
-        revenue, revenue_source = _ttm_duration_value(payload, "SalesRevenueNet", as_of=as_of)
+        revenue, revenue_sources = _latest_ttm_duration_value(payload, "SalesRevenueNet", as_of=as_of)
 
-    operating_income, _ = _ttm_duration_value(payload, "OperatingIncomeLoss", as_of=as_of)
-    operating_cash_flow, _ = _ttm_duration_value(payload, "NetCashProvidedByUsedInOperatingActivities", as_of=as_of)
-    capex, _ = _ttm_duration_value(payload, "PaymentsToAcquirePropertyPlantAndEquipment", as_of=as_of)
-    gross_profit, _ = _ttm_duration_value(payload, "GrossProfit", as_of=as_of)
+    operating_income, operating_sources = _latest_ttm_duration_value(payload, "OperatingIncomeLoss", as_of=as_of)
+    operating_cash_flow, ocf_sources = _latest_ttm_duration_value(
+        payload, "NetCashProvidedByUsedInOperatingActivities", as_of=as_of
+    )
+    capex, capex_sources = _latest_ttm_duration_value(
+        payload, "PaymentsToAcquirePropertyPlantAndEquipment", as_of=as_of
+    )
+    gross_profit, gross_sources = _latest_ttm_duration_value(payload, "GrossProfit", as_of=as_of)
 
-    cash, _ = _latest_instant_value(payload, "CashAndCashEquivalentsAtCarryingValue", as_of=as_of)
-    debt, _ = _latest_instant_value(payload, "LongTermDebtNoncurrent", as_of=as_of)
-    equity, _ = _latest_instant_value(payload, "StockholdersEquity", as_of=as_of)
+    cash, cash_row = _latest_instant_value(payload, "CashAndCashEquivalentsAtCarryingValue", as_of=as_of)
+    debt, debt_lineage, debt_exclusions = resolve_nonduplicative_debt(_latest_instant_value, payload, as_of=as_of)
+    exclusions.extend(debt_exclusions)
+    equity, equity_row = _latest_instant_value(payload, "CommonStockholdersEquity", as_of=as_of)
+    if equity is None:
+        equity, equity_row = _latest_instant_value(payload, "StockholdersEquity", as_of=as_of)
+
+    net_income_common, net_income_sources = _latest_ttm_duration_value(
+        payload,
+        "NetIncomeLossAvailableToCommonStockholdersBasic",
+        as_of=as_of,
+    )
+    if net_income_common is None:
+        net_income_common, net_income_sources = _latest_ttm_duration_value(payload, "NetIncomeLoss", as_of=as_of)
+
+    ttm_start_date: date | None = None
+    if revenue_sources:
+        ttm_start_date = _parse_iso_date(revenue_sources[0].get("start"))
+    begin_equity, _ = (
+        _instant_at_or_before(payload, "CommonStockholdersEquity", ttm_start_date, filed_as_of=as_of)
+        if ttm_start_date is not None
+        else (None, None)
+    )
+    end_equity = equity
+    average_equity = (
+        (begin_equity + end_equity) / 2.0
+        if begin_equity is not None and end_equity is not None
+        else None
+    )
+    roe = (
+        net_income_common / average_equity
+        if net_income_common is not None and average_equity not in {None, 0}
+        else None
+    )
 
     if revenue is None or revenue <= 0:
         return None
 
-    filed = revenue_source.get("filed") if revenue_source else None
-    report_date = _parse_iso_date(filed) or as_of or date.today()
+    period_ends = [
+        _parse_iso_date(row.get("end"))
+        for sources in (revenue_sources, operating_sources, gross_sources, net_income_sources)
+        for row in sources
+        if row.get("end")
+    ]
+    report_date = max((item for item in period_ends if item is not None), default=as_of or date.today())
+
+    if revenue is not None and revenue_sources:
+        field_lineage["revenue"] = _build_field_lineage("revenue", revenue, revenue_sources)
+    if operating_income is not None and operating_sources:
+        field_lineage["operating_income"] = _build_field_lineage("operating_income", operating_income, operating_sources)
+    if gross_profit is not None and gross_sources:
+        field_lineage["gross_profit"] = _build_field_lineage("gross_profit", gross_profit, gross_sources)
+    if operating_cash_flow is not None and ocf_sources:
+        field_lineage["operating_cash_flow"] = _build_field_lineage(
+            "operating_cash_flow", operating_cash_flow, ocf_sources
+        )
+    if cash is not None and cash_row:
+        field_lineage["cash"] = row_to_field_lineage("cash", cash_row, value=cash)
+    if debt is not None and debt_lineage:
+        field_lineage["total_debt"] = debt_lineage
+    if equity is not None and equity_row:
+        field_lineage["average_common_equity"] = row_to_field_lineage(
+            "average_common_equity", equity_row, value=equity, derivation="instant_end"
+        )
+    if roe is not None and net_income_sources:
+        field_lineage["return_on_equity"] = _build_field_lineage(
+            "return_on_equity",
+            roe,
+            net_income_sources,
+            derivation="net_income_over_average_equity",
+        )
+
     gross_margin = (gross_profit / revenue) if gross_profit is not None and revenue > 0 else None
     operating_margin = (operating_income / revenue) if operating_income is not None else None
     free_cash_flow = None
@@ -439,6 +630,9 @@ def fetch_edgar_fundamental_snapshot(
         symbol=symbol.upper(),
         period="TTM",
         report_date=report_date,
+        revenue=round(revenue, 2),
+        net_income_common=round(net_income_common, 2) if net_income_common is not None else None,
+        average_common_equity=round(average_equity, 2) if average_equity is not None else None,
         revenue_growth_yoy=None,
         gross_margin=round(gross_margin, 4) if gross_margin is not None else None,
         operating_margin=round(operating_margin, 4) if operating_margin is not None else None,
@@ -449,6 +643,8 @@ def fetch_edgar_fundamental_snapshot(
         pe_forward=None,
         ev_sales=None,
         fcf_yield=None,
-        return_on_equity=round((operating_income / equity), 4) if operating_income is not None and equity else None,
+        return_on_equity=round(roe, 4) if roe is not None else None,
         source="sec_edgar_companyfacts",
+        field_lineage=field_lineage,
+        exclusions=exclusions,
     )

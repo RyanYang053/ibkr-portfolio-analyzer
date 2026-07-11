@@ -38,11 +38,14 @@ def read_transactions(account_id: str) -> list[dict[str, Any]] | None:
         rows = session.execute(
             text(
                 """
-                SELECT account_id, transaction_id, symbol, con_id, trade_date, action,
-                       quantity, price, commission, currency, fx_rate, source, description
+                SELECT account_id, transaction_id, symbol, con_id, local_symbol, trade_date,
+                       trade_timestamp, effective_timestamp, settlement_date, action,
+                       quantity, price, commission, currency, fx_rate, amount, source,
+                       source_batch_id, source_row_id, source_hash, description
                 FROM ledger_transactions
                 WHERE account_id = :account_id
-                ORDER BY trade_date ASC, symbol ASC, action ASC
+                ORDER BY trade_timestamp ASC NULLS LAST, trade_date ASC,
+                         source_row_id ASC, transaction_id ASC
                 """
             ),
             {"account_id": account_id},
@@ -54,11 +57,12 @@ def read_transactions(account_id: str) -> list[dict[str, Any]] | None:
     payload: list[dict[str, Any]] = []
     for row in rows:
         trade_date = row["trade_date"]
-        item = {
+        item: dict[str, Any] = {
             "account_id": row["account_id"],
             "transaction_id": row["transaction_id"],
             "symbol": row["symbol"],
             "con_id": row["con_id"],
+            "local_symbol": row.get("local_symbol"),
             "trade_date": trade_date.isoformat() if isinstance(trade_date, date) else trade_date,
             "action": row["action"],
             "quantity": float(row["quantity"]),
@@ -67,10 +71,26 @@ def read_transactions(account_id: str) -> list[dict[str, Any]] | None:
             "currency": row["currency"],
             "source": row["source"],
         }
-        if row.get("fx_rate") is not None:
-            item["fx_rate"] = float(row["fx_rate"])
-        if row.get("description"):
-            item["description"] = row["description"]
+        for field in (
+            "trade_timestamp",
+            "effective_timestamp",
+            "settlement_date",
+            "fx_rate",
+            "amount",
+            "source_batch_id",
+            "source_row_id",
+            "source_hash",
+            "description",
+        ):
+            value = row.get(field)
+            if value is None:
+                continue
+            if isinstance(value, datetime):
+                item[field] = value.isoformat()
+            elif isinstance(value, date):
+                item[field] = value.isoformat()
+            else:
+                item[field] = value
         payload.append(item)
     return payload
 
@@ -80,50 +100,46 @@ def replace_transactions(account_id: str, transactions: list[Transaction]) -> No
         return
 
     from app.db.session import SessionLocal
-
-    def _txn_key(txn: Transaction) -> str:
-        if txn.transaction_id:
-            return txn.transaction_id
-        return "|".join(
-            [
-                txn.account_id,
-                txn.trade_date.isoformat(),
-                txn.action,
-                txn.symbol,
-                str(txn.quantity),
-                str(txn.price),
-                str(txn.commission),
-                txn.currency,
-                str(txn.con_id or ""),
-            ]
-        )
+    from app.services.portfolio.transaction_store import _transaction_key
 
     now = _utc_now()
     with SessionLocal() as session:
         for txn in transactions:
-            transaction_id = txn.transaction_id or _txn_key(txn)
+            transaction_id = txn.transaction_id or _transaction_key(txn)
             session.execute(
                 text(
                     """
                     INSERT INTO ledger_transactions (
-                        account_id, transaction_id, symbol, con_id, trade_date, action,
-                        quantity, price, commission, currency, fx_rate, source, description, ingested_at
+                        account_id, transaction_id, symbol, con_id, local_symbol, trade_date,
+                        trade_timestamp, effective_timestamp, settlement_date, action,
+                        quantity, price, commission, currency, fx_rate, amount, source,
+                        source_batch_id, source_row_id, source_hash, description, ingested_at
                     ) VALUES (
-                        :account_id, :transaction_id, :symbol, :con_id, :trade_date, :action,
-                        :quantity, :price, :commission, :currency, :fx_rate, :source, :description, :ingested_at
+                        :account_id, :transaction_id, :symbol, :con_id, :local_symbol, :trade_date,
+                        :trade_timestamp, :effective_timestamp, :settlement_date, :action,
+                        :quantity, :price, :commission, :currency, :fx_rate, :amount, :source,
+                        :source_batch_id, :source_row_id, :source_hash, :description, :ingested_at
                     )
                     ON CONFLICT ON CONSTRAINT uq_ledger_transactions_account_txn
                     DO UPDATE SET
                         symbol = EXCLUDED.symbol,
                         con_id = EXCLUDED.con_id,
+                        local_symbol = EXCLUDED.local_symbol,
                         trade_date = EXCLUDED.trade_date,
+                        trade_timestamp = EXCLUDED.trade_timestamp,
+                        effective_timestamp = EXCLUDED.effective_timestamp,
+                        settlement_date = EXCLUDED.settlement_date,
                         action = EXCLUDED.action,
                         quantity = EXCLUDED.quantity,
                         price = EXCLUDED.price,
                         commission = EXCLUDED.commission,
                         currency = EXCLUDED.currency,
                         fx_rate = EXCLUDED.fx_rate,
+                        amount = EXCLUDED.amount,
                         source = EXCLUDED.source,
+                        source_batch_id = EXCLUDED.source_batch_id,
+                        source_row_id = EXCLUDED.source_row_id,
+                        source_hash = EXCLUDED.source_hash,
                         description = EXCLUDED.description,
                         ingested_at = EXCLUDED.ingested_at
                     """
@@ -133,15 +149,23 @@ def replace_transactions(account_id: str, transactions: list[Transaction]) -> No
                     "transaction_id": transaction_id,
                     "symbol": txn.symbol,
                     "con_id": txn.con_id,
+                    "local_symbol": txn.local_symbol,
                     "trade_date": txn.trade_date,
+                    "trade_timestamp": txn.trade_timestamp,
+                    "effective_timestamp": txn.effective_timestamp,
+                    "settlement_date": txn.settlement_date,
                     "action": txn.action,
                     "quantity": float(txn.quantity),
                     "price": float(txn.price),
                     "commission": float(txn.commission),
                     "currency": txn.currency,
                     "fx_rate": txn.fx_rate,
+                    "amount": txn.amount,
                     "source": txn.source,
-                    "description": getattr(txn, "description", None),
+                    "source_batch_id": txn.source_batch_id,
+                    "source_row_id": txn.source_row_id,
+                    "source_hash": txn.source_hash,
+                    "description": txn.description,
                     "ingested_at": now,
                 },
             )

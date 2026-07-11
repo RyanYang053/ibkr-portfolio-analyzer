@@ -2815,6 +2815,36 @@
         ]
       }
     },
+    "/portfolio/methodologies": {
+      "get": {
+        "operationId": "methodologies_portfolio_methodologies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "title": "Response Methodologies Portfolio Methodologies Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Methodologies",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
     "/portfolio/optimization-proposal": {
       "get": {
         "operationId": "optimize_portfolio_portfolio_optimization_proposal_get",

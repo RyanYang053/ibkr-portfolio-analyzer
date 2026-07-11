@@ -386,6 +386,9 @@ def calculate_performance_attribution(
         attribution_run_id = run.calculation_run_id
 
     return PerformanceAttribution(
+        current_unrealized_pnl_by_security=security_selection_pnl,
+        current_unrealized_pnl_by_sector=sector_allocation_rounded,
+        current_unrealized_pnl_by_asset_class=asset_class_rounded,
         security_selection_pnl=security_selection_pnl,
         sector_allocation_pnl=sector_allocation_rounded,
         asset_class_pnl=asset_class_rounded,

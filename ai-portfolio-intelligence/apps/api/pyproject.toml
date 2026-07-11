@@ -1,0 +1,25 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config"
+markers = [
+    "postgres: tests requiring Postgres persistence",
+    "golden: externally validated golden fixtures",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 0
+show_missing = true
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

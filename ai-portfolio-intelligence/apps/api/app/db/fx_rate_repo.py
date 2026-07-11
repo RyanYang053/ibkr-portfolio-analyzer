@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Optional
 
@@ -7,6 +8,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.state_store import postgres_available
+
+
+@dataclass(frozen=True)
+class FxRateMetadata:
+    rate: float
+    effective_date: date
+    observed_at: datetime
+    source: str
 
 
 def _utc_now() -> datetime:
@@ -95,6 +104,52 @@ def load_rate_series(from_currency: str, to_currency: str) -> dict[str, float] |
     return {row["observation_date"].isoformat(): float(row["rate"]) for row in rows}
 
 
+def lookup_rate_with_metadata(
+    from_currency: str,
+    to_currency: str,
+    as_of: date,
+    *,
+    max_staleness_days: int = 7,
+) -> FxRateMetadata | None:
+    if not _table_available():
+        return None
+
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as session:
+        row = session.execute(
+            text(
+                """
+                SELECT observation_date, rate, source, ingested_at
+                FROM fx_rate_observations
+                WHERE from_currency = :from_currency
+                  AND to_currency = :to_currency
+                  AND observation_date <= :as_of
+                ORDER BY observation_date DESC
+                LIMIT 1
+                """
+            ),
+            {
+                "from_currency": from_currency.upper(),
+                "to_currency": to_currency.upper(),
+                "as_of": as_of,
+            },
+        ).mappings().first()
+
+    if row is None:
+        return None
+    effective_date = row["observation_date"]
+    staleness = (as_of - effective_date).days
+    if staleness > max_staleness_days:
+        return None
+    return FxRateMetadata(
+        rate=float(row["rate"]),
+        effective_date=effective_date,
+        observed_at=row["ingested_at"] or _utc_now(),
+        source=str(row["source"] or "postgres_fx"),
+    )
+
+
 def lookup_rate(
     from_currency: str,
     to_currency: str,
@@ -102,18 +157,10 @@ def lookup_rate(
     *,
     max_staleness_days: int = 7,
 ) -> Optional[float]:
-    series = load_rate_series(from_currency, to_currency)
-    if not series:
-        return None
-
-    as_of_text = as_of.isoformat()
-    if as_of_text in series:
-        return series[as_of_text]
-    prior_dates = [day for day in series if day <= as_of_text]
-    if not prior_dates:
-        return None
-    chosen = sorted(prior_dates)[-1]
-    staleness = (as_of - date.fromisoformat(chosen)).days
-    if staleness > max_staleness_days:
-        return None
-    return series[chosen]
+    resolved = lookup_rate_with_metadata(
+        from_currency,
+        to_currency,
+        as_of,
+        max_staleness_days=max_staleness_days,
+    )
+    return resolved.rate if resolved is not None else None

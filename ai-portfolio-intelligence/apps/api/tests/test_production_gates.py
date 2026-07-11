@@ -131,4 +131,4 @@ def test_same_currency_tax_lot_fifo_realized_gain():
     report = build_tax_lot_attribution("MOCK-001", transactions, reporting_currency="USD")
     assert report.data_quality["status"] == "incomplete"
     assert report.data_quality["fx_conversion"] == "withheld_mixed_currency"
-    assert report.total_realized_gain_loss == 0.0
+    assert report.total_realized_gain_loss is None

@@ -23,6 +23,9 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         finally:
             clear_request_context()
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-Frame-Options"] = "DENY"
         return response
 
 
@@ -77,7 +80,7 @@ app.include_router(pnl.router)
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "healthy", "mode": settings.broker_mode, "trading": "disabled"}
+    return {"status": "healthy", "mode": settings.broker_mode, "trading": "disabled", "live": "/health/live", "ready": "/health/ready"}
 
 
 @app.get("/")

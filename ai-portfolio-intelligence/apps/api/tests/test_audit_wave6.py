@@ -83,13 +83,13 @@ def test_cvar_solver_reports_post_solve_feasibility():
     weights, metadata = solve_cvar_weights(
         returns_by_symbol,
         symbols,
-        current_weights=[1 / 3, 1 / 3, 1 / 3],
+        target_budget=1.0,
+        current_full_weights=[1 / 3, 1 / 3, 1 / 3],
         turnover_budget=0.5,
         liquidity_caps=[0.5, 0.5, 0.5],
         sector_labels=["Tech", "Tech", "Energy"],
         sector_cap=0.8,
         fixed_sector_exposure={"Financials": 0.05},
-        sleeve_portfolio_fraction=0.7,
     )
     if metadata.get("status") == "cvxpy_unavailable":
         pytest.skip("cvxpy unavailable")
@@ -98,14 +98,13 @@ def test_cvar_solver_reports_post_solve_feasibility():
     assert feasibility.get("feasible") is True
     slack = verify_weight_constraints(
         weights,
-        sleeve_budget=1.0,
-        current_weights=[1 / 3, 1 / 3, 1 / 3],
+        target_budget=1.0,
+        current_full_weights=[1 / 3, 1 / 3, 1 / 3],
         turnover_budget=0.5,
         liquidity_caps=[0.5, 0.5, 0.5],
         sector_labels=["Tech", "Tech", "Energy"],
         sector_cap=0.8,
         fixed_sector_exposure={"Financials": 0.05},
-        sleeve_portfolio_fraction=0.7,
     )
     assert slack["feasible"] is True
 

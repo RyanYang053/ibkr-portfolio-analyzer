@@ -38,6 +38,7 @@ class OptionContract(BaseModel):
     provider: Optional[str] = None
     exercise_style: Optional[str] = None
     settlement_type: Optional[str] = None
+    greeks_source: Optional[str] = None
 
 
 def _validate_bs_inputs(S: float, K: float, T: float, sigma: float, right: str) -> None:

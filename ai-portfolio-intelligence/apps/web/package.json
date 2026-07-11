@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
     "generate:api-types": "openapi-typescript ../api/openapi.json -o lib/generated/openapi.d.ts"
   },
   "dependencies": {

@@ -219,3 +219,144 @@ jobs:
       - name: Run docker compose smoke
         working-directory: ai-portfolio-intelligence
         run: bash infra/scripts/docker_smoke.sh
+
+  api-lint-type:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence/apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: ruff check app tests
+      - run: mypy app --follow-imports=skip
+
+  api-coverage:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence/apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest tests/test_benchmark_attribution.py tests/test_tax_modules.py tests/test_valuation_golden_fixtures.py --cov=app --cov-report=term-missing -q
+
+  web-lint-type:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence
+    env:
+      DISABLE_AUTH_MIDDLEWARE: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ai-portfolio-intelligence/package-lock.json
+      - run: npm ci
+      - run: npm run web:lint
+      - run: npm run web:typecheck
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence/apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip pip-audit
+      - run: pip-audit -r requirements.txt || true
+
+  production-postgres-e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence
+    env:
+      DATABASE_URL: postgresql+psycopg://portfolio:portfolio@localhost:5432/portfolio
+      PERSISTENCE_BACKEND: postgres
+      ENVIRONMENT: production
+      JWT_SECRET: ci-production-e2e-secret
+      BOOTSTRAP_TOKEN: ci-production-e2e-bootstrap
+      BROKER_MODE: mock_ibkr_readonly
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: portfolio
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: portfolio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U portfolio -d portfolio"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - working-directory: ai-portfolio-intelligence/apps/api
+        run: pip install -r requirements.txt
+      - name: Start API
+        working-directory: ai-portfolio-intelligence/apps/api
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health/live >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+      - run: bash infra/scripts/production_e2e.sh
+
+  backup-restore:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence
+    env:
+      DATABASE_URL: postgresql+psycopg://portfolio:portfolio@localhost:5432/portfolio
+      POSTGRES_PASSWORD: portfolio
+      PERSISTENCE_BACKEND: postgres
+      ENVIRONMENT: production
+      JWT_SECRET: ci-backup-restore-secret
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: portfolio
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: portfolio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U portfolio -d portfolio"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - working-directory: ai-portfolio-intelligence/apps/api
+        run: pip install -r requirements.txt
+      - run: bash infra/scripts/backup_restore_smoke.sh

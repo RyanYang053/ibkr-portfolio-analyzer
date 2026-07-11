@@ -28,7 +28,8 @@ def test_cvar_small_problem_matches_known_feasible_region():
     weights, metadata = solve_cvar_weights(
         returns_by_symbol,
         ["AAA", "BBB"],
-        current_weights=[0.5, 0.5],
+        target_budget=1.0,
+        current_full_weights=[0.5, 0.5],
         turnover_budget=1.0,
         liquidity_caps=[0.6, 0.6],
     )

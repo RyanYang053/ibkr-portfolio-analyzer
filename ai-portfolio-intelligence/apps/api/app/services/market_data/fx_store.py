@@ -4,6 +4,7 @@ import json
 import math
 import os
 import tempfile
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from threading import Lock
 from typing import Optional, Protocol
@@ -26,11 +27,21 @@ class HistoricalFxResolver(Protocol):
     def __call__(self, from_currency: str, to_currency: str, as_of: date) -> float: ...
 
 
+@dataclass(frozen=True)
+class HistoricalFxQuote:
+    from_currency: str
+    to_currency: str
+    rate: float
+    effective_date: date
+    observed_at: datetime
+    source: str
+    staleness_days: int
+
+
 def get_current_exchange_rate(from_currency: str, to_currency: str) -> float:
     from app.services.broker.ibkr_readonly import get_exchange_rate
 
     return get_exchange_rate(from_currency, to_currency)
-
 
 
 def _pair_key(from_curr: str, to_curr: str) -> str:
@@ -127,52 +138,113 @@ def _lookup_rate(
     return series[chosen]
 
 
-def get_historical_exchange_rate(from_curr: str, to_curr: str, as_of: date) -> float:
-    """Return the FX rate to convert ``from_curr`` amounts into ``to_curr`` on ``as_of``."""
+def lookup_rate_with_metadata(from_curr: str, to_curr: str, as_of: date) -> HistoricalFxQuote | None:
     native = (from_curr or "USD").upper()
     reporting = (to_curr or "USD").upper()
     if native == reporting:
-        return 1.0
+        return HistoricalFxQuote(
+            native,
+            reporting,
+            1.0,
+            as_of,
+            datetime.now(timezone.utc),
+            "identity",
+            0,
+        )
+
+    if settings.persistence_backend == "postgres":
+        from app.db.fx_rate_repo import lookup_rate_with_metadata as postgres_lookup
+
+        resolved = postgres_lookup(native, reporting, as_of, max_staleness_days=MAX_FX_STALENESS_DAYS)
+        if resolved is not None:
+            return HistoricalFxQuote(
+                from_currency=native,
+                to_currency=reporting,
+                rate=resolved.rate,
+                effective_date=resolved.effective_date,
+                observed_at=resolved.observed_at,
+                source=resolved.source,
+                staleness_days=(as_of - resolved.effective_date).days,
+            )
 
     pair = _pair_key(native, reporting)
     if pair not in _MEMORY_CACHE:
-        if settings.persistence_backend == "postgres":
-            from app.db.fx_rate_repo import load_rate_series
-
-            postgres_series = load_rate_series(native, reporting)
-            if postgres_series:
-                _MEMORY_CACHE[pair] = postgres_series
-        if pair not in _MEMORY_CACHE:
-            _MEMORY_CACHE.update(_load_store())
-
+        _MEMORY_CACHE.update(_load_store())
     series = _MEMORY_CACHE.get(pair, {})
     rate = _lookup_rate(series, as_of)
     if rate is not None:
-        return rate
-
-    if settings.persistence_backend == "postgres":
-        from app.db.fx_rate_repo import lookup_rate as lookup_postgres_rate
-
-        postgres_rate = lookup_postgres_rate(native, reporting, as_of, max_staleness_days=MAX_FX_STALENESS_DAYS)
-        if postgres_rate is not None:
-            return postgres_rate
+        as_of_text = as_of.isoformat()
+        if as_of_text in series:
+            effective = as_of
+        else:
+            prior_dates = [day for day in series if day <= as_of_text]
+            effective = date.fromisoformat(sorted(prior_dates)[-1]) if prior_dates else as_of
+        return HistoricalFxQuote(
+            from_currency=native,
+            to_currency=reporting,
+            rate=rate,
+            effective_date=effective,
+            observed_at=datetime.now(timezone.utc),
+            source="json_fx_store",
+            staleness_days=(as_of - effective).days,
+        )
 
     inverse_pair = _pair_key(reporting, native)
     inverse_series = _MEMORY_CACHE.get(inverse_pair, _load_store().get(inverse_pair, {}))
     inverse_rate = _lookup_rate(inverse_series, as_of)
     if inverse_rate is not None and inverse_rate > 0:
-        return 1.0 / inverse_rate
+        as_of_text = as_of.isoformat()
+        if as_of_text in inverse_series:
+            effective = as_of
+        else:
+            prior_dates = [day for day in inverse_series if day <= as_of_text]
+            effective = date.fromisoformat(sorted(prior_dates)[-1]) if prior_dates else as_of
+        return HistoricalFxQuote(
+            from_currency=native,
+            to_currency=reporting,
+            rate=1.0 / inverse_rate,
+            effective_date=effective,
+            observed_at=datetime.now(timezone.utc),
+            source="json_fx_store_inverse",
+            staleness_days=(as_of - effective).days,
+        )
+    return None
 
+
+def fetch_and_persist_rate_series(from_curr: str, to_curr: str, as_of: date) -> None:
     start_date = as_of - timedelta(days=14)
-    fetched = _fetch_yahoo_fx_series(native, reporting, start_date, as_of)
-    _merge_series_into_store(pair, fetched)
-    rate = _lookup_rate(fetched, as_of)
-    if rate is None:
+    fetched = _fetch_yahoo_fx_series(from_curr, to_curr, start_date, as_of)
+    _merge_series_into_store(_pair_key(from_curr, to_curr), fetched)
+
+
+def get_historical_fx_quote(from_curr: str, to_curr: str, as_of: date) -> HistoricalFxQuote:
+    native = (from_curr or "USD").upper()
+    reporting = (to_curr or "USD").upper()
+    if native == reporting:
+        return HistoricalFxQuote(
+            native,
+            reporting,
+            1.0,
+            as_of,
+            datetime.now(timezone.utc),
+            "identity",
+            0,
+        )
+
+    resolved = lookup_rate_with_metadata(native, reporting, as_of)
+    if resolved is None:
+        fetch_and_persist_rate_series(native, reporting, as_of)
+        resolved = lookup_rate_with_metadata(native, reporting, as_of)
+    if resolved is None:
         raise RuntimeError(
             f"Historical FX unavailable for {native}/{reporting} on {as_of.isoformat()} "
             f"within {MAX_FX_STALENESS_DAYS} day staleness limit"
         )
-    return rate
+    return resolved
+
+
+def get_historical_exchange_rate(from_curr: str, to_curr: str, as_of: date) -> float:
+    return get_historical_fx_quote(from_curr, to_curr, as_of).rate
 
 
 def make_transaction_fx_resolver() -> HistoricalFxResolver:

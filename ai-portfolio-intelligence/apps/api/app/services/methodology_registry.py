@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
+
+from app.db.methodology_version_repo import MethodologyVersion
 
 
 @dataclass(frozen=True)
@@ -24,9 +26,119 @@ DEFAULT_METHODOLOGIES: tuple[MethodologyRecord, ...] = (
         version="1.0.0",
         effective_date=date(2026, 7, 1),
         owner="portfolio-accounting",
-        approval_status="approved",
+        approval_status="experimental",
         independent_validation_fixture="tests/test_financial_integrity.py",
         known_limitations=("Requires complete cash-flow ledger for exact reconciliation.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="return_engine",
+        name="Return Engine",
+        version="0.1.0",
+        effective_date=date(2026, 7, 10),
+        owner="portfolio-accounting",
+        approval_status="experimental",
+        independent_validation_fixture="tests/test_return_engine.py",
+        known_limitations=("Exact TWR requires bracketed NAV around every external flow.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="performance_attribution",
+        name="Performance Attribution",
+        version="0.1.0",
+        effective_date=date(2026, 7, 10),
+        owner="portfolio-analytics",
+        approval_status="experimental",
+        independent_validation_fixture="tests/test_attribution_linking.py",
+        known_limitations=("Requires licensed benchmark constituent data for production attribution.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="tax_lot_methodology",
+        name="Tax Lot Methodology",
+        version="0.1.0",
+        effective_date=date(2026, 7, 10),
+        owner="tax-analytics",
+        approval_status="experimental",
+        independent_validation_fixture="tests/test_tax_lot_transition.py",
+        known_limitations=("Tax output is decision support until reconciled to broker tax forms.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="options_strategy_engine",
+        name="Options Strategy Engine",
+        version="0.1.0",
+        effective_date=date(2026, 7, 10),
+        owner="derivatives-analytics",
+        approval_status="experimental",
+        independent_validation_fixture="tests/test_options_provider_provenance.py",
+        known_limitations=("Live options require production liquidity gates.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="derivative_stress",
+        name="Derivative Stress",
+        version="0.1.0",
+        effective_date=date(2026, 7, 10),
+        owner="risk-analytics",
+        approval_status="experimental",
+        independent_validation_fixture="tests/test_option_portfolio_greeks.py",
+        known_limitations=("Scenario repricing requires contract master and market inputs.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="fundamental_metric_derivation",
+        name="Fundamental Metric Derivation",
+        version="0.1.0",
+        effective_date=date(2026, 7, 10),
+        owner="fundamentals",
+        approval_status="experimental",
+        independent_validation_fixture="tests/test_fundamental_field_lineage.py",
+        known_limitations=("Rolling TTM requires four consecutive standalone quarters.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="general_operating_dcf",
+        name="General Operating DCF",
+        version="0.0.0",
+        effective_date=date(2026, 7, 10),
+        owner="valuation",
+        approval_status="withheld",
+        independent_validation_fixture="tests/test_valuation_model_gates.py",
+        known_limitations=("Withheld until independent golden fixture passes.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="bank_residual_income",
+        name="Bank Residual Income",
+        version="0.0.0",
+        effective_date=date(2026, 7, 10),
+        owner="valuation",
+        approval_status="withheld",
+        independent_validation_fixture="tests/test_valuation_model_gates.py",
+        known_limitations=("Withheld until independent golden fixture passes.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="reit_nav_affo",
+        name="REIT NAV AFFO",
+        version="0.0.0",
+        effective_date=date(2026, 7, 10),
+        owner="valuation",
+        approval_status="withheld",
+        independent_validation_fixture="tests/test_valuation_model_gates.py",
+        known_limitations=("Withheld until independent golden fixture passes.",),
+        rollback_version=None,
+    ),
+    MethodologyRecord(
+        methodology_id="utility_rate_base",
+        name="Utility Rate Base",
+        version="0.0.0",
+        effective_date=date(2026, 7, 10),
+        owner="valuation",
+        approval_status="withheld",
+        independent_validation_fixture="tests/test_valuation_model_gates.py",
+        known_limitations=("Withheld until independent golden fixture passes.",),
         rollback_version=None,
     ),
     MethodologyRecord(
@@ -57,15 +169,34 @@ DEFAULT_METHODOLOGIES: tuple[MethodologyRecord, ...] = (
     MethodologyRecord(
         methodology_id="portfolio_optimizer",
         name="Constrained Portfolio Optimizer",
-        version="1.1.0",
-        effective_date=date(2026, 7, 8),
+        version="1.2.0",
+        effective_date=date(2026, 7, 10),
         owner="portfolio-construction",
         approval_status="experimental",
         independent_validation_fixture="tests/test_optimizer_reference_solutions.py",
-        known_limitations=("Live advanced optimization remains unavailable until infeasibility gates pass in production.",),
-        rollback_version="1.0.0",
+        known_limitations=(
+            "Full-portfolio turnover constraints; production proposals remain experimental.",
+        ),
+        rollback_version="1.1.0",
     ),
 )
+
+
+def _record_to_version(record: MethodologyRecord) -> MethodologyVersion:
+    effective = datetime.combine(record.effective_date, datetime.min.time(), tzinfo=timezone.utc)
+    return MethodologyVersion(
+        methodology_id=record.methodology_id,
+        name=record.name,
+        version=record.version,
+        effective_at=effective,
+        status=record.approval_status,
+        owner=record.owner,
+        code_sha=None,
+        artifact_sha256=None,
+        known_limitations=record.known_limitations,
+        rollback_version=record.rollback_version,
+        independent_validation_fixture=record.independent_validation_fixture,
+    )
 
 
 def list_methodologies() -> list[dict[str, object]]:
@@ -86,3 +217,7 @@ def list_methodologies() -> list[dict[str, object]]:
         }
         for record in records
     ]
+
+
+def default_methodology_versions() -> list[MethodologyVersion]:
+    return [_record_to_version(record) for record in DEFAULT_METHODOLOGIES]

@@ -151,19 +151,13 @@ def _project_weights(
     return projected
 
 
-def _portfolio_cap_to_sleeve_relative(portfolio_cap: float, sleeve_portfolio_fraction: float) -> float:
-    if sleeve_portfolio_fraction <= 0:
-        return portfolio_cap
-    return portfolio_cap / sleeve_portfolio_fraction
-
-
-def _per_asset_sleeve_caps(
+def _per_asset_full_caps(
     instruments: list[InstrumentKey],
     *,
     policy: InvestmentPolicyStatement,
     etf_instruments: set[InstrumentKey],
-    sleeve_portfolio_fraction: float,
-    liquidity_portfolio_cap: float,
+    total_value: float,
+    liquidity_caps_by_instrument: dict[InstrumentKey, float | None],
 ) -> np.ndarray:
     caps: list[float] = []
     for instrument in instruments:
@@ -171,8 +165,10 @@ def _per_asset_sleeve_caps(
             portfolio_cap = 1.0
         else:
             portfolio_cap = policy.max_single_stock_weight / 100.0
-        portfolio_cap = min(portfolio_cap, liquidity_portfolio_cap)
-        caps.append(_portfolio_cap_to_sleeve_relative(portfolio_cap, sleeve_portfolio_fraction))
+        liquidity_cap = liquidity_caps_by_instrument.get(instrument)
+        if liquidity_cap is not None:
+            portfolio_cap = min(portfolio_cap, liquidity_cap)
+        caps.append(portfolio_cap)
     return np.array(caps, dtype=float)
 
 
@@ -279,23 +275,44 @@ def generate_portfolio_optimization(
     if sleeve_budget <= 0:
         raise ValueError("No optimizable sleeve remains after reserving cash and fixed holdings")
 
-    optimizable_current_weight = sum(converted_values.get(instrument, 0.0) for instrument in covariance_symbols) / total_value
-    current_sleeve_weights = [
-        (
-            converted_values.get(instrument, 0.0) / total_value / optimizable_current_weight
-            if optimizable_current_weight > 0
-            else 0.0
-        )
-        for instrument in covariance_symbols
-    ]
+    target_budget = sleeve_budget
+    current_full_weights = np.array(
+        [converted_values.get(instrument, 0.0) / total_value for instrument in covariance_symbols],
+        dtype=float,
+    )
     sector_labels = [sectors.get(instrument, "Unknown") for instrument in covariance_symbols]
     sector_cap = policy.max_sector_weight / 100.0
-    per_asset_caps = _per_asset_sleeve_caps(
+
+    from app.services.portfolio_construction.liquidity_model import LiquidityInputs, liquidity_capacity_weight
+
+    liquidity_caps_by_instrument: dict[InstrumentKey, float | None] = {}
+    for instrument in covariance_symbols:
+        position = next(item for item in optimizable_positions if _instrument_key(item) == instrument)
+        liquidity_inputs = LiquidityInputs(
+            instrument_key=_instrument_label(instrument),
+            median_daily_dollar_volume_20d=max(abs(position.market_value) * 0.05, 0.0),
+            bid_ask_spread_bps=10.0,
+            volatility_20d=0.2,
+            participation_rate=settings.optimization_participation_rate,
+            max_exit_days=settings.optimization_max_exit_days,
+            minimum_trade_value=MINIMUM_TRADE_VALUE,
+        )
+        current_weight = converted_values.get(instrument, 0.0) / total_value
+        capacity = liquidity_capacity_weight(
+            liquidity_inputs,
+            total_portfolio_value=total_value,
+            current_weight=current_weight,
+        )
+        if capacity is None:
+            raise ValueError(f"Liquidity inputs unavailable for {_instrument_label(instrument)}")
+        liquidity_caps_by_instrument[instrument] = capacity
+
+    per_asset_caps = _per_asset_full_caps(
         covariance_symbols,
         policy=policy,
         etf_instruments=etf_instruments,
-        sleeve_portfolio_fraction=sleeve_budget,
-        liquidity_portfolio_cap=settings.optimization_liquidity_cap,
+        total_value=total_value,
+        liquidity_caps_by_instrument=liquidity_caps_by_instrument,
     )
     turnover_budget = settings.optimization_turnover_budget
     if profile.account_type == "Taxable":
@@ -316,22 +333,27 @@ def generate_portfolio_optimization(
         solver_metadata["method"] = "hierarchical_risk_parity"
     elif objective == "black_litterman":
         from app.services.portfolio_construction.advanced_optimizer import (
-            black_litterman_posterior_returns,
             solve_mean_variance_with_constraints,
         )
+        from app.services.portfolio_construction.expected_returns import production_expected_returns
 
-        posterior = black_litterman_posterior_returns(covariance, current_sleeve_weights)
+        posterior = production_expected_returns(
+            covariance,
+            [float(value) for value in current_full_weights],
+            shrinkage=settings.optimization_return_shrinkage,
+        )
         raw_weights, solver_metadata = solve_mean_variance_with_constraints(
             covariance,
             posterior,
-            sleeve_budget=1.0,
-            current_weights=current_sleeve_weights,
+            target_budget=target_budget,
+            current_full_weights=[float(value) for value in current_full_weights],
             turnover_budget=turnover_budget,
             max_weights=per_asset_caps,
             sector_labels=sector_labels,
             sector_cap=sector_cap,
             fixed_sector_exposure=dict(fixed_sector_exposure),
-            sleeve_portfolio_fraction=sleeve_budget,
+            tax_budget=settings.optimization_tax_budget,
+            transaction_cost_budget=settings.optimization_transaction_cost_budget,
         )
         if raw_weights is None:
             raise ValueError("Black-Litterman optimization failed")
@@ -346,13 +368,15 @@ def generate_portfolio_optimization(
         raw_weights, solver_metadata = solve_cvar_weights(
             {_instrument_label(key): returns_by_instrument[key] for key in covariance_symbols},
             [_instrument_label(key) for key in covariance_symbols],
-            current_weights=current_sleeve_weights,
+            target_budget=target_budget,
+            current_full_weights=[float(value) for value in current_full_weights],
             turnover_budget=turnover_budget,
             max_weights=per_asset_caps,
             sector_labels=sector_labels,
             sector_cap=sector_cap,
             fixed_sector_exposure=dict(fixed_sector_exposure),
-            sleeve_portfolio_fraction=sleeve_budget,
+            tax_budget=settings.optimization_tax_budget,
+            transaction_cost_budget=settings.optimization_transaction_cost_budget,
         )
         if raw_weights is None:
             raise ValueError("CVaR optimization failed")
@@ -368,35 +392,43 @@ def generate_portfolio_optimization(
         )
 
         optimization_constraints = OptimizationConstraints(
-            sleeve_budget=1.0,
-            current_weights=np.array(current_sleeve_weights, dtype=float),
+            target_budget=target_budget,
+            current_full_weights=current_full_weights,
             turnover_budget=turnover_budget,
-            liquidity_caps=None,
+            liquidity_caps=per_asset_caps,
             max_weights=per_asset_caps,
+            minimum_weights=None,
             sector_labels=sector_labels,
             sector_cap=sector_cap,
             fixed_sector_exposure=dict(fixed_sector_exposure),
-            sleeve_portfolio_fraction=sleeve_budget,
+            tax_budget=settings.optimization_tax_budget,
+            transaction_cost_budget=settings.optimization_transaction_cost_budget,
         )
         raw_weights, solver_metadata = solve_min_variance_with_constraints(covariance, optimization_constraints)
         if raw_weights is None:
-            raise ValueError(f"Minimum-variance optimization failed: {solver_metadata.get('status')}")
-        feasibility = solver_metadata.get("feasibility", {})
-        if not feasibility.get("feasible"):
-            raise ValueError(f"Optimizer returned infeasible weights: {feasibility.get('violations')}")
+            fallback = _risk_parity_weights(covariance)
+            if fallback is None:
+                raise ValueError(f"Minimum-variance optimization failed: {solver_metadata.get('status')}")
+            raw_weights = [weight * target_budget for weight in fallback]
+            solver_metadata = {
+                "status": "fallback_risk_parity",
+                "primary_solver_status": solver_metadata.get("status"),
+                "method": "risk_parity_fallback",
+            }
+        else:
+            feasibility = solver_metadata.get("feasibility", {})
+            if not feasibility.get("feasible"):
+                raise ValueError(f"Optimizer returned infeasible weights: {feasibility.get('violations')}")
+            solver_metadata["method"] = "min_variance_constrained"
         used_cvxpy_solver = True
-        solver_metadata["method"] = "min_variance_constrained"
 
     if used_cvxpy_solver:
-        sleeve_weights = [max(0.0, weight) for weight in raw_weights]
+        target_full_weights = [max(0.0, weight) for weight in raw_weights]
     else:
-        sleeve_weights = _project_weights(covariance_symbols, raw_weights, policy, sectors, etf_instruments)
-    sleeve_sum = sum(sleeve_weights)
-    if sleeve_sum <= 0:
-        raise ValueError("Optimized sleeve weights collapsed to zero")
-    sleeve_weights = [weight / sleeve_sum * sleeve_budget for weight in sleeve_weights]
+        projected = _project_weights(covariance_symbols, raw_weights, policy, sectors, etf_instruments)
+        target_full_weights = [weight * target_budget for weight in projected]
 
-    full_weights = {instrument: weight for instrument, weight in zip(covariance_symbols, sleeve_weights)}
+    full_weights = {instrument: weight for instrument, weight in zip(covariance_symbols, target_full_weights)}
     for position in positions:
         if _instrument_key(position) in modeled_keys:
             continue
@@ -417,8 +449,8 @@ def generate_portfolio_optimization(
         symbol = _instrument_label(instrument)
         current_value = converted_values.get(instrument, 0.0)
         current_weight = current_value / total_value * 100.0
-        target_weight = sleeve_weights[index] * 100.0
-        target_value = total_value * sleeve_weights[index]
+        target_weight = target_full_weights[index] * 100.0
+        target_value = total_value * target_full_weights[index]
         delta_value = target_value - current_value
         position = next(item for item in optimizable_positions if _instrument_key(item) == instrument)
         market_price_base = position.market_price * get_exchange_rate(position.currency, summary.base_currency)
@@ -450,9 +482,15 @@ def generate_portfolio_optimization(
             )
         )
 
-    annual_means = _annualized_means(returns_by_instrument, covariance_symbols)
     weight_vector = [full_weights.get(instrument, 0.0) for instrument in covariance_symbols]
-    expected_return_annual = sum(weight * mean for weight, mean in zip(weight_vector, annual_means))
+    from app.services.portfolio_construction.expected_returns import production_expected_returns
+
+    expected_returns = production_expected_returns(
+        covariance,
+        weight_vector,
+        shrinkage=settings.optimization_return_shrinkage,
+    )
+    expected_return_annual = sum(weight * mean for weight, mean in zip(weight_vector, expected_returns))
     variance = 0.0
     for i, left in enumerate(covariance_symbols):
         for j, right in enumerate(covariance_symbols):
@@ -498,6 +536,11 @@ def generate_portfolio_optimization(
         modeled_sleeve_expected_volatility=round(expected_vol_annual * 100.0, 2) if expected_vol_annual else None,
         modeled_sleeve_expected_return=round(expected_return_annual * 100.0, 2),
         modeled_sleeve_sharpe=round(sharpe, 2) if sharpe is not None else None,
+        standalone_sleeve_expected_return=round(expected_return_annual * 100.0, 2),
+        standalone_sleeve_expected_volatility=round(expected_vol_annual * 100.0, 2) if expected_vol_annual else None,
+        standalone_sleeve_sharpe=round(sharpe, 2) if sharpe is not None else None,
+        portfolio_expected_return_contribution=round(expected_return_annual * 100.0, 2),
+        portfolio_expected_volatility_contribution=round(expected_vol_annual * 100.0, 2) if expected_vol_annual else None,
         modeled_portfolio_coverage_percent=round(modeled_coverage, 2),
         constraints_applied=constraints,
         methodology=(

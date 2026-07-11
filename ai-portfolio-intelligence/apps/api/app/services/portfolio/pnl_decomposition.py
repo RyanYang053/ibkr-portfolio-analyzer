@@ -126,17 +126,23 @@ def calculate_pnl_decomposition(
 
     for txn in interval_txns:
         if txn.action == "dividend":
-            dividend_total += abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
+            dividend_total += _convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver)
+        elif txn.action == "dividend_reversal":
+            dividend_total -= abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
         elif txn.action == "fee":
             fee_total += abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
         elif txn.action in {"buy", "sell"}:
             fee_total += abs(_convert_amount(float(txn.commission or 0.0), txn.currency, base_currency, txn.trade_date, fx_resolver))
         elif txn.action == "interest":
-            interest_total += abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
+            interest_total += _convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver)
+        elif txn.action == "interest_reversal":
+            interest_total -= abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
         elif txn.action == "corporate_action":
             corporate_total += _convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver)
-        elif str(txn.action).endswith("withholding"):
+        elif txn.action == "withholding_tax":
             withholding_tax_total += abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
+        elif txn.action == "withholding_tax_reversal":
+            withholding_tax_total -= abs(_convert_amount(_signed_notional(txn), txn.currency, base_currency, txn.trade_date, fx_resolver))
         external_total += _convert_amount(
             external_cash_flow_amount(txn),
             txn.currency,
@@ -147,42 +153,60 @@ def calculate_pnl_decomposition(
 
     price_effect_total = None
     fx_translation_total = None
-    realized_lot_effect_total = None
+    tax_realized_gain_total = None
     price_fx_cross_effect_total = None
     trade_timing_effect_total = None
+    period_effects = None
     period_exclusions: list[str] = []
     opening_snapshot_complete = False
-    closing_snapshot_complete = bool(positions)
+    closing_snapshot_complete = False
     transaction_ledger_complete = covers_period
     derivative_effect_complete = True
     corporate_actions_complete = True
 
+    closing_positions: list = []
     if covers_period:
-        from app.db.daily_position_repo import read_daily_positions
+        from app.db.portfolio_snapshot_repo import (
+            read_position_rows,
+            require_complete_snapshot,
+            _valid_uuid,
+        )
         from app.services.portfolio.pnl_period_effects import compute_period_effects
 
-        opening_positions = read_daily_positions(account_id, period_start)
-        opening_snapshot_complete = bool(opening_positions)
-        period_effects = compute_period_effects(
-            account_id,
-            period_start,
-            period_end,
-            opening_positions,
-            positions,
-            base_currency,
-            fx_resolver,
-        )
-        period_exclusions = period_effects.exclusions
-        if period_effects.price_effect is not None:
-            price_effect_total = round(float(period_effects.price_effect), 2)
-        if period_effects.fx_effect is not None:
-            fx_translation_total = round(float(period_effects.fx_effect), 2)
-        if period_effects.price_fx_cross_effect is not None:
-            price_fx_cross_effect_total = round(float(period_effects.price_fx_cross_effect), 2)
-        if period_effects.realized_lot_effect is not None:
-            realized_lot_effect_total = round(float(period_effects.realized_lot_effect), 2)
-        if period_effects.trade_timing_effect is not None:
-            trade_timing_effect_total = round(float(period_effects.trade_timing_effect), 2)
+        try:
+            opening_snapshot = require_complete_snapshot(account_id, period_start)
+            closing_snapshot = require_complete_snapshot(account_id, period_end)
+            opening_snapshot_complete = True
+            closing_snapshot_complete = True
+            opening_positions = read_position_rows(str(opening_snapshot["id"]))
+            closing_positions = read_position_rows(str(closing_snapshot["id"]))
+        except ValueError:
+            opening_positions = []
+            closing_positions = []
+            exclusions_pre = ["historical_snapshot_unavailable"]
+            period_exclusions.extend(exclusions_pre)
+
+        if opening_snapshot_complete and closing_snapshot_complete:
+            period_effects = compute_period_effects(
+                account_id,
+                period_start,
+                period_end,
+                opening_positions,
+                closing_positions,
+                base_currency,
+                fx_resolver,
+            )
+            period_exclusions = period_effects.exclusions
+            if period_effects.price_effect is not None:
+                price_effect_total = round(float(period_effects.price_effect), 2)
+            if period_effects.fx_effect is not None:
+                fx_translation_total = round(float(period_effects.fx_effect), 2)
+            if period_effects.price_fx_cross_effect is not None:
+                price_fx_cross_effect_total = round(float(period_effects.price_fx_cross_effect), 2)
+            if period_effects.tax_realized_gain is not None:
+                tax_realized_gain_total = round(float(period_effects.tax_realized_gain), 2)
+            if period_effects.trade_timing_effect is not None:
+                trade_timing_effect_total = round(float(period_effects.trade_timing_effect), 2)
 
     position_rows = [
         PositionPnLDecomposition(
@@ -221,15 +245,22 @@ def calculate_pnl_decomposition(
         explained += fx_translation_total
     if price_fx_cross_effect_total is not None:
         explained += price_fx_cross_effect_total
-    if realized_lot_effect_total is not None:
-        explained += realized_lot_effect_total
     if trade_timing_effect_total is not None:
         explained += trade_timing_effect_total
-    residual_total = investment_pnl - explained
+    residual_total: float | None = None
     tolerance_amount = _reconciliation_tolerance(beginning_nav)
 
-    has_option_positions = any(position.asset_class in {"OPT", "FOP"} for position in positions)
-    has_foreign_positions = any(position.currency.upper() != base_currency.upper() for position in positions)
+    has_option_positions = any(
+        (position.get("asset_class") if isinstance(position, dict) else position.asset_class) in {"OPT", "FOP"}
+        for position in (closing_positions if covers_period and closing_snapshot_complete else positions)
+    )
+    has_foreign_positions = any(
+        (
+            (position.get("currency") if isinstance(position, dict) else position.currency) or base_currency
+        ).upper()
+        != base_currency.upper()
+        for position in (closing_positions if covers_period and closing_snapshot_complete else positions)
+    )
 
     exclusions: list[str] = []
     if not covers_period:
@@ -238,8 +269,8 @@ def calculate_pnl_decomposition(
         exclusions.append("price_effect_withheld")
     if fx_translation_total is None and has_foreign_positions:
         exclusions.append("fx_translation_withheld")
-    if realized_lot_effect_total is None:
-        exclusions.append("realized_lot_effect_withheld")
+    if trade_timing_effect_total is None:
+        exclusions.append("trade_timing_withheld")
     exclusions.extend(period_exclusions)
     if has_option_positions:
         exclusions.append("option_greek_effect_withheld")
@@ -252,29 +283,44 @@ def calculate_pnl_decomposition(
             opening_snapshot_complete,
             closing_snapshot_complete,
             transaction_ledger_complete,
+            period_effects is not None,
+            period_effects.complete if period_effects is not None else False,
             price_effect_total is not None,
             fx_translation_total is not None or not has_foreign_positions,
-            realized_lot_effect_total is not None,
+            price_fx_cross_effect_total is not None or not has_foreign_positions,
+            trade_timing_effect_total is not None,
             derivative_effect_complete,
             corporate_actions_complete,
+            not any(item.startswith("position_universe_change:") for item in exclusions),
         ]
     )
+
+    if core_effects_complete:
+        residual_total = investment_pnl - explained
+
+    reconciliation_gap = round(residual_total, 2) if residual_total is not None else None
 
     reconciliation_status = "withheld_incomplete_ledger"
     if not covers_period:
         reconciliation_status = "withheld_incomplete_ledger"
+    elif not opening_snapshot_complete:
+        reconciliation_status = "withheld_missing_opening_snapshot"
+    elif not closing_snapshot_complete:
+        reconciliation_status = "withheld_missing_closing_snapshot"
     elif any("market_price_missing" in item for item in exclusions):
         reconciliation_status = "withheld_missing_valuation"
+    elif any(item.startswith("position_universe_change:") for item in exclusions):
+        reconciliation_status = "withheld_position_universe_change"
+    elif trade_timing_effect_total is None:
+        reconciliation_status = "withheld_missing_trade_timing"
+    elif has_option_positions and not derivative_effect_complete:
+        reconciliation_status = "withheld_derivative_effect"
     elif core_effects_complete:
         reconciliation_status = (
             "reconciled_within_tolerance"
-            if abs(residual_total) <= tolerance_amount
+            if residual_total is not None and abs(residual_total) <= tolerance_amount
             else "reconciliation_gap_exceeds_tolerance"
         )
-    elif has_option_positions:
-        reconciliation_status = "provisional_missing_derivative_effect"
-    else:
-        reconciliation_status = "provisional_cash_flow_inventory"
 
     from app.db.portfolio_snapshot_repo import (
         link_calculation_run_snapshots,
@@ -299,7 +345,7 @@ def calculate_pnl_decomposition(
             "closing_snapshot_complete": str(closing_snapshot_complete),
         },
     )
-    link_calculation_run_snapshots(run.calculation_run_id, [sid for sid in snapshot_ids if len(sid) == 36])
+    link_calculation_run_snapshots(run.calculation_run_id, [sid for sid in snapshot_ids if len(sid) == 36 or _valid_uuid(sid)])
     if coverage and coverage.source:
         link_calculation_run_transaction_batches(run.calculation_run_id, [coverage.source])
 
@@ -320,7 +366,7 @@ def calculate_pnl_decomposition(
         account_value_change=round(account_value_change, 2),
         price_effect_total=price_effect_total,
         fx_translation_total=fx_translation_total,
-        realized_lot_effect_total=realized_lot_effect_total,
+        realized_lot_effect_total=tax_realized_gain_total,
         trade_timing_effect_total=trade_timing_effect_total,
         price_fx_cross_effect_total=price_fx_cross_effect_total,
         withholding_tax_total=round(withholding_tax_total, 2),
@@ -329,8 +375,8 @@ def calculate_pnl_decomposition(
         interest_income_total=round(interest_total, 2),
         corporate_action_total=round(corporate_total, 2),
         external_cash_flow_total=round(external_total, 2),
-        residual_total=round(residual_total, 2),
-        reconciliation_gap=round(residual_total, 2),
+        residual_total=round(residual_total, 2) if residual_total is not None else None,
+        reconciliation_gap=reconciliation_gap,
         reconciliation_status=reconciliation_status,
         positions=position_rows,
         calculation_run=run_metadata_dict(run),

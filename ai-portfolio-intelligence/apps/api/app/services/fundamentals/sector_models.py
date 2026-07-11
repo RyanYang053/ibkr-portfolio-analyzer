@@ -282,6 +282,7 @@ def _score_financials_sector(fundamentals: FundamentalSnapshot) -> dict[str, flo
     quality_parts: list[float] = []
     _append_linear(quality_parts, fundamentals.return_on_equity, 0.08, 0.18)
     _append_linear(quality_parts, fundamentals.net_interest_margin, 0.02, 0.04)
+    # price_to_tangible_book is a valuation multiple; never treat it as tangible book per share.
     if quality_parts:
         scores["business_quality"] = fmean(quality_parts)
 
@@ -330,11 +331,10 @@ def _score_reit_sector(fundamentals: FundamentalSnapshot) -> dict[str, float]:
         scores["balance_sheet"] = balance_sheet
 
     valuation_parts: list[float] = []
-    if fundamentals.fcf_yield is not None:
-        _append_linear(valuation_parts, fundamentals.fcf_yield, 0.03, 0.08)
-    pe_forward = _number(fundamentals.pe_forward)
-    if pe_forward is not None and pe_forward > 0:
-        valuation_parts.append(max(0.0, min(100.0, 110.0 - _linear(pe_forward, 10.0, 25.0))))
+    if fundamentals.affo_per_share is not None:
+        _append_linear(valuation_parts, fundamentals.affo_per_share, 1.0, 6.0)
+    elif fundamentals.ffo_per_share is not None:
+        _append_linear(valuation_parts, fundamentals.ffo_per_share, 1.0, 6.0)
     if valuation_parts:
         scores["valuation"] = fmean(valuation_parts)
     return scores
@@ -354,7 +354,10 @@ def _score_utilities_sector(fundamentals: FundamentalSnapshot) -> dict[str, floa
     if rate_base_growth is not None:
         scores["growth"] = _linear(rate_base_growth, 0.01, 0.05)
 
-    if fundamentals.operating_margin is not None:
+    company_roe = _number(fundamentals.return_on_equity)
+    if company_roe is not None:
+        scores["profitability"] = _linear(company_roe, 0.08, 0.14)
+    elif fundamentals.operating_margin is not None:
         scores["profitability"] = _linear(fundamentals.operating_margin, 0.12, 0.28)
 
     balance_sheet = _debt_normalized_balance_sheet(fundamentals, -0.2, 0.2)

@@ -33,6 +33,19 @@ class Settings(BaseSettings):
     access_token_hours: int = 12
     login_max_attempts: int = 5
     login_lockout_minutes: int = 15
+    trusted_proxies: list[str] = []
+    audit_sensitive_keys: list[str] = [
+        "password",
+        "password_hash",
+        "token",
+        "secret",
+        "api_key",
+        "access_token",
+        "refresh_token",
+        "bootstrap_token",
+        "jwt_secret",
+        "ibkr_flex_token",
+    ]
     allowed_ibkr_hosts: list[str] = ["127.0.0.1", "localhost"]
     api_bind_host: str = "127.0.0.1"
     scheduler_enabled: bool = True
@@ -45,9 +58,28 @@ class Settings(BaseSettings):
     sec_edgar_cache_hours: int = 24
     optimization_turnover_budget: float = 0.25
     optimization_liquidity_cap: float = 0.15
+    optimization_participation_rate: float = 0.10
+    optimization_max_exit_days: float = 5.0
+    optimization_commission_bps: float = 5.0
+    optimization_market_impact_bps: float = 10.0
+    optimization_fx_conversion_bps: float = 2.0
+    optimization_minimum_ticket_cost: float = 1.0
+    optimization_transaction_cost_budget: float | None = None
+    optimization_tax_budget: float | None = None
+    optimization_return_shrinkage: float = 0.5
     default_reporting_currency: str = "USD"
     pnl_reconciliation_absolute_tolerance: float = 1.0
     pnl_reconciliation_tolerance_bps: float = 25.0
+    snapshot_nav_tie_out_absolute_tolerance: float = 1.0
+    snapshot_nav_tie_out_tolerance_bps: float = 10.0
+    options_min_dte: int = 20
+    options_max_dte: int = 60
+    options_max_expirations: int = 3
+    options_max_contracts: int = 80
+    options_quote_timeout_seconds: float = 8.0
+    options_min_open_interest: int = 50
+    options_min_volume: int = 1
+    attribution_reconciliation_tolerance: float = 1e-4
 
 
 settings = Settings()

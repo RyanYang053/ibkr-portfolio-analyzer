@@ -73,7 +73,16 @@ npm run dev
 cd apps/api && python -m pytest tests -q
 cd apps/web && npm run build
 bash infra/scripts/docker_smoke.sh
+bash infra/scripts/production_e2e.sh
+bash infra/scripts/backup_restore_smoke.sh
 ```
+
+Health endpoints:
+
+- `GET /health/live` — process liveness only
+- `GET /health/ready` — Postgres, Alembic head, governance tables, scheduler heartbeat, broker config
+
+Production CI also runs lint/typecheck (`requirements-dev.txt`, `pyproject.toml`), dependency audit, and Postgres production E2E/resilience scripts.
 
 ## Required Disclaimer
 

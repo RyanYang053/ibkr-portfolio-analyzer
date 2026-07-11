@@ -40,8 +40,8 @@ class StateStore(ABC):
 
 class JsonStateStore(StateStore):
     def _path(self, namespace: str, record_key: str) -> str:
-        safe_ns = namespace.replace("/", "_")
-        safe_key = record_key.replace("/", "_").replace("..", "_")
+        safe_ns = namespace.replace("/", "_").replace(":", "__")
+        safe_key = record_key.replace("/", "_").replace("..", "_").replace(":", "__")
         return os.path.join(_data_dir(), safe_ns, f"{safe_key}.json")
 
     def read_json(self, namespace: str, record_key: str, default: Any = None) -> Any:

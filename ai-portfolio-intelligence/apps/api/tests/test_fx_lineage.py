@@ -150,7 +150,7 @@ def test_daily_position_rows_contain_fx_lineage(tmp_path, monkeypatch):
     rows = read_daily_positions("U123", date(2026, 7, 10))
     assert rows[0]["fx_rate_to_base"] == 0.75
     assert rows[0]["base_market_value"] == 825.0
-    assert rows[0]["fx_source"] == "historical_fx_store"
+    assert rows[0]["fx_source"] == "legacy_float_resolver"
     assert rows[0]["valuation_status"] == "available"
 
 

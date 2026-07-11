@@ -8,6 +8,9 @@ from typing import Callable, Deque, Literal, Optional
 
 from app.schemas.domain import RealizedLotAttribution, TaxLot, TaxLotAttributionReport, Transaction
 from app.services.portfolio.corporate_actions import apply_corporate_action_to_lots, parse_corporate_action
+from app.services.tax.canadian_acb import build_canadian_acb_report
+from app.services.tax.models import TaxLotMethod
+from app.services.tax.us_tax_lots import build_us_tax_lot_report
 
 EXECUTION_ACTIONS = frozenset({"buy", "sell"})
 CORPORATE_ACTIONS = frozenset({"corporate_action"})
@@ -112,10 +115,12 @@ def _consume_sell(
     if not emit_realized:
         return None, status
 
+    gain_loss = round(total_proceeds - total_cost, 2)
     return (
         RealizedLotAttribution(
             symbol=txn.symbol.upper(),
-            realized_gain_loss=round(total_proceeds - total_cost, 2),
+            tax_realized_gain_loss=gain_loss,
+            realized_gain_loss=gain_loss,
             short_term_gain_loss=round(short_term, 2) if tax_labeling_jurisdiction == "US" else None,
             long_term_gain_loss=round(long_term, 2) if tax_labeling_jurisdiction == "US" else None,
             quantity_sold=round(matched_qty, 6),
@@ -125,6 +130,51 @@ def _consume_sell(
             holding_period_days=max_holding_days,
         ),
         status,
+    )
+
+
+def _report_from_us(report) -> TaxLotAttributionReport:
+    return TaxLotAttributionReport(
+        account_id=report.account_id,
+        lots_open=[
+            TaxLot(
+                account_id=report.account_id,
+                symbol=lot.symbol,
+                con_id=lot.con_id,
+                quantity=lot.quantity,
+                cost_basis_per_share=lot.cost_basis_per_share,
+                acquired_date=lot.acquired_date,
+                currency=lot.currency,
+            )
+            for lot in report.open_lots
+        ],
+        realized_by_symbol=[
+            RealizedLotAttribution(
+                symbol=row.symbol,
+                tax_realized_gain_loss=row.tax_realized_gain_loss or 0.0,
+                realized_gain_loss=row.tax_realized_gain_loss or 0.0,
+                short_term_gain_loss=row.short_term_gain_loss,
+                long_term_gain_loss=row.long_term_gain_loss,
+                quantity_sold=row.quantity_sold,
+                unmatched_sell_quantity=row.unmatched_sell_quantity,
+                proceeds=row.proceeds or 0.0,
+                cost_basis=row.cost_basis or 0.0,
+                holding_period_days=row.holding_period_days,
+                method=row.method.value,
+            )
+            for row in report.realized_lots
+        ],
+        total_realized_gain_loss=report.total_tax_realized_gain_loss,
+        total_short_term=report.total_short_term,
+        total_long_term=report.total_long_term,
+        reporting_currency=report.reporting_currency,
+        jurisdiction=report.jurisdiction,
+        methodology_status=report.methodology_status,
+        period_start=report.period_start,
+        period_end=report.period_end,
+        unmatched_sell_quantity=report.unmatched_sell_quantity,
+        data_quality=report.data_quality,
+        methodology=report.methodology,
     )
 
 
@@ -138,26 +188,88 @@ def build_tax_lot_attribution(
     fx_resolver: Optional[Callable[..., float]] = None,
 ) -> TaxLotAttributionReport:
     if tax_labeling_jurisdiction == "CA":
-        return TaxLotAttributionReport(
-            account_id=account_id,
-            lots_open=[],
-            realized_by_symbol=[],
-            total_realized_gain_loss=0.0,
-            total_short_term=0.0,
-            total_long_term=0.0,
-            reporting_currency=reporting_currency,
+        if not transactions:
+            return TaxLotAttributionReport(
+                account_id=account_id,
+                lots_open=[],
+                realized_by_symbol=[],
+                total_realized_gain_loss=None,
+                total_short_term=None,
+                total_long_term=None,
+                reporting_currency="CAD",
+                jurisdiction="CA",
+                methodology_status="withheld",
+                period_start=period_start,
+                period_end=period_end,
+                unmatched_sell_quantity=0.0,
+                data_quality={
+                    "status": "unavailable",
+                    "tax_lot_method": "acb_withheld",
+                    "tax_labeling_jurisdiction": "CA",
+                },
+                methodology=(
+                    "Canadian taxable reporting requires pooled adjusted cost base (ACB) in CAD with superficial-loss "
+                    "rules. FIFO tax-lot output is withheld for Canadian residency."
+                ),
+            )
+        ca_report = build_canadian_acb_report(
+            account_id,
+            transactions,
             period_start=period_start,
             period_end=period_end,
-            unmatched_sell_quantity=0.0,
-            data_quality={
-                "status": "unavailable",
-                "tax_lot_method": "acb_withheld",
-                "tax_labeling_jurisdiction": tax_labeling_jurisdiction,
-            },
-            methodology=(
-                "Canadian taxable reporting requires pooled adjusted cost base (ACB) in CAD with superficial-loss "
-                "rules. FIFO tax-lot output is withheld for Canadian residency."
-            ),
+            fx_resolver=fx_resolver,
+        )
+        return TaxLotAttributionReport(
+            account_id=account_id,
+            lots_open=[
+                TaxLot(
+                    account_id=account_id,
+                    symbol=lot.symbol,
+                    con_id=lot.con_id,
+                    quantity=lot.quantity,
+                    cost_basis_per_share=lot.cost_basis_per_share,
+                    acquired_date=lot.acquired_date,
+                    currency=lot.currency,
+                )
+                for lot in ca_report.open_lots
+            ],
+            realized_by_symbol=[
+                RealizedLotAttribution(
+                    symbol=row.symbol,
+                    tax_realized_gain_loss=row.tax_realized_gain_loss if row.tax_realized_gain_loss is not None else 0.0,
+                    realized_gain_loss=row.tax_realized_gain_loss if row.tax_realized_gain_loss is not None else 0.0,
+                    quantity_sold=row.quantity_sold,
+                    proceeds=row.proceeds or 0.0,
+                    cost_basis=row.cost_basis or 0.0,
+                    holding_period_days=row.holding_period_days,
+                    method=row.method.value,
+                )
+                for row in ca_report.realized_lots
+            ],
+            total_realized_gain_loss=ca_report.total_tax_realized_gain_loss,
+            total_short_term=None,
+            total_long_term=None,
+            reporting_currency="CAD",
+            jurisdiction="CA",
+            methodology_status=ca_report.methodology_status,
+            period_start=period_start,
+            period_end=period_end,
+            unmatched_sell_quantity=ca_report.unmatched_sell_quantity,
+            data_quality=ca_report.data_quality,
+            methodology=ca_report.methodology,
+        )
+
+    if tax_labeling_jurisdiction == "US":
+        return _report_from_us(
+            build_us_tax_lot_report(
+                account_id,
+                transactions,
+                reporting_currency=reporting_currency,
+                period_start=period_start,
+                period_end=period_end,
+                lot_method=TaxLotMethod.FIFO,
+                fx_resolver=fx_resolver,
+            )
         )
 
     open_lots: dict[tuple[str, int | None], Deque[_OpenLot]] = defaultdict(deque)
@@ -282,19 +394,19 @@ def build_tax_lot_attribution(
         status = "missing"
 
     total_realized = (
-        round(sum(row.realized_gain_loss for row in realized_rows), 2)
+        round(sum(row.tax_realized_gain_loss for row in realized_rows), 2)
         if status == "lot_matching_complete"
-        else 0.0
+        else None
     )
     total_short = (
         round(sum(row.short_term_gain_loss or 0.0 for row in realized_rows), 2)
         if status == "lot_matching_complete"
-        else 0.0
+        else None
     )
     total_long = (
         round(sum(row.long_term_gain_loss or 0.0 for row in realized_rows), 2)
         if status == "lot_matching_complete"
-        else 0.0
+        else None
     )
 
     methodology = (
@@ -334,9 +446,11 @@ def build_tax_lot_attribution(
         lots_open=open_rows,
         realized_by_symbol=realized_rows,
         total_realized_gain_loss=total_realized,
-        total_short_term=total_short if tax_labeling_jurisdiction == "US" else 0.0,
-        total_long_term=total_long if tax_labeling_jurisdiction == "US" else 0.0,
+        total_short_term=total_short if tax_labeling_jurisdiction == "US" else None,
+        total_long_term=total_long if tax_labeling_jurisdiction == "US" else None,
         reporting_currency=reporting_currency,
+        jurisdiction=tax_labeling_jurisdiction,
+        methodology_status="experimental",
         period_start=period_start,
         period_end=period_end,
         unmatched_sell_quantity=unmatched_total,
@@ -365,5 +479,5 @@ def realized_gain_by_symbol(
         return {}
     grouped: dict[str, float] = defaultdict(float)
     for row in report.realized_by_symbol:
-        grouped[row.symbol] += row.realized_gain_loss
+        grouped[row.symbol] += row.tax_realized_gain_loss
     return {symbol: round(value, 2) for symbol, value in grouped.items()}

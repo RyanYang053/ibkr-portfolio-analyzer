@@ -103,6 +103,7 @@ def test_option_stress_withholds_without_underlying_spot():
         industry="Software",
         portfolio_weight=1,
         stock_type="universal",
+        con_id=424242,
         local_symbol="MSFT  260116C00400000",
         multiplier=100,
         updated_at=utc_now(),
@@ -121,10 +122,35 @@ def test_option_stress_withholds_without_underlying_spot():
     )
     assert isinstance(result, OptionStressResult)
     assert result.status == "withheld"
-    assert "underlying_spot_unavailable" in result.exclusions
+    assert "option_contract_metadata_unavailable" in result.exclusions or "underlying_spot_unavailable" in result.exclusions
 
 
-def test_option_stress_uses_underlying_position_spot():
+def test_option_stress_uses_contract_master(monkeypatch):
+    from datetime import date
+
+    from app.core.config import settings
+    from app.db.option_contract_repo import upsert_contract
+    from app.services.options.engine import OptionContract
+
+    monkeypatch.setattr(settings, "persistence_backend", "json")
+    upsert_contract(
+        OptionContract(
+            symbol="MSFT260116C00400000",
+            strike=400.0,
+            right="C",
+            expiration=date(2026, 1, 16),
+            bid=5.0,
+            ask=5.2,
+            mid=5.1,
+            implied_volatility=0.25,
+            con_id=424242,
+            underlying_symbol="MSFT",
+            multiplier=100.0,
+            currency="USD",
+            provider="IBKR",
+        )
+    )
+
     stock = Position(
         account_id="MOCK-001",
         symbol="MSFT",
@@ -150,6 +176,7 @@ def test_option_stress_uses_underlying_position_spot():
             "quantity": 1,
             "market_price": 6,
             "market_value": 600,
+            "con_id": 424242,
             "local_symbol": "MSFT  260116C00400000",
             "multiplier": 100,
         }
