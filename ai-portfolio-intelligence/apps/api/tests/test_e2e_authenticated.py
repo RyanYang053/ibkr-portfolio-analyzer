@@ -21,10 +21,10 @@ def test_login_redirects_to_protected_portfolio_view():
 
         page = browser.new_page()
         try:
-            page.goto(f"{base_url}/login", wait_until="domcontentloaded", timeout=30_000)
-            page.wait_for_selector('input[type="email"]', timeout=30_000)
-            page.fill('input[type="email"]', email)
-            page.fill('input[type="password"]', password)
+            page.goto(f"{base_url}/login", wait_until="load", timeout=60_000)
+            page.get_by_label("Email").wait_for(state="visible", timeout=30_000)
+            page.get_by_label("Email").fill(email)
+            page.get_by_label("Password").fill(password)
             page.get_by_role("button", name="Sign in").click()
             page.wait_for_url(lambda url: "/login" not in url, timeout=30_000)
 

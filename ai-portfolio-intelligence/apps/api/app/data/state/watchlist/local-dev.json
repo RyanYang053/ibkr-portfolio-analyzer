@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "symbol": "AAPL",
+    "reason": "Monitoring consumer hardware cyclicality and AI integration features in iOS.",
+    "target_add_price": 185.0,
+    "target_trim_review_price": 240.0,
+    "status": "watch"
+  },
+  {
+    "id": 2,
+    "symbol": "NVDA",
+    "reason": "Tracking global AI data center capital expenditures and Blackwell graphics architecture launch cadence.",
+    "target_add_price": 110.0,
+    "target_trim_review_price": 160.0,
+    "status": "watch"
+  },
+  {
+    "id": 3,
+    "symbol": "TSLA",
+    "reason": "Awaiting vehicle gross margin recovery, energy storage expansion, and FSD hardware updates.",
+    "target_add_price": 165.0,
+    "target_trim_review_price": 260.0,
+    "status": "watch"
+  }
+]

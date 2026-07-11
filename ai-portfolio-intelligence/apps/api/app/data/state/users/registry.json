@@ -1,0 +1,9 @@
+{
+  "owner@example.com": {
+    "email": "owner@example.com",
+    "name": "Owner",
+    "password_hash": "hashed:secure-password",
+    "role": "owner",
+    "token_version": "1"
+  }
+}

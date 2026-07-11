@@ -28,14 +28,13 @@ trap cleanup EXIT
 
 docker compose -f "${COMPOSE_FILE}" up -d --build postgres api scheduler web
 
-if ! docker compose -f "${COMPOSE_FILE}" ps --status running --services | grep -qx api; then
-  docker compose -f "${COMPOSE_FILE}" logs api || true
-  exit 1
-fi
-
 for attempt in $(seq 1 60); do
   if curl -fsS "${API_BASE}/health/live" >/dev/null; then
     break
+  fi
+  if [[ "${attempt}" -eq 60 ]]; then
+    docker compose -f "${COMPOSE_FILE}" logs api || true
+    exit 1
   fi
   sleep 2
 done
@@ -44,6 +43,17 @@ curl -fsS "${API_BASE}/health/live" | grep -q '"status"'
 curl -fsS "${API_BASE}/openapi.json" | grep -q '"openapi"'
 
 docker compose -f "${COMPOSE_FILE}" exec -T api alembic upgrade head
+
+for attempt in $(seq 1 60); do
+  if curl -fsS "${WEB_BASE}/login" | grep -q 'Sign in'; then
+    break
+  fi
+  if [[ "${attempt}" -eq 60 ]]; then
+    docker compose -f "${COMPOSE_FILE}" logs web || true
+    exit 1
+  fi
+  sleep 2
+done
 
 curl -fsS -X POST "${API_BASE}/auth/bootstrap" \
   -H 'Content-Type: application/json' \

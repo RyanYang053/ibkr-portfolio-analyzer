@@ -1,0 +1,9 @@
+{
+  "mode": "ibkr_readonly",
+  "host": "127.0.0.1",
+  "port": 4002,
+  "client_id": 10,
+  "account_id": "",
+  "configured_by": "local-dev",
+  "updated_at": "2026-07-11T00:49:06.466612+00:00"
+}
