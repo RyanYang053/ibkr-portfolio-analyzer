@@ -166,11 +166,29 @@ def record_pnl_snapshot(
                     2,
                 )
                 if last_entry.net_liquidation != 0:
-                    investment_return_percent = round(
-                        (summary.net_liquidation - external_cash_flow) / last_entry.net_liquidation - 1.0,
-                        6,
-                    ) * 100.0
-                investment_return_status = "cash_flow_adjusted"
+                    from app.services.portfolio.return_engine import (
+                        ReturnMethod,
+                        compute_period_return,
+                    )
+
+                    return_result = compute_period_return(
+                        history,
+                        transactions,
+                        interval_start=interval_start,
+                        interval_end=interval_end,
+                        base_currency=summary.base_currency,
+                        fx_resolver=fx_resolver,
+                    )
+                    investment_return_percent = return_result.return_percent
+                    investment_return_status = (
+                        "exact_twr"
+                        if return_result.method == ReturnMethod.EXACT_TWR
+                        else "modified_dietz_approximation"
+                        if return_result.method == ReturnMethod.MODIFIED_DIETZ
+                        else "withheld_approximation"
+                        if return_result.method == ReturnMethod.SIMPLE_END_FLOW
+                        else "withheld"
+                    )
     except Exception as exc:
         external_cash_flow = None
         investment_return_percent = None
@@ -257,22 +275,16 @@ def record_pnl_snapshot(
     )
 
     try:
-        from app.db.daily_position_repo import upsert_daily_positions
-        from app.db.portfolio_snapshot_repo import persist_portfolio_snapshot
-        from app.services.market_data.fx_store import get_historical_exchange_rate
+        from app.db.portfolio_snapshot_repo import record_snapshot_atomic
+        from app.services.market_data.fx_store import get_historical_fx_quote
 
-        upsert_daily_positions(
-            active_account_id,
-            date.fromisoformat(today),
-            positions,
-            base_currency=summary.base_currency,
-            fx_resolver=get_historical_exchange_rate,
-        )
-        persist_portfolio_snapshot(
-            active_account_id,
-            date.fromisoformat(today),
-            summary,
-            positions,
+        record_snapshot_atomic(
+            account_id=active_account_id,
+            business_date=date.fromisoformat(today),
+            summary=summary,
+            positions=positions,
+            pnl_snapshot=snapshot.model_dump(),
+            fx_quote_resolver=get_historical_fx_quote,
             source="pnl_snapshot",
         )
     except Exception as exc:

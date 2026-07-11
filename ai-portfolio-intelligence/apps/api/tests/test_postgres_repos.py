@@ -84,13 +84,6 @@ def postgres_backend(monkeypatch):
     session_factory = sessionmaker(bind=test_engine, autocommit=False, autoflush=False)
     monkeypatch.setattr("app.db.session.engine", test_engine)
     monkeypatch.setattr("app.db.session.SessionLocal", session_factory)
-    monkeypatch.setattr("app.db.ledger_transaction_repo.SessionLocal", session_factory)
-    monkeypatch.setattr("app.db.ledger_coverage_repo.SessionLocal", session_factory)
-    monkeypatch.setattr("app.db.pnl_snapshot_repo.SessionLocal", session_factory)
-    monkeypatch.setattr("app.db.fundamental_snapshot_repo.SessionLocal", session_factory)
-    monkeypatch.setattr("app.db.fx_rate_repo.SessionLocal", session_factory)
-    monkeypatch.setattr("app.db.user_repo.SessionLocal", session_factory)
-    monkeypatch.setattr("app.db.account_access_repo.SessionLocal", session_factory)
     yield
 
 

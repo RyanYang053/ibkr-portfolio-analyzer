@@ -14,15 +14,23 @@ export default async function ProtectedLayout({ children }: Readonly<{ children:
     redirect("/login");
   }
 
-  const response = await fetch(`${BACKEND_URL}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${BACKEND_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+  } catch {
+    redirect("/service-unavailable");
+  }
 
-  if (!response.ok) {
+  if (response.status === 401 || response.status === 403) {
     cookieStore.delete("access_token");
     cookieStore.delete("csrf_token");
     redirect("/login");
+  }
+  if (!response.ok) {
+    redirect("/service-unavailable");
   }
 
   return <>{children}</>;

@@ -27,6 +27,7 @@ def log_audit_action(
     after: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
     actor_type: str = "user",
+    critical: bool = False,
 ) -> None:
     context = get_request_context()
     resolved_actor = (actor_id or context.actor_id or "system").lower()
@@ -38,48 +39,53 @@ def log_audit_action(
     if resolved_request_id and "request_id" not in payload_metadata:
         payload_metadata["request_id"] = resolved_request_id
 
-    if audit_events_available():
-        insert_audit_event(
-            action=action,
-            object_type=object_type,
-            object_id=object_id,
-            actor_type=actor_type,
-            actor_id=resolved_actor,
-            tenant_id=resolved_tenant,
-            account_id=resolved_account,
-            request_id=resolved_request_id,
-            source_ip=resolved_source_ip,
-            outcome=outcome,
-            before=before,
-            after=after,
-            metadata=payload_metadata,
+    try:
+        if audit_events_available():
+            insert_audit_event(
+                action=action,
+                object_type=object_type,
+                object_id=object_id,
+                actor_type=actor_type,
+                actor_id=resolved_actor,
+                tenant_id=resolved_tenant,
+                account_id=resolved_account,
+                request_id=resolved_request_id,
+                source_ip=resolved_source_ip,
+                outcome=outcome,
+                before=before,
+                after=after,
+                metadata=payload_metadata,
+            )
+            return
+
+        if settings.persistence_backend == "postgres":
+            raise RuntimeError("Audit event persistence requires the audit_events table in postgres mode")
+
+        logs = read_json_with_legacy("audit_logs", "events", AUDIT_LOG_FILE, default=[])
+        if not isinstance(logs, list):
+            logs = []
+        logs.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "action": action,
+                "object_type": object_type,
+                "object_id": object_id,
+                "actor_id": resolved_actor,
+                "tenant_id": resolved_tenant,
+                "account_id": resolved_account,
+                "request_id": resolved_request_id,
+                "source_ip": resolved_source_ip,
+                "outcome": outcome,
+                "before_json": json.dumps(before or {}),
+                "after_json": json.dumps(after or {}),
+                "metadata_json": json.dumps(payload_metadata),
+            }
         )
-        return
-
-    if settings.persistence_backend == "postgres":
-        raise RuntimeError("Audit event persistence requires the audit_events table in postgres mode")
-
-    logs = read_json_with_legacy("audit_logs", "events", AUDIT_LOG_FILE, default=[])
-    if not isinstance(logs, list):
-        logs = []
-    logs.append(
-        {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "action": action,
-            "object_type": object_type,
-            "object_id": object_id,
-            "actor_id": resolved_actor,
-            "tenant_id": resolved_tenant,
-            "account_id": resolved_account,
-            "request_id": resolved_request_id,
-            "source_ip": resolved_source_ip,
-            "outcome": outcome,
-            "before_json": json.dumps(before or {}),
-            "after_json": json.dumps(after or {}),
-            "metadata_json": json.dumps(payload_metadata),
-        }
-    )
-    write_json_state("audit_logs", "events", logs)
+        write_json_state("audit_logs", "events", logs)
+    except Exception as exc:
+        if critical:
+            raise RuntimeError(f"Critical audit event persistence failed: {exc}") from exc
+        raise
 
 
 def get_audit_logs() -> list[dict[str, Any]]:
@@ -91,6 +97,10 @@ def get_audit_logs() -> list[dict[str, Any]]:
     logs = read_json_with_legacy("audit_logs", "events", AUDIT_LOG_FILE, default=None)
     if isinstance(logs, list) and logs:
         return logs
+
+    if settings.environment != "development":
+        return []
+
     return [
         {"action": "app_started", "object_type": "system", "object_id": "local-api", "outcome": "success"},
         {

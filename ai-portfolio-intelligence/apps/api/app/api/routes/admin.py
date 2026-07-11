@@ -49,6 +49,7 @@ def invite_user(payload: InvitationRequest, principal: Principal = Depends(get_c
         object_id=invitation["email"],
         actor_id=principal.user_id,
         metadata={"role": payload.role, "invited_by": principal.user_id},
+        critical=True,
     )
     return invitation
 
@@ -71,6 +72,7 @@ def set_user_role(payload: RoleUpdateRequest, principal: Principal = Depends(get
         object_id=updated["email"],
         actor_id=principal.user_id,
         metadata={"role": payload.role},
+        critical=True,
     )
     return updated
 
@@ -89,6 +91,7 @@ def grant_access(payload: AccountAccessRequest, principal: Principal = Depends(g
         object_id=payload.account_id,
         actor_id=principal.user_id,
         metadata={"email": str(payload.email).lower(), "granted_by": principal.user_id},
+        critical=True,
     )
     return {"email": str(payload.email).lower(), "accounts": list_accessible_accounts(str(payload.email))}
 
@@ -102,5 +105,6 @@ def revoke_access(payload: AccountAccessRequest, principal: Principal = Depends(
         object_id=payload.account_id,
         actor_id=principal.user_id,
         metadata={"email": str(payload.email).lower(), "revoked_by": principal.user_id},
+        critical=True,
     )
     return {"email": str(payload.email).lower(), "accounts": list_accessible_accounts(str(payload.email))}

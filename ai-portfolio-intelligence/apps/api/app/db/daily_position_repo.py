@@ -54,19 +54,24 @@ def _resolve_position_fx(
             )
         return None, None, None, None, None, "withheld"
 
-    fx_rate = float(
-        fx_resolver(
-            position.currency,
-            base_currency,
-            snapshot_date,
-        )
-    )
+    quote = fx_resolver(position.currency, base_currency, snapshot_date)
+    if isinstance(quote, (float, int)):
+        fx_rate = float(quote)
+        fx_source = "legacy_float_resolver"
+        fx_observed_at = _utc_now()
+        fx_rate_date = snapshot_date
+    else:
+        fx_rate = float(quote.rate)
+        fx_source = quote.source
+        fx_observed_at = quote.observed_at
+        fx_rate_date = quote.effective_date
+
     if not math.isfinite(fx_rate) or fx_rate <= 0:
         raise ValueError(
             f"Invalid historical FX rate for {native}/{reporting} on {snapshot_date}"
         )
     base_value = float(position.market_value) * fx_rate
-    return fx_rate, base_value, "historical_fx_store", _utc_now(), snapshot_date, "available"
+    return fx_rate, base_value, fx_source, fx_observed_at, fx_rate_date, "available"
 
 
 def upsert_daily_positions(
@@ -94,6 +99,8 @@ def upsert_daily_positions(
                 "symbol": position.symbol.upper(),
                 "con_id": position.con_id,
                 "con_id_key": _con_id_key(position.con_id),
+                "local_symbol": position.local_symbol,
+                "multiplier": float(position.multiplier or 1.0),
                 "quantity": float(position.quantity),
                 "market_value": float(position.market_value),
                 "market_price": float(position.market_price),
@@ -103,6 +110,7 @@ def upsert_daily_positions(
                 "sector": position.sector,
                 "asset_class": position.asset_class,
                 "price_source": "broker_snapshot",
+                "price_observed_at": position.updated_at.isoformat(),
                 "fx_rate_to_base": fx_rate,
                 "base_market_value": base_value,
                 "fx_source": fx_source,

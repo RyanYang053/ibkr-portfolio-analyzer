@@ -634,9 +634,27 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
         try:
             from app.services.options.ibkr_options_provider import resolve_options_chain
 
-            chain, chain_source = resolve_options_chain(position.symbol, position.market_price)
+            resolution = resolve_options_chain(position.symbol, position.market_price)
+            chain = resolution.contracts
+            chain_source = resolution.selected_provider
             is_mock_fallback = False
-        except Exception:
+        except Exception as exc:
+            from app.services.options.chain_provider import OptionsChainUnavailable
+
+            if isinstance(exc, OptionsChainUnavailable):
+                from fastapi import HTTPException
+
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "LIVE_OPTIONS_CHAIN_UNAVAILABLE",
+                        "message": (
+                            f"Live options quotes are unavailable for {position.symbol.upper()}. "
+                            "Strategy economics are withheld instead of simulated."
+                        ),
+                        "provider_attempts": exc.errors,
+                    },
+                ) from exc
             live_chain_unavailable = True
     if not chain and is_demo:
         chain = generate_mock_options_chain(position.symbol, position.market_price)
@@ -661,7 +679,11 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
 
     # Deterministic economics are always available when a chain exists.
     if not gemini.configured:
-        from app.services.options.deterministic_report import build_deterministic_options_report
+        from app.services.options.contract_filters import OptionLiquidityPolicy
+        from app.services.options.deterministic_report import (
+            _relaxed_policy_for_demo,
+            build_deterministic_options_report,
+        )
 
         deterministic = build_deterministic_options_report(
             position,
@@ -669,6 +691,12 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             cash_available=cash_available,
             account_type=account_type,
             chain_source=chain_source,
+            is_demo=is_demo,
+            liquidity_policy=(
+                _relaxed_policy_for_demo()
+                if is_demo
+                else OptionLiquidityPolicy()
+            ),
         )
         if not is_demo:
             from app.db.iv_observation_repo import append_iv_history_json, iv_percentile
@@ -710,23 +738,44 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             )
         return deterministic
 
-    # 2. Build the LLM prompt using our options chain
+    # 2. Build the LLM prompt using prevalidated candidates
+    from app.services.options.contract_filters import OptionLiquidityPolicy
+    from app.services.options.deterministic_report import (
+        _relaxed_policy_for_demo,
+        build_validated_strategy_candidates,
+    )
+
+    portfolio_base_currency = position.currency
+    candidates = build_validated_strategy_candidates(
+        position,
+        chain,
+        cash_available=cash_available,
+        account_type=account_type,
+        is_demo=is_demo,
+        liquidity_policy=(
+            _relaxed_policy_for_demo()
+            if is_demo
+            else OptionLiquidityPolicy()
+        ),
+    )
     prompt = build_options_strategy_prompt(
         symbol=position.symbol,
         current_price=position.market_price,
         trend=trend_str,
         action=rec.action,
         options_chain=chain_dict,
+        options_candidates=candidates,
     )
 
     try:
         report = gemini.generate_json(prompt, response_schema=OPTIONS_STRATEGY_RESPONSE_SCHEMA)
         
         contract_by_symbol = {contract.symbol: contract for contract in chain}
-        from app.services.options.contract_filters import OptionLiquidityPolicy, is_liquid
+        from app.services.options.contract_filters import is_liquid
         from datetime import datetime, timezone
+        from app.services.broker.ibkr_readonly import get_exchange_rate
 
-        liquidity_policy = OptionLiquidityPolicy()
+        liquidity_policy = OptionLiquidityPolicy() if not is_demo else _relaxed_policy_for_demo()
         now = datetime.now(timezone.utc)
         validated_strategies = []
         for strat in report.get("strategies", []):
@@ -753,12 +802,19 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
                 if (
                     selected_contracts[0].expiration != selected_contracts[1].expiration
                     or selected_contracts[0].right != selected_contracts[1].right
+                    or selected_contracts[0].multiplier != selected_contracts[1].multiplier
+                    or (selected_contracts[0].currency or position.currency) != (selected_contracts[1].currency or position.currency)
+                    or (selected_contracts[0].underlying_symbol or position.symbol) != (selected_contracts[1].underlying_symbol or position.symbol)
                 ):
                     continue
 
             main_contract = selected_contracts[0]
             strike = main_contract.strike
             premium = main_contract.mid
+            multiplier = float(main_contract.multiplier or 100.0)
+            contract_currency = main_contract.currency or position.currency
+            account_currency = portfolio_base_currency
+            fx_rate = get_exchange_rate(contract_currency, account_currency)
             net_premium = abs(premium)
             premium_type = "credit"
             max_profit = ""
@@ -766,7 +822,12 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             breakeven = strike
             
             if "covered call" in strat_name_lower:
-                metrics = calculate_covered_call_metrics(position.market_price, strike, premium)
+                metrics = calculate_covered_call_metrics(
+                    position.market_price,
+                    strike,
+                    premium,
+                    multiplier=multiplier,
+                )
                 max_profit_per_share = strike - position.market_price + premium
                 if max_profit_per_share < 0:
                     continue
@@ -776,7 +837,7 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
                 net_premium = abs(premium)
                 premium_type = "credit"
             elif "cash-secured put" in strat_name_lower:
-                metrics = calculate_cash_secured_put_metrics(strike, premium)
+                metrics = calculate_cash_secured_put_metrics(strike, premium, multiplier=multiplier)
                 max_profit = metrics["max_profit"]
                 max_loss = metrics["max_loss"]
                 breakeven = metrics["breakeven"]
@@ -784,6 +845,7 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
                 premium_type = "credit"
             elif "spread" in strat_name_lower:
                 leg1, leg2 = selected_contracts[0], selected_contracts[1]
+                leg_multiplier = float(leg1.multiplier or 100.0)
                 if main_contract.right == "C":
                     long_leg = leg1 if leg1.strike < leg2.strike else leg2
                     short_leg = leg2 if leg1.strike < leg2.strike else leg1
@@ -805,11 +867,12 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
                 breakeven = metrics["breakeven"]
                 net_premium = abs(net_debit)
                 premium_type = "debit"
+                multiplier = leg_multiplier
             else:
                 net_premium = abs(premium)
                 premium_type = "debit"
-                max_profit = "Unlimited" if main_contract.right == "C" else f"${(strike - premium) * 100:.2f} (cap at strike zero)"
-                max_loss = f"${premium * 100:.2f} (premium debit paid)"
+                max_profit = "Unlimited" if main_contract.right == "C" else f"${(strike - premium) * multiplier:.2f} (cap at strike zero)"
+                max_loss = f"${premium * multiplier:.2f} (premium debit paid)"
                 breakeven = round(strike + premium if main_contract.right == "C" else strike - premium, 2)
 
             # Evaluate Eligibility
@@ -819,7 +882,11 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
                 underlying_price=position.market_price,
                 quantity_held=position.quantity,
                 cash_available=cash_available,
-                account_type=account_type
+                account_type=account_type,
+                contract_multiplier=multiplier,
+                contract_currency=contract_currency,
+                account_currency=account_currency,
+                fx_rate_to_account=fx_rate,
             )
             
             validated_strategies.append({

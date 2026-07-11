@@ -182,6 +182,8 @@ def test_gemini_json_request_is_structured_only_and_not_falsely_grounded(monkeyp
 
 
 def test_ai_configuration_does_not_persist_api_key(monkeypatch):
+    from app.api.auth_deps import Principal
+
     persisted: list[dict[str, str]] = []
     monkeypatch.setattr(
         "app.core.persistence.update_env_file",
@@ -192,7 +194,8 @@ def test_ai_configuration_does_not_persist_api_key(monkeypatch):
         ai_routes.AIConfigureRequest(
             api_key="test-key-123456789",
             model="gemini-2.5-flash",
-        )
+        ),
+        principal=Principal(user_id="owner@example.com", role="owner", scopes={"configuration:write"}),
     )
 
     assert all("GEMINI_API_KEY" not in values for values in persisted)

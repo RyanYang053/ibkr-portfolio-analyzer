@@ -1,13 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_TIMEOUT_MS = 15_000;
+const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN;
+
+function allowedOrigins(request: NextRequest): string[] {
+  const origins = new Set<string>([request.nextUrl.origin]);
+  if (PUBLIC_ORIGIN) {
+    origins.add(PUBLIC_ORIGIN);
+  }
+  const configured = process.env.ALLOWED_ORIGINS?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
+  for (const origin of configured) {
+    origins.add(origin);
+  }
+  return [...origins];
+}
 
 export function originAllowed(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
   if (!origin) {
     return false;
   }
-  return origin === request.nextUrl.origin;
+  return allowedOrigins(request).includes(origin);
 }
 
 export function csrfValid(request: NextRequest, csrfCookie: string | undefined): boolean {
@@ -42,12 +55,18 @@ export async function proxyBackendRequest(
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS);
+  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
 
   let response: Response;
   try {
     response = await fetch(backendUrl, {
       ...init,
       signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "X-Request-ID": requestId,
+        ...(init.headers ?? {}),
+      },
     });
   } catch {
     clearTimeout(timeout);
@@ -63,6 +82,7 @@ export async function proxyBackendRequest(
     status: response.status,
     headers: {
       "Content-Type": response.headers.get("Content-Type") ?? "application/json",
+      "X-Request-ID": requestId,
     },
   });
 

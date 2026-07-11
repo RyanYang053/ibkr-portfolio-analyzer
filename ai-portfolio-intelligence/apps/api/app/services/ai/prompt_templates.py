@@ -339,18 +339,28 @@ OPTIONS_STRATEGY_RESPONSE_SCHEMA = {
 }
 
 
-def build_options_strategy_prompt(*, symbol: str, current_price: float, trend: str, action: str, options_chain: list[dict[str, Any]]) -> str:
+def build_options_strategy_prompt(
+    *,
+    symbol: str,
+    current_price: float,
+    trend: str,
+    action: str,
+    options_chain: list[dict[str, Any]] | None = None,
+    options_candidates: list[dict[str, Any]] | None = None,
+) -> str:
     payload = {
         "symbol": symbol,
         "current_price": current_price,
         "technical_trend": trend,
         "action_recommendation": action,
-        "available_options_chain": options_chain,
+        "available_options_chain": options_chain or [],
+        "validated_strategy_candidates": options_candidates or [],
         "required_disclaimer": DISCLAIMER,
     }
     return (
         "You are a professional options strategist designing educational options structures. Analyze the provided stock and options chain data.\n"
-        + "Do not invent options contracts. You must select from the provided 'available_options_chain' list only.\n"
+        + "Do not invent options contracts. You must select only from 'validated_strategy_candidates' when present; otherwise use 'available_options_chain'.\n"
+        + "You may rank and explain candidates only. Do not recalculate economics or invent new strikes/expirations.\n"
         + "Recommend two strategy candidates (one conservative income strategy e.g. Covered Call or Cash-Secured Put, and one risk-defined directional strategy e.g. Bull Call Spread or Bear Put Spread) that align with the technical trend and action.\n"
         + "Ensure you output only educational strategy candidates, never order recommendations or direct buy/sell commands.\n"
         + "Return strict JSON only. Do not wrap JSON in markdown.\n\n"

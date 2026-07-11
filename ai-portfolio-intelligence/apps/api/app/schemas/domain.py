@@ -82,15 +82,22 @@ class Position(BaseModel):
 
 class Transaction(BaseModel):
     account_id: str
-    symbol: str
+    symbol: str = ""
     trade_date: date
+    trade_timestamp: Optional[datetime] = None
+    effective_timestamp: Optional[datetime] = None
     settlement_date: Optional[date] = None
     action: Literal[
         "buy",
         "sell",
         "dividend",
+        "dividend_reversal",
         "fee",
+        "fee_reversal",
         "interest",
+        "interest_reversal",
+        "withholding_tax",
+        "withholding_tax_reversal",
         "fx",
         "deposit",
         "withdrawal",
@@ -99,19 +106,31 @@ class Transaction(BaseModel):
         "transfer_out",
         "contribution",
         "distribution",
+        "cash_in_lieu",
         "corporate_action",
     ]
-    quantity: float
-    price: float
-    commission: float
+    quantity: float = 0.0
+    price: float = 0.0
+    commission: float = 0.0
     currency: str
     fx_rate: Optional[float] = None
-    source: str = "mock_ibkr_readonly"
+    source: str = "unspecified"
+    source_batch_id: Optional[str] = None
+    source_row_id: Optional[str] = None
+    source_hash: Optional[str] = None
     con_id: Optional[int] = None
     local_symbol: Optional[str] = None
     transaction_id: Optional[str] = None
     amount: Optional[float] = None
     description: Optional[str] = None
+
+    @property
+    def event_timestamp(self) -> datetime:
+        if self.effective_timestamp is not None:
+            return self.effective_timestamp
+        if self.trade_timestamp is not None:
+            return self.trade_timestamp
+        return datetime.combine(self.trade_date, datetime.min.time(), tzinfo=timezone.utc)
 
 
 class OpenOrderReadOnly(BaseModel):
@@ -213,10 +232,34 @@ class TechnicalIndicators(BaseModel):
     trend_classification: str
 
 
+class FundamentalFieldLineage(BaseModel):
+    metric: str
+    concept: str
+    unit: str
+    value: float
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    filed_date: Optional[date] = None
+    accepted_at: Optional[datetime] = None
+    accession: Optional[str] = None
+    form: Optional[str] = None
+    fiscal_year: Optional[int] = None
+    fiscal_period: Optional[str] = None
+    source_hash: Optional[str] = None
+    derivation: str = "reported"
+    source_ids: list[str] = Field(default_factory=list)
+
+
 class FundamentalSnapshot(BaseModel):
     symbol: str
     period: str
     report_date: date
+    currency: str = "USD"
+    revenue: Optional[float] = None
+    net_income_common: Optional[float] = None
+    average_common_equity: Optional[float] = None
+    tangible_common_equity: Optional[float] = None
+    diluted_shares: Optional[float] = None
     revenue_growth_yoy: Optional[float] = None
     gross_margin: Optional[float] = None
     operating_margin: Optional[float] = None
@@ -224,18 +267,23 @@ class FundamentalSnapshot(BaseModel):
     operating_cash_flow: Optional[float] = None
     cash: Optional[float] = None
     total_debt: Optional[float] = None
-    pe_forward: Optional[float]
-    ev_sales: Optional[float]
-    fcf_yield: Optional[float]
+    pe_forward: Optional[float] = None
+    ev_sales: Optional[float] = None
+    fcf_yield: Optional[float] = None
     source: str = "mock_fundamentals"
     price_to_tangible_book: Optional[float] = None
+    tangible_book_per_share: Optional[float] = None
     return_on_equity: Optional[float] = None
+    return_on_tangible_equity: Optional[float] = None
     net_interest_margin: Optional[float] = None
     ffo_per_share: Optional[float] = None
     affo_per_share: Optional[float] = None
     occupancy_rate: Optional[float] = None
+    rate_base: Optional[float] = None
     rate_base_growth: Optional[float] = None
     allowed_roe: Optional[float] = None
+    field_lineage: dict[str, FundamentalFieldLineage] = Field(default_factory=dict)
+    exclusions: list[str] = Field(default_factory=list)
 
 
 class AIReport(BaseModel):
@@ -320,6 +368,11 @@ class PortfolioOptimizationProposal(BaseModel):
     modeled_sleeve_expected_volatility: Optional[float] = None
     modeled_sleeve_expected_return: Optional[float] = None
     modeled_sleeve_sharpe: Optional[float] = None
+    standalone_sleeve_expected_return: Optional[float] = None
+    standalone_sleeve_expected_volatility: Optional[float] = None
+    standalone_sleeve_sharpe: Optional[float] = None
+    portfolio_expected_return_contribution: Optional[float] = None
+    portfolio_expected_volatility_contribution: Optional[float] = None
     modeled_portfolio_coverage_percent: Optional[float] = None
     constraints_applied: list[str] = Field(default_factory=list)
     methodology: str
@@ -376,9 +429,12 @@ class AdvancedRiskMetrics(BaseModel):
 
 
 class PerformanceAttribution(BaseModel):
-    security_selection_pnl: dict[str, float]
-    sector_allocation_pnl: dict[str, float]
-    asset_class_pnl: dict[str, float]
+    current_unrealized_pnl_by_security: dict[str, float] = Field(default_factory=dict)
+    current_unrealized_pnl_by_sector: dict[str, float] = Field(default_factory=dict)
+    current_unrealized_pnl_by_asset_class: dict[str, float] = Field(default_factory=dict)
+    security_selection_pnl: dict[str, float] = Field(default_factory=dict)
+    sector_allocation_pnl: dict[str, float] = Field(default_factory=dict)
+    asset_class_pnl: dict[str, float] = Field(default_factory=dict)
     realized_vs_unrealized: dict[str, float]
     benchmark_relative_alpha: Optional[float]
     data_quality: dict[str, str]
@@ -424,6 +480,7 @@ class TaxLot(BaseModel):
 
 class RealizedLotAttribution(BaseModel):
     symbol: str
+    tax_realized_gain_loss: float
     realized_gain_loss: float
     short_term_gain_loss: Optional[float] = None
     long_term_gain_loss: Optional[float] = None
@@ -439,10 +496,12 @@ class TaxLotAttributionReport(BaseModel):
     account_id: str
     lots_open: list[TaxLot]
     realized_by_symbol: list[RealizedLotAttribution]
-    total_realized_gain_loss: float
-    total_short_term: float
-    total_long_term: float
+    total_realized_gain_loss: Optional[float] = None
+    total_short_term: Optional[float] = None
+    total_long_term: Optional[float] = None
     reporting_currency: str = "USD"
+    jurisdiction: str = "OTHER"
+    methodology_status: str = "experimental"
     period_start: Optional[date] = None
     period_end: Optional[date] = None
     unmatched_sell_quantity: float = 0.0

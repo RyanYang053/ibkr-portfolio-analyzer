@@ -10,6 +10,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.state_store import postgres_available
+from app.services.fundamentals.concept_resolver import ALL_REGISTRY_CONCEPTS
+
+REGISTRY_CONCEPTS = ALL_REGISTRY_CONCEPTS
 
 
 def _utc_now() -> datetime:

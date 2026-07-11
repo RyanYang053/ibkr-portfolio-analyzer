@@ -43,7 +43,8 @@ def test_cvar_optimizer_returns_normalized_weights():
     weights, metadata = solve_cvar_weights(
         returns_by_symbol,
         symbols,
-        current_weights=[1 / 3, 1 / 3, 1 / 3],
+        target_budget=1.0,
+        current_full_weights=[1 / 3, 1 / 3, 1 / 3],
         turnover_budget=0.5,
         liquidity_caps=[0.5, 0.5, 0.5],
     )

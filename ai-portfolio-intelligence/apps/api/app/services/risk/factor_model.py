@@ -154,6 +154,7 @@ def _matrix_ols(
             condition_number=diagnostics.get("condition_number"),
         )
     )
+    diagnostics["model_label"] = "ETF-proxy exposure model"
 
     return coefficients, r_squared, residual_std, diagnostics
 

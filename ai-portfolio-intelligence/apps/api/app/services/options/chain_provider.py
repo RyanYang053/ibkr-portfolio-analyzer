@@ -1,11 +1,26 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 
 from app.services.market_data.http_client import request_with_retry
 from app.services.options.engine import OptionContract, calculate_bs_greeks
+
+
+@dataclass(frozen=True)
+class ChainResolution:
+    contracts: list[OptionContract]
+    selected_provider: str
+    provider_attempts: list[dict[str, str]]
+
+
+class OptionsChainUnavailable(RuntimeError):
+    def __init__(self, errors: list[dict[str, str]]):
+        self.errors = errors
+        attempted = ", ".join(item.get("provider", "unknown") for item in errors)
+        super().__init__(f"Live options chain unavailable after attempting: {attempted}")
 
 
 def _parse_expiration(value: Any) -> date:
@@ -87,6 +102,7 @@ def fetch_live_options_chain(symbol: str, current_price: float, *, max_expiratio
                         quote_timestamp=datetime.now(timezone.utc).isoformat(),
                         quote_age_seconds=0.0,
                         provider="LiveYahooOptions",
+                        greeks_source="internal_bs",
                     )
                 )
 

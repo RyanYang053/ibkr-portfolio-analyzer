@@ -1,0 +1,7 @@
+ruff==0.9.6
+mypy==1.14.1
+types-python-dateutil==2.9.0.20241206
+pytest-cov==6.0.0
+hypothesis==6.124.1
+pip-audit==2.7.3
+statsmodels==0.14.4

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
-import os
-import tempfile
+import hashlib
 from datetime import date, datetime
 from threading import Lock
 from typing import Optional
@@ -17,16 +15,23 @@ from app.services.portfolio.ledger_coverage import (
     save_ledger_coverage,
 )
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+DATA_DIR = __import__("os").path.join(
+    __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__)))),
+    "data",
+)
 _FILE_LOCK = Lock()
 
 
 def _transactions_path(account_id: str) -> str:
     safe_id = account_id.replace("/", "_").replace("..", "_")
-    return os.path.join(DATA_DIR, f"transactions_{safe_id}.json")
+    return __import__("os").path.join(DATA_DIR, f"transactions_{safe_id}.json")
 
 
 def _atomic_write(path: str, payload: list[dict]) -> None:
+    import json
+    import os
+    import tempfile
+
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with _FILE_LOCK:
         fd, temporary_path = tempfile.mkstemp(prefix="transactions_", suffix=".tmp", dir=os.path.dirname(path))
@@ -42,21 +47,23 @@ def _atomic_write(path: str, payload: list[dict]) -> None:
 
 
 def _transaction_key(txn: Transaction) -> str:
-    if txn.transaction_id:
-        return txn.transaction_id
-    return "|".join(
-        [
-            txn.account_id,
-            txn.trade_date.isoformat(),
-            txn.action,
-            txn.symbol,
-            str(txn.quantity),
-            str(txn.price),
-            str(txn.commission),
-            txn.currency,
-            str(txn.con_id or ""),
-        ]
-    )
+    return txn.source_row_id or txn.transaction_id or hashlib.sha256(
+        "|".join(
+            [
+                txn.account_id,
+                txn.event_timestamp.isoformat(),
+                txn.action,
+                txn.symbol,
+                str(txn.con_id or ""),
+                str(txn.quantity),
+                str(txn.price),
+                str(txn.amount),
+                txn.currency,
+                txn.source,
+                txn.source_batch_id or "",
+            ]
+        ).encode()
+    ).hexdigest()
 
 
 def load_transactions(account_id: str) -> list[Transaction]:
@@ -68,8 +75,10 @@ def load_transactions(account_id: str) -> list[Transaction]:
             return [Transaction(**item) for item in stored]
 
     path = _transactions_path(account_id)
-    if not os.path.exists(path):
+    if not __import__("os").path.exists(path):
         return []
+    import json
+
     try:
         with _FILE_LOCK, open(path, "r", encoding="utf-8") as handle:
             raw = json.load(handle)
@@ -84,7 +93,10 @@ def save_transactions(account_id: str, transactions: list[Transaction]) -> list[
     existing = {_transaction_key(item): item for item in load_transactions(account_id)}
     for txn in transactions:
         existing[_transaction_key(txn)] = txn
-    merged = sorted(existing.values(), key=lambda item: (item.trade_date, item.symbol, item.action))
+    merged = sorted(
+        existing.values(),
+        key=lambda item: (item.event_timestamp, item.source_row_id or "", item.transaction_id or ""),
+    )
 
     if settings.persistence_backend == "postgres":
         from app.db.ledger_transaction_repo import replace_transactions
