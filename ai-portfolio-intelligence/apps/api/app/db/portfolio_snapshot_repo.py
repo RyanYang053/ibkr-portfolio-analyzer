@@ -63,8 +63,10 @@ def persist_portfolio_snapshot(
     source_batch_id: str | None = None,
     observed_at: datetime | None = None,
     designate_eod: bool = True,
+    session=None,
+    snapshot_id: str | None = None,
 ) -> str:
-    snapshot_id = str(uuid.uuid4())
+    snapshot_id = snapshot_id or str(uuid.uuid4())
     observed = observed_at or _utc_now()
     rows: list[dict[str, Any]] = []
     gross_local_count = 0
@@ -155,9 +157,9 @@ def persist_portfolio_snapshot(
     require_postgres_persistence("portfolio snapshot write", table_available=_table_available())
     from app.db.session import SessionLocal
 
-    with SessionLocal() as session:
+    def _write_postgres_snapshot(db_session) -> None:
         if designate_eod:
-            session.execute(
+            db_session.execute(
                 text(
                     """
                     UPDATE portfolio_snapshots
@@ -167,7 +169,7 @@ def persist_portfolio_snapshot(
                 ),
                 {"account_id": account_id, "business_date": business_date},
             )
-        session.execute(
+        db_session.execute(
             text(
                 """
                 INSERT INTO portfolio_snapshots (
@@ -201,7 +203,7 @@ def persist_portfolio_snapshot(
             },
         )
         for row in rows:
-            session.execute(
+            db_session.execute(
                 text(
                     """
                     INSERT INTO position_snapshot_rows (
@@ -229,7 +231,14 @@ def persist_portfolio_snapshot(
                     "base_market_value": Decimal(str(row["base_market_value"])) if row["base_market_value"] is not None else None,
                 },
             )
-        session.commit()
+
+    if session is not None:
+        _write_postgres_snapshot(session)
+        return snapshot_id
+
+    with SessionLocal() as standalone_session:
+        _write_postgres_snapshot(standalone_session)
+        standalone_session.commit()
     return snapshot_id
 
 
@@ -348,29 +357,27 @@ def record_snapshot_atomic(
     from app.db.session import SessionLocal
 
     snapshot_id = str(uuid.uuid4())
-    with SessionLocal() as session:
-        try:
-            with session.begin():
-                persist_portfolio_snapshot(
-                    account_id,
-                    business_date,
-                    summary,
-                    positions,
-                    source=source,
-                    fx_quote_resolver=fx_quote_resolver,
-                    source_batch_id=source_batch_id,
-                )
-            upsert_daily_positions(
-                account_id,
-                business_date,
-                positions,
-                base_currency=summary.base_currency,
-                fx_resolver=fx_quote_resolver,
-            )
-            upsert_pnl_snapshot(account_id, business_date, pnl_snapshot)
-        except Exception:
-            session.rollback()
-            raise
+    with SessionLocal.begin() as session:
+        persist_portfolio_snapshot(
+            account_id,
+            business_date,
+            summary,
+            positions,
+            source=source,
+            fx_quote_resolver=fx_quote_resolver,
+            source_batch_id=source_batch_id,
+            snapshot_id=snapshot_id,
+            session=session,
+        )
+        upsert_daily_positions(
+            account_id,
+            business_date,
+            positions,
+            base_currency=summary.base_currency,
+            fx_resolver=fx_quote_resolver,
+            session=session,
+        )
+        upsert_pnl_snapshot(account_id, business_date, pnl_snapshot, session=session)
     return snapshot_id
 
 

@@ -83,6 +83,7 @@ def upsert_daily_positions(
     calculation_run_id: str | None = None,
     fx_resolver=None,
     base_currency: str | None = None,
+    session=None,
 ) -> None:
     rows: list[dict[str, Any]] = []
     for position in positions:
@@ -127,7 +128,13 @@ def upsert_daily_positions(
         from app.db.session import SessionLocal
 
         now = _utc_now()
-        with SessionLocal() as session:
+        target_session = session
+        owns_session = target_session is None
+        if owns_session:
+            from app.db.session import SessionLocal
+
+            target_session = SessionLocal()
+        try:
             for row in rows:
                 payload = json.dumps(row)
                 observed_at = (
@@ -135,7 +142,7 @@ def upsert_daily_positions(
                     if row.get("fx_observed_at")
                     else None
                 )
-                session.execute(
+                target_session.execute(
                     text(
                         """
                         INSERT INTO daily_position_snapshots (
@@ -196,7 +203,11 @@ def upsert_daily_positions(
                         "created_at": now,
                     },
                 )
-            session.commit()
+            if owns_session:
+                target_session.commit()
+        finally:
+            if owns_session:
+                target_session.close()
         return
 
     store = get_state_store()

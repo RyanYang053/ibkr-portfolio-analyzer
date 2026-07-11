@@ -69,12 +69,23 @@ class MockMarketDataProvider:
                 closes = indicators.get("quote", [{}])[0].get("close", [])
                 series = adj if total_return and any(value is not None for value in adj) else closes
                 label = "live_yahoo_adjclose" if series is adj else "live_yahoo_finance"
+                quote = indicators.get("quote", [{}])[0]
+                volumes = quote.get("volume", [])
+                highs = quote.get("high", [])
+                lows = quote.get("low", [])
 
                 prices = []
-                for ts, close in zip(timestamps, series, strict=False):
+                for ts, close, volume, high, low in zip(timestamps, series, volumes, highs, lows, strict=False):
                     if close is not None:
                         date_str = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
-                        prices.append({"date": date_str, "close": float(close), "source": label})
+                        row = {"date": date_str, "close": float(close), "source": label}
+                        if volume is not None:
+                            row["volume"] = float(volume)
+                        if high is not None:
+                            row["high"] = float(high)
+                        if low is not None:
+                            row["low"] = float(low)
+                        prices.append(row)
                 if prices:
                     return filter_rows_by_date(prices, start_date, end_date)
             except Exception as exc:
@@ -100,6 +111,9 @@ class MockMarketDataProvider:
                 {
                     "date": (start_date + timedelta(days=index)).isoformat(),
                     "close": round(close, 2),
+                    "high": round(close * 1.01, 2),
+                    "low": round(close * 0.99, 2),
+                    "volume": 50_000 + (sum(ord(char) for char in symbol_upper) % 10_000),
                     "source": "mock_market_data",
                 }
             )
@@ -214,6 +228,7 @@ class MockMarketDataProvider:
                 "open": round(close * 0.99, 2),
                 "high": round(close * 1.01, 2),
                 "low": round(close * 0.985, 2),
+                "volume": 50_000 + (sum(ord(char) for char in symbol.upper()) % 10_000),
                 "source": "mock_market_data",
             })
         return prices

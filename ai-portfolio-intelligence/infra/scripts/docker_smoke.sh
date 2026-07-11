@@ -94,7 +94,27 @@ if [[ "${WEB_LOGIN_STATUS}" != "200" ]]; then
   echo "Expected login page to return 200, got ${WEB_LOGIN_STATUS}"
   exit 1
 fi
+
+for attempt in $(seq 1 60); do
+  READY_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${API_BASE}/health/ready" 2>/dev/null || echo 000)"
+  if [[ "${READY_STATUS}" == "200" ]]; then
+    break
+  fi
+  if [[ "${attempt}" -eq 60 ]]; then
+    curl -fsS "${API_BASE}/health/ready" || true
+    echo "Expected readiness to return 200, got ${READY_STATUS}"
+    exit 1
+  fi
+  sleep 2
+done
+
 curl -fsS "${API_BASE}/health/ready" | grep -q '"status"'
+
+SCHEDULER_DETAIL="$(curl -fsS "${API_BASE}/health/ready" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("checks",{}).get("scheduler",{}).get("detail",""))')"
+if [[ "${SCHEDULER_DETAIL}" == "scheduler_stale" ]]; then
+  echo "Scheduler readiness reported stale heartbeat"
+  exit 1
+fi
 
 docker compose -f "${COMPOSE_FILE}" ps --format json | grep -q '"State":"running"'
 

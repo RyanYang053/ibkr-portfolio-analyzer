@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     scheduler_timezone: str = "America/New_York"
     scheduler_max_attempts: int = 3
     scheduler_lease_minutes: int = 30
+    scheduler_readiness_grace_minutes: int = 15
     sec_edgar_user_agent: str | None = "PortfolioIntelligence/1.0 contact@example.com"
     sec_edgar_requests_per_second: float = 5.0
     sec_edgar_cache_hours: int = 24
@@ -77,6 +78,7 @@ class Settings(BaseSettings):
     options_max_expirations: int = 3
     options_max_contracts: int = 80
     options_quote_timeout_seconds: float = 8.0
+    options_greek_max_quote_age_minutes: int = 15
     options_min_open_interest: int = 50
     options_min_volume: int = 1
     attribution_reconciliation_tolerance: float = 1e-4

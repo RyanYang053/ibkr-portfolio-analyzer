@@ -114,7 +114,7 @@ def test_record_login_failure_upserts_all_keys(monkeypatch):
     assert executed[2]["params"]["key"] == "ip_email:127.0.0.1:owner@example.com"
 
 
-def test_clear_login_failures_deletes_all_keys(monkeypatch):
+def test_clear_login_failures_preserves_global_ip_counter(monkeypatch):
     executed: list[dict] = []
 
     class FakeSession:
@@ -140,7 +140,6 @@ def test_clear_login_failures_deletes_all_keys(monkeypatch):
     assert len(executed) == 1
     assert executed[0]["params"]["keys"] == [
         "account:owner@example.com",
-        "ip:127.0.0.1",
         "ip_email:127.0.0.1:owner@example.com",
     ]
 

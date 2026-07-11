@@ -274,7 +274,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: python -m pytest tests/test_benchmark_attribution.py tests/test_tax_modules.py tests/test_valuation_golden_fixtures.py --cov=app --cov-report=term-missing -q
+      - run: python -m pytest tests/test_benchmark_attribution.py tests/test_tax_modules.py tests/test_valuation_golden_fixtures.py --cov=app --cov-report=term-missing --cov-fail-under=35 -q
 
   web-lint-type:
     runs-on: ubuntu-latest
@@ -305,7 +305,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip pip-audit
-      - run: pip-audit -r requirements.txt || true
+      - run: pip-audit -r requirements.txt
 
   production-postgres-e2e:
     runs-on: ubuntu-latest
@@ -320,6 +320,7 @@ jobs:
       BOOTSTRAP_TOKEN: ci-production-e2e-bootstrap
       BROKER_MODE: mock_ibkr_readonly
       SEC_EDGAR_USER_AGENT: PortfolioIntelligence/1.0 ci@example.org
+      SCHEDULER_ENABLED: "false"
     services:
       postgres:
         image: postgres:16
@@ -391,3 +392,67 @@ jobs:
       - working-directory: ai-portfolio-intelligence/apps/api
         run: pip install -r requirements.txt
       - run: bash infra/scripts/backup_restore_smoke.sh
+
+  web-dependency-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ai-portfolio-intelligence/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python,javascript-typescript
+      - uses: github/codeql-action/analyze@v3
+
+  container-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        working-directory: ai-portfolio-intelligence
+        run: docker build -f apps/api/Dockerfile -t ibkr-api:ci-scan apps/api
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ibkr-api:ci-scan
+          format: table
+          exit-code: 1
+          severity: HIGH,CRITICAL
+
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: ai-portfolio-intelligence/apps/api
+          format: cyclonedx-json
+          artifact-name: api-sbom

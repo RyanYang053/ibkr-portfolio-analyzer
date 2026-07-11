@@ -301,11 +301,7 @@ def record_pnl_snapshot(
     from app.db.legacy_bridge import write_json_state
 
     snapshot_payload = snapshot.model_dump()
-    if settings.persistence_backend == "postgres" and not is_demo:
-        from app.db.pnl_snapshot_repo import upsert_pnl_snapshot
-
-        upsert_pnl_snapshot(active_account_id, date.fromisoformat(snapshot.date), snapshot_payload)
-    else:
+    if settings.persistence_backend != "postgres" or is_demo:
         write_json_state("pnl_history", store_key, [item.model_dump() for item in history])
         if not is_demo:
             history_file = _history_path(None if is_demo else active_account_id, is_demo)

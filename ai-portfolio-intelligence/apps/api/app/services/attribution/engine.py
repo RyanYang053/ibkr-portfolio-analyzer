@@ -25,6 +25,48 @@ SECTOR_BENCHMARK_ETF = {
 }
 
 
+def _attribution_effects_reconcile(
+    allocation: float | None,
+    selection: float | None,
+    interaction: float | None,
+    total_active: float | None,
+    *,
+    tolerance: float = 0.01,
+) -> bool:
+    if allocation is None or selection is None or interaction is None or total_active is None:
+        return False
+    return abs((allocation + selection + interaction) - total_active) <= tolerance
+
+
+def _production_brinson_ready(
+    *,
+    ledger_brinson_ready: bool,
+    by_sector: dict[str, dict[str, float]],
+    benchmark_source: str,
+    cash_flow_status: str,
+    allow_mock: bool,
+    allocation: float | None,
+    selection: float | None,
+    interaction: float | None,
+    total_active: float | None,
+    daily_contributions: list | None = None,
+) -> bool:
+    if not ledger_brinson_ready or not by_sector:
+        return False
+    if cash_flow_status != "sufficient":
+        return False
+    if benchmark_source != "licensed_constituent_weights" and not allow_mock:
+        return False
+    if not _attribution_effects_reconcile(allocation, selection, interaction, total_active):
+        return False
+    if daily_contributions:
+        from app.services.attribution.linking import active_return_reconciles
+
+        ok, _gap = active_return_reconciles(daily_contributions, tolerance=0.05)
+        return ok
+    return True
+
+
 def _sector_benchmark_return(sector: str, allow_mock: bool, period_start: date, period_end: date) -> Optional[float]:
     etf = SECTOR_BENCHMARK_ETF.get(sector, "SPY")
     try:
@@ -140,10 +182,18 @@ def calculate_brinson_attribution(
         )
 
     total_active = allocation + selection + interaction
+    from app.services.attribution.benchmark_weights import benchmark_weights_source
+
+    benchmark_source = benchmark_weights_source(period_start, allow_mock=allow_mock)
+    if benchmark_source == "licensed_constituent_weights":
+        benchmark_methodology = "licensed benchmark constituent sector weights"
+    elif allow_mock:
+        benchmark_methodology = "demo static benchmark sector weights"
+    else:
+        benchmark_methodology = "withheld benchmark sector weights"
     methodology = (
         "Brinson-Fachler attribution uses beginning portfolio sector weights and value-weighted period "
-        "portfolio sector returns versus documented static benchmark sector weights (demo/testing only) "
-        "and ETF total returns."
+        f"portfolio sector returns versus {benchmark_methodology} and sector benchmark total returns."
     )
     if portfolio_sector_weights is not None:
         methodology += " Beginning weights are reconstructed from the transaction ledger."
@@ -282,6 +332,10 @@ def calculate_performance_attribution(
     brinson_status = "experimental_withheld"
     ledger_brinson_ready = False
     attribution_run_id: str | None = None
+    cash_flow_status = "missing"
+    attribution_linking_status = "not_computed"
+    attribution_linking_gap: float | None = None
+    linked_effects: dict[str, float] | None = None
 
     if positions:
         net_liq = sum(abs(p.market_value) for p in positions)
@@ -349,27 +403,81 @@ def calculate_performance_attribution(
             period_end=period_end,
         )
         methodology = brinson_methodology
-        if ledger_brinson_ready and _by_sector:
+        cash_flow_status = "missing"
+        if account_id:
+            coverage = load_ledger_coverage(account_id)
+            ordered = sorted(history, key=lambda item: (item.date, item.timestamp))
+            if ordered and coverage and period_start and period_end:
+                if ledger_covers_period(coverage, period_start, period_end):
+                    cash_flow_status = "sufficient"
+                elif coverage.execution_only:
+                    cash_flow_status = "partial_execution_only"
+
+        from app.services.attribution.benchmark_weights import benchmark_weights_source
+
+        daily_contributions = []
+        if ledger_brinson_ready and portfolio_sector_weights and period_start and period_end:
+            from app.services.attribution.daily_series import build_daily_attribution_contributions
+            from app.services.attribution.linking import geometric_link_attribution_effects
+
+            daily_contributions = build_daily_attribution_contributions(
+                positions=positions,
+                period_start=period_start,
+                period_end=period_end,
+                portfolio_sector_weights=portfolio_sector_weights,
+                allow_mock=allow_mock,
+                history=history,
+            )
+            if daily_contributions:
+                linked = geometric_link_attribution_effects(daily_contributions, tolerance=0.05)
+                attribution_linking_gap = round(linked.reconciliation_gap, 6)
+                if linked.within_tolerance:
+                    attribution_linking_status = "reconciled"
+                    linked_effects = {
+                        "allocation_effect": round(linked.linked_allocation * 100.0, 2),
+                        "selection_effect": round(linked.linked_selection * 100.0, 2),
+                        "interaction_effect": round(linked.linked_interaction * 100.0, 2),
+                        "total_active_return": round(linked.linked_active_return * 100.0, 2),
+                    }
+                else:
+                    attribution_linking_status = "gap_exceeds_tolerance"
+
+        benchmark_source = (
+            benchmark_weights_source(period_start, allow_mock=allow_mock)
+            if period_start is not None
+            else "unavailable"
+        )
+        if _production_brinson_ready(
+            ledger_brinson_ready=ledger_brinson_ready,
+            by_sector=_by_sector,
+            benchmark_source=benchmark_source,
+            cash_flow_status=cash_flow_status,
+            allow_mock=allow_mock,
+            allocation=_alloc,
+            selection=_sel,
+            interaction=_inter,
+            total_active=_active,
+            daily_contributions=daily_contributions or None,
+        ):
+            if linked_effects:
+                allocation_effect = linked_effects["allocation_effect"]
+                selection_effect = linked_effects["selection_effect"]
+                interaction_effect = linked_effects["interaction_effect"]
+                total_active_return = linked_effects["total_active_return"]
+            else:
+                allocation_effect = _alloc
+                selection_effect = _sel
+                interaction_effect = _inter
+                total_active_return = _active
+            brinson_by_sector = _by_sector
+            brinson_status = "ledger_backed"
+        elif _by_sector and allow_mock:
             allocation_effect = _alloc
             selection_effect = _sel
             interaction_effect = _inter
             total_active_return = _active
             brinson_by_sector = _by_sector
-            brinson_status = "ledger_backed"
-        elif _by_sector and allow_mock:
             brinson_status = "experimental_modeled"
-
-    cash_flow_status = "missing"
-    if account_id:
-        coverage = load_ledger_coverage(account_id)
-        ordered = sorted(history, key=lambda item: (item.date, item.timestamp))
-        if ordered and coverage:
-            period_start = date.fromisoformat(ordered[0].date)
-            period_end = date.fromisoformat(ordered[-1].date)
-            if ledger_covers_period(coverage, period_start, period_end):
-                cash_flow_status = "sufficient"
-            elif coverage.execution_only:
-                cash_flow_status = "partial_execution_only"
 
     if ledger_brinson_ready and period_start and period_end and account_id:
         from app.services.analytics.calculation_run import create_calculation_run
@@ -409,6 +517,12 @@ def calculate_performance_attribution(
             "cash_flow_adjustment": cash_flow_status,
             "brinson_attribution": brinson_status,
             "tax_lot_realized": tax_lot_status,
+            "attribution_linking": attribution_linking_status,
+            **(
+                {"attribution_linking_gap": str(attribution_linking_gap)}
+                if attribution_linking_gap is not None
+                else {}
+            ),
         },
         methodology=(
             "Current Unrealized P&L Decomposition. "

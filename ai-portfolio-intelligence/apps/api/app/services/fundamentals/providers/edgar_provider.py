@@ -51,7 +51,6 @@ COMPANY_TYPE_CONCEPTS: dict[str, list[str]] = {
 
 _TTL_TICKER_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
 _TTL_FACTS_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
-_LAST_REQUEST_AT: float | None = None
 
 
 def _sec_headers() -> dict[str, str]:
@@ -61,23 +60,16 @@ def _sec_headers() -> dict[str, str]:
     return {"User-Agent": user_agent, "Accept": "application/json"}
 
 
+def _throttle() -> None:
+    from app.core.sec_rate_limit import throttle_sec_edgar_request
+
+    throttle_sec_edgar_request()
+
+
 def _cache_expiry() -> datetime:
     from app.core.config import settings
 
     return datetime.now(timezone.utc) + timedelta(hours=settings.sec_edgar_cache_hours)
-
-
-def _throttle() -> None:
-    global _LAST_REQUEST_AT
-    from app.core.config import settings
-
-    min_interval = 1.0 / max(settings.sec_edgar_requests_per_second, 0.1)
-    now = time.monotonic()
-    if _LAST_REQUEST_AT is not None:
-        elapsed = now - _LAST_REQUEST_AT
-        if elapsed < min_interval:
-            time.sleep(min_interval - elapsed)
-    _LAST_REQUEST_AT = time.monotonic()
 
 
 def _request_json(url: str, *, attempts: int = 4) -> dict[str, Any] | None:
@@ -216,12 +208,14 @@ def _duration_kind(row: dict[str, Any]) -> str:
 def _same_unit(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not rows:
         return rows
-    preferred = "USD"
-    usd_rows = [row for row in rows if str(row.get("unit", "")).upper() == preferred]
-    if usd_rows:
-        return usd_rows
-    unit = rows[0].get("unit")
-    return [row for row in rows if row.get("unit") == unit]
+    from collections import Counter
+
+    unit_counts = Counter(str(row.get("unit", "")).strip() for row in rows if row.get("unit"))
+    if not unit_counts:
+        return rows
+    dominant_unit = unit_counts.most_common(1)[0][0]
+    matched = [row for row in rows if str(row.get("unit", "")).strip() == dominant_unit]
+    return matched or rows
 
 
 def arithmetic_reconciliation_within_tolerance(
@@ -298,12 +292,44 @@ def _standalone_quarters_for_fy(rows: list[dict[str, Any]], fy: int) -> dict[str
     return quarters
 
 
+def _derived_quarter_row(
+    *,
+    template: dict[str, Any],
+    value: float,
+    fy: int,
+    fp: str,
+    end_row: dict[str, Any] | None,
+    start_row: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "concept": template.get("concept"),
+        "unit": template.get("unit"),
+        "value": value,
+        "start": start_row.get("start") if start_row else end_row.get("start") if end_row else None,
+        "end": end_row.get("end") if end_row else None,
+        "filed": end_row.get("filed") if end_row else None,
+        "accn": end_row.get("accn") if end_row else None,
+        "fy": fy,
+        "fp": fp,
+        "derivation": "derived_quarter",
+        "derivation_inputs": {
+            "start_row_end": start_row.get("end") if start_row else None,
+            "end_row_end": end_row.get("end") if end_row else None,
+        },
+    }
+
+
 def derive_standalone_quarters(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     standalone: list[dict[str, Any]] = []
     fiscal_years = sorted({int(row["fy"]) for row in rows if row.get("fy") is not None}, reverse=True)
     for fy in fiscal_years:
         quarters = _standalone_quarters_for_fy(rows, fy)
         if quarters is None:
+            fy_rows = [row for row in rows if row.get("fy") == fy]
+            for row in fy_rows:
+                fp = str(row.get("fp", "")).upper()
+                if fp in {"Q1", "Q2", "Q3", "Q4"} and _duration_kind(row) == "quarterly":
+                    standalone.append({**row})
             continue
         for fp, value in quarters.items():
             source = next(
@@ -316,20 +342,30 @@ def derive_standalone_quarters(rows: list[dict[str, Any]]) -> list[dict[str, Any
             )
             if source is not None:
                 standalone.append({**source, "value": value})
+                continue
+            fy_rows = [row for row in rows if row.get("fy") == fy]
+            q1_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "Q1"), None)
+            h1_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "Q2" and _duration_kind(row) == "ytd_h1"), None)
+            nine_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "Q3" and _duration_kind(row) == "ytd_9m"), None)
+            fy_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "FY"), None)
+            if fp == "Q2" and h1_row is not None:
+                standalone.append(_derived_quarter_row(template=rows[0], value=value, fy=fy, fp=fp, end_row=h1_row, start_row=q1_row))
+            elif fp == "Q3" and nine_row is not None:
+                standalone.append(_derived_quarter_row(template=rows[0], value=value, fy=fy, fp=fp, end_row=nine_row, start_row=h1_row))
+            elif fp == "Q4" and fy_row is not None:
+                standalone.append(_derived_quarter_row(template=rows[0], value=value, fy=fy, fp=fp, end_row=fy_row, start_row=nine_row))
             else:
                 standalone.append(
                     {
                         "concept": rows[0].get("concept"),
                         "unit": rows[0].get("unit"),
                         "value": value,
-                        "start": None,
-                        "end": None,
-                        "filed": None,
                         "fy": fy,
                         "fp": fp,
                         "derivation": "derived_quarter",
                     }
                 )
+    standalone.sort(key=lambda row: _parse_iso_date(row.get("end")) or date.min)
     return standalone
 
 
@@ -360,9 +396,6 @@ def consecutive_four_quarter_sequences(rows: list[dict[str, Any]]) -> list[list[
         if None in ends or len(ends) != 4:
             continue
         if any(not _quarters_adjacent(window[i], window[i + 1]) for i in range(3)):
-            continue
-        fps = {str(row.get("fp", "")).upper() for row in window}
-        if len(fps) != 4:
             continue
         sequences.append(window)
     return sequences
@@ -565,7 +598,7 @@ def fetch_edgar_fundamental_snapshot(
     ttm_start_date: date | None = None
     if revenue_sources:
         ttm_start_date = _parse_iso_date(revenue_sources[0].get("start"))
-    begin_equity, _ = (
+    begin_equity, begin_equity_row = (
         _instant_at_or_before(payload, "CommonStockholdersEquity", ttm_start_date, filed_as_of=as_of)
         if ttm_start_date is not None
         else (None, None)
@@ -607,9 +640,17 @@ def fetch_edgar_fundamental_snapshot(
         field_lineage["cash"] = row_to_field_lineage("cash", cash_row, value=cash)
     if debt is not None and debt_lineage:
         field_lineage["total_debt"] = debt_lineage
-    if equity is not None and equity_row:
+    if average_equity is not None and (begin_equity_row or equity_row):
+        equity_sources = [row for row in (begin_equity_row, equity_row) if row]
+        field_lineage["average_common_equity"] = lineage_from_rows(
+            "average_common_equity",
+            equity_sources,
+            value=average_equity,
+            derivation="average_of_begin_and_end_instant_equity",
+        )
+    elif equity is not None and equity_row:
         field_lineage["average_common_equity"] = row_to_field_lineage(
-            "average_common_equity", equity_row, value=equity, derivation="instant_end"
+            "average_common_equity", equity_row, value=equity, derivation="instant_end_only"
         )
     if roe is not None and net_income_sources:
         field_lineage["return_on_equity"] = _build_field_lineage(

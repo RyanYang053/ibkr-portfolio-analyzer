@@ -65,6 +65,7 @@ def _strategy_payload(
     position: Position,
     cash_available: float,
     account_type: str,
+    account_currency: str,
     metrics: dict[str, Any],
     rationale: str,
 ) -> dict[str, Any]:
@@ -78,7 +79,7 @@ def _strategy_payload(
         account_type,
         contract_multiplier=multiplier,
         contract_currency=contract.currency or position.currency,
-        account_currency=position.currency,
+        account_currency=account_currency,
     )
     right_label = "Call" if contract.right.upper() == "C" else "Put"
     return {
@@ -109,6 +110,7 @@ def build_validated_strategy_candidates(
     *,
     cash_available: float,
     account_type: str,
+    account_currency: str,
     is_demo: bool = False,
     liquidity_policy: OptionLiquidityPolicy | None = None,
 ) -> list[dict[str, Any]]:
@@ -129,6 +131,7 @@ def build_validated_strategy_candidates(
                 position=position,
                 cash_available=cash_available,
                 account_type=account_type,
+                account_currency=account_currency,
                 metrics=metrics,
                 rationale="Validated covered-call candidate from production liquidity gates.",
             )
@@ -145,6 +148,7 @@ def build_validated_strategy_candidates(
                 position=position,
                 cash_available=cash_available,
                 account_type=account_type,
+                account_currency=account_currency,
                 metrics=metrics,
                 rationale="Validated cash-secured put candidate from production liquidity gates.",
             )
@@ -158,6 +162,7 @@ def build_deterministic_options_report(
     *,
     cash_available: float,
     account_type: str,
+    account_currency: str,
     chain_source: str,
     is_demo: bool = False,
     liquidity_policy: OptionLiquidityPolicy | None = None,
@@ -175,6 +180,7 @@ def build_deterministic_options_report(
         chain,
         cash_available=cash_available,
         account_type=account_type,
+        account_currency=account_currency,
         is_demo=is_demo,
         liquidity_policy=policy,
     )

@@ -76,6 +76,7 @@ def test_deterministic_report_withholds_without_liquid_contracts():
         chain,
         cash_available=50000,
         account_type="Margin",
+        account_currency="USD",
         chain_source="IBKR",
         is_demo=False,
     )

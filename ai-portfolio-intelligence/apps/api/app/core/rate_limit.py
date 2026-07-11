@@ -198,8 +198,17 @@ def _json_clear_failures(keys: list[str]) -> None:
         _delete_persistent_state(key)
 
 
+def _postgres_rate_limit_required() -> bool:
+    return settings.persistence_backend == "postgres" and settings.environment != "development"
+
+
 def check_login_allowed(request: Request, email: str) -> None:
     keys = _rate_limit_keys(request, email)
+    if _postgres_rate_limit_required():
+        if not _table_available():
+            raise HTTPException(status_code=503, detail="Login rate limiting unavailable")
+        _postgres_check_allowed(keys)
+        return
     if _table_available():
         _postgres_check_allowed(keys)
         return
@@ -208,6 +217,11 @@ def check_login_allowed(request: Request, email: str) -> None:
 
 def record_login_failure(request: Request, email: str) -> None:
     keys = _rate_limit_keys(request, email)
+    if _postgres_rate_limit_required():
+        if not _table_available():
+            raise HTTPException(status_code=503, detail="Login rate limiting unavailable")
+        _postgres_record_failure(keys)
+        return
     if _table_available():
         _postgres_record_failure(keys)
         return
@@ -216,7 +230,14 @@ def record_login_failure(request: Request, email: str) -> None:
 
 def clear_login_failures(request: Request, email: str) -> None:
     keys = _rate_limit_keys(request, email)
-    if _table_available():
-        _postgres_clear_failures(keys)
+    # Preserve global IP abuse counters after a successful login.
+    keys_to_clear = [key for key in keys if key.startswith("account:") or key.startswith("ip_email:")]
+    if _postgres_rate_limit_required():
+        if not _table_available():
+            raise HTTPException(status_code=503, detail="Login rate limiting unavailable")
+        _postgres_clear_failures(keys_to_clear)
         return
-    _json_clear_failures(keys)
+    if _table_available():
+        _postgres_clear_failures(keys_to_clear)
+        return
+    _json_clear_failures(keys_to_clear)

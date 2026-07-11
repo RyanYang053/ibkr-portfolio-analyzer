@@ -600,7 +600,14 @@ def _min_confidence(value: str, cap: str) -> str:
     return order[min(order.index(value), order.index(cap))]
 
 
-def generate_options_strategy_report(position: Position, technicals: dict[str, Any] | None, client: GeminiClient | None = None, cash_available: float = 15000.0, account_type: str = "Margin") -> dict[str, Any]:
+def generate_options_strategy_report(
+    position: Position,
+    technicals: dict[str, Any] | None,
+    client: GeminiClient | None = None,
+    cash_available: float = 15000.0,
+    account_type: str = "Margin",
+    account_currency: str | None = None,
+) -> dict[str, Any]:
     from app.services.options.engine import (
         calculate_bear_put_spread_metrics,
         calculate_bull_call_spread_metrics,
@@ -613,6 +620,7 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
 
     gemini = client or GeminiClient()
     rec = build_recommendation(position)
+    reporting_currency = (account_currency or settings.default_reporting_currency).upper()
     
     # 1. Determine data source and fetch chain
     is_demo = settings.broker_mode == "mock_ibkr_readonly"
@@ -684,6 +692,7 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
             chain,
             cash_available=cash_available,
             account_type=account_type,
+            account_currency=reporting_currency,
             chain_source=chain_source,
             is_demo=is_demo,
             liquidity_policy=(
@@ -739,12 +748,13 @@ def generate_options_strategy_report(position: Position, technicals: dict[str, A
         build_validated_strategy_candidates,
     )
 
-    portfolio_base_currency = position.currency
+    portfolio_base_currency = reporting_currency
     candidates = build_validated_strategy_candidates(
         position,
         chain,
         cash_available=cash_available,
         account_type=account_type,
+        account_currency=portfolio_base_currency,
         is_demo=is_demo,
         liquidity_policy=(
             _relaxed_policy_for_demo()

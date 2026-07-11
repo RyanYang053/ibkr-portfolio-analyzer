@@ -409,10 +409,35 @@ def prepare_professional_response(
     summary: AccountSummary,
     positions: list[Position],
     validation: dict[str, Any],
+    *,
+    methodology_id: str | None = None,
 ) -> dict[str, Any]:
+    from app.core.config import settings
+    from app.services.governance.runtime_gate import enforce_or_mark_experimental
     from app.services.guardrails.engine import append_compliance_disclaimer
 
     payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
     payload["snapshot_validation"] = validation
     payload["valuation_disclosure"] = build_valuation_disclosure(summary, positions, validation)
+
+    resolved_methodology = methodology_id or payload.get("methodology_id")
+    if isinstance(resolved_methodology, str) and resolved_methodology:
+        payload = enforce_or_mark_experimental(
+            resolved_methodology,
+            payload,
+            production=settings.environment != "development",
+        )
+        if payload.get("status") == "withheld_unapproved_methodology":
+            for key in ("proposed_trades", "strategies", "trade_proposals", "rebalance_actions"):
+                if key in payload:
+                    payload[key] = []
+            payload["implementation_ready"] = False
+
+    methodology_status = str(payload.get("methodology_status") or "")
+    jurisdiction = str(payload.get("jurisdiction") or payload.get("tax_labeling_jurisdiction") or "")
+    if jurisdiction == "CA" and methodology_status.startswith("provisional"):
+        payload["tax_output_provisional"] = True
+        payload["professional_language_allowed"] = False
+        payload["filing_ready"] = False
+
     return append_compliance_disclaimer(payload)

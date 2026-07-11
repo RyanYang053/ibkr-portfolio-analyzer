@@ -408,5 +408,12 @@ def options_strategy(
         technicals_data,
         cash_available=cash_available,
         account_type=account_type,
+        account_currency=summary_data.base_currency,
     )
-    return gate_professional_response(adapter, principal, active_id, result)
+    return gate_professional_response(
+        adapter,
+        principal,
+        active_id,
+        result,
+        methodology_id="options_strategy_engine",
+    )

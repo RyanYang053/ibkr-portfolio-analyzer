@@ -8,10 +8,8 @@ from typing import Callable
 from app.schemas.domain import Position
 from app.services.portfolio.instrument_identity import instrument_key_from_position, instrument_key_from_row
 from app.services.portfolio.period_mark_engine import (
-    IncompletePeriodEffect,
     _matched_signed_quantity,
     compute_period_mark_effects,
-    trade_timing_effect,
 )
 from app.services.portfolio.tax_lots import build_tax_lot_attribution
 from app.services.portfolio.transaction_store import get_transactions
@@ -120,7 +118,6 @@ def compute_period_effects(
 
         if opening is None or closing is None:
             exclusions.append(f"position_universe_change:{instrument_key}")
-            complete = False
             mark_result = compute_period_mark_effects(
                 instrument_key,
                 opening,
@@ -180,27 +177,26 @@ def compute_period_effects(
                 or txn.symbol.upper() == str(opening.get("symbol", closing.get("symbol", ""))).upper()
             )
         ]
-        for txn in sorted(
+        from app.services.portfolio.signed_inventory_engine import compute_signed_inventory_trade_timing
+
+        timing, _, timing_exclusions, timing_complete = compute_signed_inventory_trade_timing(
+            opening_qty,
             instrument_txns,
-            key=lambda item: (item.event_timestamp, item.source_row_id or "", item.transaction_id or ""),
-        ):
-            trade_fx = _resolve_fx(currency, base_currency, txn.trade_date, fx_resolver)
-            if trade_fx is None:
-                exclusions.append(f"fx_unavailable:{instrument_key}")
-                complete = False
-                continue
-            try:
-                timing_total += trade_timing_effect(
-                    txn,
-                    opening_price=open_price,
-                    closing_price=close_price,
-                    trade_fx=trade_fx,
-                    closing_fx=close_fx,
-                    multiplier=multiplier,
-                )
-            except IncompletePeriodEffect as exc:
-                exclusions.append(f"trade_timing_incomplete:{instrument_key}:{exc}")
-                complete = False
+            open_price=open_price,
+            close_price=close_price,
+            open_fx=open_fx,
+            close_fx=close_fx,
+            multiplier=multiplier,
+            period_start=period_start,
+            period_end=period_end,
+            currency=currency,
+            base_currency=base_currency,
+            fx_resolver=fx_resolver,
+        )
+        timing_total += timing
+        exclusions.extend(timing_exclusions)
+        if not timing_complete:
+            complete = False
 
     tax_lot_report = build_tax_lot_attribution(
         account_id,
@@ -241,7 +237,7 @@ def compute_period_effects(
         price_effect=price_total if price_available and opening_by_key else None,
         fx_effect=fx_total if fx_available and opening_by_key else None,
         price_fx_cross_effect=cross_total if price_available and fx_available and opening_by_key else None,
-        trade_timing_effect=timing_total if complete else timing_total,
+        trade_timing_effect=timing_total if complete else None,
         income_effect=income_total,
         fee_effect=fee_total,
         withholding_tax_effect=withholding_total,

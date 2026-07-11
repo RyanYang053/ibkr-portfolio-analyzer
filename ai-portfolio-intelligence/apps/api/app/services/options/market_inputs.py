@@ -17,6 +17,14 @@ class OptionMarketInputs:
 
 
 @dataclass(frozen=True)
+class OptionMarketInputsResolution:
+    inputs: OptionMarketInputs | None
+    status: str
+    exclusions: list[str]
+    methodology: str
+
+
+@dataclass(frozen=True)
 class OptionScenarioReprice:
     loss: float | None
     status: str
@@ -31,7 +39,14 @@ def option_market_inputs(
     expiration: date,
     currency: str,
     underlying_symbol: str | None = None,
-) -> OptionMarketInputs:
+    allow_demo_defaults: bool | None = None,
+) -> OptionMarketInputsResolution:
+    allow_defaults = (
+        allow_demo_defaults
+        if allow_demo_defaults is not None
+        else settings.broker_mode == "mock_ibkr_readonly"
+    )
+    exclusions: list[str] = []
     spot = 0.0
     if underlying_symbol:
         try:
@@ -45,7 +60,15 @@ def option_market_inputs(
         except Exception:
             spot = 0.0
 
-    implied_volatility = 0.30
+    if spot <= 0:
+        return OptionMarketInputsResolution(
+            None,
+            "withheld",
+            ["underlying_spot_unavailable"],
+            "Option stress inputs withheld without underlying spot",
+        )
+
+    implied_volatility: float | None = None
     if underlying_symbol:
         try:
             from app.db.iv_observation_repo import read_iv_history
@@ -54,16 +77,44 @@ def option_market_inputs(
             if history:
                 implied_volatility = float(history[-1])
         except Exception:
-            pass
+            implied_volatility = None
 
-    risk_free_curve = float(getattr(settings, "risk_free_rate_annual", 0.045) or 0.045)
+    if implied_volatility is None:
+        if allow_defaults:
+            implied_volatility = 0.30
+            exclusions.append("implied_volatility_defaulted_demo")
+        else:
+            return OptionMarketInputsResolution(
+                None,
+                "withheld",
+                ["implied_volatility_unavailable"],
+                "Option stress inputs withheld without implied volatility observations",
+            )
+
+    configured_rate = getattr(settings, "risk_free_rate_annual", None)
+    if configured_rate is None and not allow_defaults:
+        return OptionMarketInputsResolution(
+            None,
+            "withheld",
+            ["risk_free_curve_unavailable"],
+            "Option stress inputs withheld without configured risk-free curve",
+        )
+    risk_free_curve = float(configured_rate if configured_rate is not None else 0.045)
+    if configured_rate is None:
+        exclusions.append("risk_free_curve_defaulted_demo")
+
     dividend_curve = 0.0
     _ = underlying_con_id, expiration, currency
-    return OptionMarketInputs(
-        spot=spot,
-        implied_volatility=implied_volatility,
-        risk_free_curve=risk_free_curve,
-        dividend_curve=dividend_curve,
+    return OptionMarketInputsResolution(
+        OptionMarketInputs(
+            spot=spot,
+            implied_volatility=implied_volatility,
+            risk_free_curve=risk_free_curve,
+            dividend_curve=dividend_curve,
+        ),
+        "available",
+        exclusions,
+        "Observed spot with stored IV and configured risk-free curve",
     )
 
 
@@ -86,6 +137,13 @@ def reprice_option_scenario(
             "withheld",
             ["underlying_spot_unavailable"],
             "European Black-Scholes repricing; underlying spot withheld",
+        )
+    if implied_volatility <= 0:
+        return OptionScenarioReprice(
+            None,
+            "withheld",
+            ["implied_volatility_unavailable"],
+            "European Black-Scholes repricing; implied volatility withheld",
         )
 
     days = max((contract.expiration - date.today()).days - days_forward, 1)

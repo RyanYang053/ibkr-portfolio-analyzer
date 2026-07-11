@@ -58,7 +58,13 @@ def read_pnl_snapshots(account_id: str) -> list[dict[str, Any]]:
     return history
 
 
-def upsert_pnl_snapshot(account_id: str, snapshot_date: date, snapshot: dict[str, Any]) -> None:
+def upsert_pnl_snapshot(
+    account_id: str,
+    snapshot_date: date,
+    snapshot: dict[str, Any],
+    *,
+    session=None,
+) -> None:
     if settings.persistence_backend == "postgres":
         require_postgres_persistence("pnl snapshot write", table_available=_table_available())
     elif not _table_available():
@@ -68,7 +74,12 @@ def upsert_pnl_snapshot(account_id: str, snapshot_date: date, snapshot: dict[str
 
     now = _utc_now()
     payload_text = json.dumps(snapshot)
-    with SessionLocal() as session:
+    owns_session = session is None
+    if owns_session:
+        from app.db.session import SessionLocal
+
+        session = SessionLocal()
+    try:
         session.execute(
             text(
                 """
@@ -94,4 +105,8 @@ def upsert_pnl_snapshot(account_id: str, snapshot_date: date, snapshot: dict[str
                 "created_at": now,
             },
         )
-        session.commit()
+        if owns_session:
+            session.commit()
+    finally:
+        if owns_session:
+            session.close()

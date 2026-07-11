@@ -22,13 +22,30 @@ def _static_benchmark_sector_weights() -> dict[str, float]:
     }
 
 
-def benchmark_sector_weights_as_of(as_of: date, *, allow_mock: bool = False) -> dict[str, float] | None:
-    """Return documented static benchmark sector weights for demo/testing only.
+def benchmark_sector_weights_as_of(
+    as_of: date,
+    *,
+    allow_mock: bool = False,
+    benchmark_id: str = "SPY",
+) -> dict[str, float] | None:
+    """Return licensed benchmark sector weights when persisted; demo static weights only in mock mode."""
+    _ = SECTOR_BENCHMARK_ETF
+    from app.db.benchmark_repo import list_benchmark_constituent_weights, sector_weights_from_constituents
 
-    ETF share prices are not valid market-cap proxies. Production attribution must use
-    licensed constituent weights or withhold Brinson numerics.
-    """
-    _ = (as_of, SECTOR_BENCHMARK_ETF)
-    if not allow_mock:
-        return None
-    return _static_benchmark_sector_weights()
+    constituents = list_benchmark_constituent_weights(benchmark_id, as_of)
+    if constituents:
+        weights = sector_weights_from_constituents(constituents)
+        return weights or None
+    if allow_mock:
+        return _static_benchmark_sector_weights()
+    return None
+
+
+def benchmark_weights_source(as_of: date, *, allow_mock: bool = False, benchmark_id: str = "SPY") -> str:
+    from app.db.benchmark_repo import list_benchmark_constituent_weights
+
+    if list_benchmark_constituent_weights(benchmark_id, as_of):
+        return "licensed_constituent_weights"
+    if allow_mock:
+        return "demo_static_weights"
+    return "unavailable"

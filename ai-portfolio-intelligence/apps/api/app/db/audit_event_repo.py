@@ -140,6 +140,8 @@ def insert_audit_event(
     from app.db.session import SessionLocal
 
     with SessionLocal() as session:
+        if settings.persistence_backend == "postgres":
+            session.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": 0x504F5254464F4C49})
         previous_event_hash = _latest_event_hash(session)
         canonical_json = _canonical_event_json(
             occurred_at=occurred_at,

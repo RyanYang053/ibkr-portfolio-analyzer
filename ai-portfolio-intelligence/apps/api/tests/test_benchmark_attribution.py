@@ -118,5 +118,22 @@ def test_geometric_linking_reconciles_active_return():
     assert ok or abs(gap) <= 0.01
 
 
+def test_daily_attribution_series_builds_linked_contributions():
+    from app.services.attribution.daily_series import build_daily_attribution_contributions
+    from app.services.attribution.linking import active_return_reconciles
+
+    contributions = build_daily_attribution_contributions(
+        positions=[],
+        period_start=date(2025, 1, 2),
+        period_end=date(2025, 1, 10),
+        portfolio_sector_weights={"Technology": 1.0},
+        allow_mock=True,
+        history=[],
+    )
+    assert contributions
+    ok, gap = active_return_reconciles(contributions, tolerance=0.25)
+    assert ok or abs(gap) <= 0.25
+
+
 def test_benchmark_weights_withheld_outside_mock():
     assert benchmark_sector_weights_as_of(date.today(), allow_mock=False) is None

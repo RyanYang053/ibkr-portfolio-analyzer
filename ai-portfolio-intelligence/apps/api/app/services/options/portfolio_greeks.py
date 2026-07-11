@@ -2,22 +2,26 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.core.config import settings
 from app.db.option_contract_repo import OptionContractNotFoundError, require_contract
 from app.schemas.domain import Position
 
 
 @dataclass(frozen=True)
 class PortfolioGreeksSummary:
-    delta: float
-    gamma: float
-    vega: float
-    theta: float
+    dollar_delta: float
+    dollar_gamma_1pct: float
+    dollar_vega: float
+    dollar_theta: float
     expiry_concentration: dict[str, float]
     assignment_exposure: float
     uncovered_notional: float
     margin_stress: float
+    quote_observation_time: datetime | None = None
+    quote_coverage_percent: float | None = None
 
 
 def _fx_to_base(position: Position, base_currency: str) -> float:
@@ -28,16 +32,28 @@ def _fx_to_base(position: Position, base_currency: str) -> float:
     return float(get_exchange_rate(position.currency, base_currency))
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _quote_is_fresh(observation_time: datetime | None, *, now: datetime, max_age: timedelta) -> bool:
+    if observation_time is None:
+        return False
+    return now - _as_utc(observation_time) <= max_age
+
+
 def compute_portfolio_greeks(
     positions: list[Position],
     *,
     base_currency: str = "USD",
 ) -> tuple[PortfolioGreeksSummary | None, list[str]]:
     exclusions: list[str] = []
-    delta = 0.0
-    gamma = 0.0
-    vega = 0.0
-    theta = 0.0
+    dollar_delta = 0.0
+    dollar_gamma_1pct = 0.0
+    dollar_vega = 0.0
+    dollar_theta = 0.0
     expiry_notional: dict[str, float] = defaultdict(float)
     assignment_exposure = 0.0
     uncovered_notional = 0.0
@@ -46,6 +62,16 @@ def compute_portfolio_greeks(
     if not option_positions:
         return None, exclusions
 
+    now = datetime.now(timezone.utc)
+    max_age = timedelta(minutes=max(settings.options_greek_max_quote_age_minutes, 1))
+    fresh_contracts = 0
+    oldest_quote: datetime | None = None
+
+    stock_by_con_id = {
+        position.con_id: position
+        for position in positions
+        if position.asset_class not in {"OPT", "FOP"} and position.con_id is not None
+    }
     stock_by_symbol = {
         position.symbol.upper(): position
         for position in positions
@@ -59,20 +85,35 @@ def compute_portfolio_greeks(
             exclusions.append(f"{position.symbol}:contract_master_missing")
             continue
 
+        observation_time = contract.quote_timestamp or position.updated_at
+        if not _quote_is_fresh(observation_time, now=now, max_age=max_age):
+            exclusions.append(f"{position.symbol}:stale_or_missing_greek_quote")
+            continue
+
+        observation_time = _as_utc(observation_time) if observation_time is not None else None
+        if observation_time is not None and (oldest_quote is None or observation_time < oldest_quote):
+            oldest_quote = observation_time
+        fresh_contracts += 1
+
         fx_rate = _fx_to_base(position, base_currency)
         qty = float(position.quantity)
         multiplier = float(position.multiplier or contract.multiplier or 100.0)
-        underlying = stock_by_symbol.get(contract.symbol.upper())
+        underlying = None
+        if contract.underlying_con_id is not None:
+            underlying = stock_by_con_id.get(contract.underlying_con_id)
+        if underlying is None:
+            underlying_symbol = (getattr(contract, "underlying_symbol", None) or contract.symbol).upper()
+            underlying = stock_by_symbol.get(underlying_symbol)
         underlying_spot = underlying.market_price if underlying else 0.0
 
         if contract.delta is not None:
-            delta += qty * multiplier * contract.delta * underlying_spot * fx_rate
+            dollar_delta += qty * multiplier * contract.delta * underlying_spot * fx_rate
         if contract.gamma is not None and underlying_spot > 0:
-            gamma += qty * multiplier * contract.gamma * underlying_spot * fx_rate
+            dollar_gamma_1pct += qty * multiplier * contract.gamma * (underlying_spot**2) * 0.01 * fx_rate
         if contract.vega is not None:
-            vega += qty * multiplier * contract.vega * fx_rate
+            dollar_vega += qty * multiplier * contract.vega * fx_rate
         if contract.theta is not None:
-            theta += qty * multiplier * contract.theta * fx_rate
+            dollar_theta += qty * multiplier * contract.theta * fx_rate
 
         notional = abs(qty * multiplier * contract.strike * fx_rate)
         expiry_notional[contract.expiration.isoformat()] += notional
@@ -80,28 +121,36 @@ def compute_portfolio_greeks(
         if qty < 0:
             assignment_exposure += notional
             uncovered = notional
-            if contract.right.upper() == "C" and underlying is not None:
-                covered = max(0.0, float(underlying.quantity)) * underlying_spot * fx_rate
-                uncovered = max(0.0, notional - covered)
+            if contract.right.upper() == "C" and underlying is not None and underlying_spot > 0:
+                shares_needed = abs(qty) * multiplier
+                covered_shares = max(0.0, float(underlying.quantity))
+                uncovered_shares = max(0.0, shares_needed - covered_shares)
+                uncovered = uncovered_shares * underlying_spot * fx_rate
             uncovered_notional += uncovered
             margin_stress += uncovered * 0.20
+
+    if fresh_contracts == 0:
+        return None, exclusions
 
     total_expiry = sum(expiry_notional.values()) or 1.0
     expiry_concentration = {
         expiry: round(value / total_expiry * 100.0, 2)
         for expiry, value in sorted(expiry_notional.items())
     }
+    quote_coverage = round(fresh_contracts / len(option_positions) * 100.0, 2)
 
     return (
         PortfolioGreeksSummary(
-            delta=round(delta, 2),
-            gamma=round(gamma, 4),
-            vega=round(vega, 2),
-            theta=round(theta, 2),
+            dollar_delta=round(dollar_delta, 2),
+            dollar_gamma_1pct=round(dollar_gamma_1pct, 4),
+            dollar_vega=round(dollar_vega, 2),
+            dollar_theta=round(dollar_theta, 2),
             expiry_concentration=expiry_concentration,
             assignment_exposure=round(assignment_exposure, 2),
             uncovered_notional=round(uncovered_notional, 2),
             margin_stress=round(margin_stress, 2),
+            quote_observation_time=oldest_quote,
+            quote_coverage_percent=quote_coverage,
         ),
         exclusions,
     )
@@ -111,12 +160,24 @@ def portfolio_greeks_as_dict(summary: PortfolioGreeksSummary | None) -> dict[str
     if summary is None:
         return {}
     return {
-        "portfolio_delta": summary.delta,
-        "portfolio_gamma": summary.gamma,
-        "portfolio_vega": summary.vega,
-        "portfolio_theta": summary.theta,
+        "portfolio_dollar_delta": summary.dollar_delta,
+        "portfolio_dollar_gamma_1pct": summary.dollar_gamma_1pct,
+        "portfolio_dollar_vega": summary.dollar_vega,
+        "portfolio_dollar_theta": summary.dollar_theta,
         "expiry_concentration": summary.expiry_concentration,
         "assignment_exposure": summary.assignment_exposure,
         "uncovered_notional": summary.uncovered_notional,
         "margin_stress": summary.margin_stress,
+        "quote_observation_time": summary.quote_observation_time.isoformat() if summary.quote_observation_time else None,
+        "quote_coverage_percent": summary.quote_coverage_percent,
+        "greek_units": {
+            "delta": "account_currency_dollar_delta",
+            "gamma": "account_currency_dollar_gamma_for_1pct_spot_move",
+            "vega": "account_currency_dollar_vega",
+            "theta": "account_currency_dollar_theta",
+        },
+        "methodology": (
+            "Contract-master Greeks scaled by quantity, multiplier, and FX to account currency. "
+            "Contracts with missing or stale quote/Greek timestamps are excluded."
+        ),
     }

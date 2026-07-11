@@ -319,6 +319,7 @@ def performance(
         account_summary,
         account_positions,
         validation,
+        methodology_id="return_engine",
     )
 
 
@@ -344,7 +345,7 @@ def pnl_decomposition(
         account_summary.base_currency,
         make_transaction_fx_resolver(),
     )
-    return prepare_professional_response(result.model_dump(), account_summary, account_positions, validation)
+    return prepare_professional_response(result.model_dump(), account_summary, account_positions, validation, methodology_id="portfolio_pnl_reconciliation")
 
 
 @router.get("/reconciliation")
@@ -386,7 +387,7 @@ def reconciliation(
         "calculation_run": decomposition.calculation_run,
         "methodology": decomposition.methodology,
     }
-    return prepare_professional_response(payload, account_summary, account_positions, validation)
+    return prepare_professional_response(payload, account_summary, account_positions, validation, methodology_id="portfolio_pnl_reconciliation")
 
 
 @router.get("/research-context")
@@ -454,7 +455,7 @@ def research_context(
         sources=[SourceRecord(source_id="broker_snapshot", source_type="broker", label="IBKR read-only snapshot")],
         calculation_run_ids=run_ids,
     )
-    return prepare_professional_response(context.model_dump(), account_summary, account_positions, validation)
+    return prepare_professional_response(context.model_dump(), account_summary, account_positions, validation, methodology_id="performance_attribution")
 
 
 @router.get("/score-calibration")
@@ -629,7 +630,7 @@ def get_portfolio_attribution(
         fx_resolver=make_transaction_fx_resolver(),
         account_id=active_id,
     )
-    return prepare_professional_response(result, account_summary, account_positions, validation)
+    return prepare_professional_response(result, account_summary, account_positions, validation, methodology_id="performance_attribution")
 
 
 @router.get("/methodologies")
@@ -716,7 +717,7 @@ def tax_lot_attribution(
         tax_labeling_jurisdiction=jurisdiction,
         fx_resolver=make_transaction_fx_resolver(),
     )
-    return prepare_professional_response(result, account_summary, account_positions, validation)
+    return prepare_professional_response(result, account_summary, account_positions, validation, methodology_id="tax_lot_methodology")
 
 
 @router.get("/rebalance-proposal")
@@ -736,7 +737,7 @@ def rebalance_proposal(
     policy = get_portfolio_policy(active_id, user_id=tenant_user_id(principal))
     profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
     result = generate_rebalance_proposal(account_positions, account_summary, policy, profile)
-    return prepare_professional_response(result, account_summary, account_positions, validation)
+    return prepare_professional_response(result, account_summary, account_positions, validation, methodology_id="portfolio_optimizer")
 
 
 @router.get("/optimization-proposal")
@@ -763,7 +764,7 @@ def optimize_portfolio(
         profile,
         objective=objective,
     )
-    return prepare_professional_response(result, account_summary, account_positions, validation)
+    return prepare_professional_response(result, account_summary, account_positions, validation, methodology_id="portfolio_optimizer")
 
 
 @router.get("/fundamentals/{symbol}/point-in-time")

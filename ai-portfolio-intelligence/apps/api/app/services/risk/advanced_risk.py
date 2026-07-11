@@ -376,32 +376,64 @@ def _option_stress_loss(
         from app.services.options.market_inputs import option_market_inputs, reprice_option_scenario
 
         contract = require_contract(position.con_id)
-        market_inputs = option_market_inputs(
-            underlying_con_id=contract.underlying_con_id,
-            expiration=contract.expiration,
-            currency=contract.currency,
-            underlying_symbol=contract.symbol,
-        )
-        spot = underlying_spot if underlying_spot and underlying_spot > 0 else market_inputs.spot
-        if spot <= 0:
+        spot = underlying_spot if underlying_spot and underlying_spot > 0 else None
+        if spot is None:
             resolved, source = _resolve_underlying_spot(position, positions)
-            spot = resolved or 0.0
-            underlying_spot_source = source if resolved else underlying_spot_source
-        if spot <= 0:
+            spot = resolved
+            if resolved:
+                underlying_spot_source = source
+
+        resolved_iv = implied_volatility if implied_volatility > 0 else None
+        resolved_rf = risk_free_rate if risk_free_rate > 0 else None
+        resolved_div = dividend_yield
+
+        if spot is None or resolved_iv is None or resolved_rf is None:
+            market_inputs = option_market_inputs(
+                underlying_con_id=contract.underlying_con_id,
+                expiration=contract.expiration,
+                currency=contract.currency,
+                underlying_symbol=contract.symbol,
+            )
+            if market_inputs.status == "available" and market_inputs.inputs is not None:
+                resolved = market_inputs.inputs
+                if spot is None:
+                    spot = resolved.spot
+                if resolved_iv is None:
+                    resolved_iv = resolved.implied_volatility
+                if resolved_rf is None:
+                    resolved_rf = resolved.risk_free_curve
+                if resolved_div == 0.0:
+                    resolved_div = resolved.dividend_curve
+            elif spot is None or resolved_iv is None or resolved_rf is None:
+                return OptionStressResult(
+                    None,
+                    market_inputs.status,
+                    market_inputs.exclusions,
+                    market_inputs.methodology,
+                )
+
+        if spot is None or spot <= 0:
             return OptionStressResult(
                 None,
                 "withheld",
                 ["underlying_spot_unavailable"],
                 "European Black-Scholes repricing; underlying spot withheld",
             )
+        if resolved_iv is None or resolved_iv <= 0 or resolved_rf is None:
+            return OptionStressResult(
+                None,
+                "withheld",
+                ["option_market_inputs_unavailable"],
+                "European Black-Scholes repricing; market inputs withheld",
+            )
 
         result = reprice_option_scenario(
             contract=contract,
             current_option_mark=float(position.market_price),
             underlying_spot=spot,
-            implied_volatility=market_inputs.implied_volatility,
-            risk_free_curve=market_inputs.risk_free_curve,
-            dividend_curve=market_inputs.dividend_curve,
+            implied_volatility=resolved_iv,
+            risk_free_curve=resolved_rf,
+            dividend_curve=resolved_div,
             spot_shock_pct=spot_shock_pct,
             volatility_shock_points=volatility_shock_points,
             days_forward=days_forward,

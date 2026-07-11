@@ -38,7 +38,7 @@ class PortfolioPnLDecomposition(BaseModel):
     account_value_change: float
     price_effect_total: float | None = None
     fx_translation_total: float | None = None
-    realized_lot_effect_total: float | None = None
+    tax_realized_gain_loss: float | None = None
     trade_timing_effect_total: float | None = None
     price_fx_cross_effect_total: float | None = None
     withholding_tax_total: float = 0.0
@@ -55,8 +55,12 @@ class PortfolioPnLDecomposition(BaseModel):
     methodology: str = ""
 
     @property
+    def realized_lot_effect_total(self) -> float | None:
+        return self.tax_realized_gain_loss
+
+    @property
     def trade_quantity_total(self) -> float | None:
-        return self.realized_lot_effect_total
+        return self.tax_realized_gain_loss
 
 
 def _signed_notional(txn: Transaction) -> float:
@@ -162,7 +166,10 @@ def calculate_pnl_decomposition(
     closing_snapshot_complete = False
     transaction_ledger_complete = covers_period
     derivative_effect_complete = True
-    corporate_actions_complete = True
+    corporate_action_events = [txn for txn in interval_txns if txn.action == "corporate_action"]
+    corporate_actions_complete = len(corporate_action_events) == 0 or all(
+        txn.source_row_id or txn.transaction_id for txn in corporate_action_events
+    )
 
     closing_positions: list = []
     if covers_period:
@@ -366,7 +373,7 @@ def calculate_pnl_decomposition(
         account_value_change=round(account_value_change, 2),
         price_effect_total=price_effect_total,
         fx_translation_total=fx_translation_total,
-        realized_lot_effect_total=tax_realized_gain_total,
+        tax_realized_gain_loss=tax_realized_gain_total,
         trade_timing_effect_total=trade_timing_effect_total,
         price_fx_cross_effect_total=price_fx_cross_effect_total,
         withholding_tax_total=round(withholding_tax_total, 2),

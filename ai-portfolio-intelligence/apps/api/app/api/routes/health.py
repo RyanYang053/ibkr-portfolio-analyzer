@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -7,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from app.core.config import settings
 
 router = APIRouter(tags=["health"])
+_APP_START_MONOTONIC = time.monotonic()
 
 
 def _safe_detail(code: str) -> str:
@@ -91,7 +93,11 @@ def _scheduler_ready() -> tuple[bool, str]:
                 )
             ).first()
         if row is None:
-            return True, "no_runs_yet"
+            grace_seconds = max(settings.scheduler_readiness_grace_minutes, 0) * 60
+            elapsed = time.monotonic() - _APP_START_MONOTONIC
+            if settings.environment == "production" and elapsed >= grace_seconds:
+                return False, "no_runs_yet"
+            return True, "no_runs_yet_within_grace" if settings.environment == "production" else "no_runs_yet"
         updated_at = row[0]
         if updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=timezone.utc)

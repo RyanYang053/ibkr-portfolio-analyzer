@@ -23,6 +23,8 @@ class OptimizationConstraints:
     fixed_sector_exposure: dict[str, float]
     tax_budget: float | None = None
     transaction_cost_budget: float | None = None
+    sell_tax_rate_per_unit: np.ndarray | None = None
+    transaction_cost_rate_per_unit: np.ndarray | None = None
 
 
 def build_cvxpy_constraints(weights, constraints: OptimizationConstraints) -> list:
@@ -47,6 +49,24 @@ def build_cvxpy_constraints(weights, constraints: OptimizationConstraints) -> li
             optimized = cp.sum(weights[indices])
             fixed = constraints.fixed_sector_exposure.get(sector, 0.0)
             built.append(fixed + optimized <= constraints.sector_cap)
+    if (
+        constraints.tax_budget is not None
+        and constraints.sell_tax_rate_per_unit is not None
+    ) or (
+        constraints.transaction_cost_budget is not None
+        and constraints.transaction_cost_rate_per_unit is not None
+    ):
+        size = len(constraints.current_full_weights)
+        buy = cp.Variable(size, nonneg=True)
+        sell = cp.Variable(size, nonneg=True)
+        built.append(weights - constraints.current_full_weights == buy - sell)
+        if constraints.tax_budget is not None and constraints.sell_tax_rate_per_unit is not None:
+            built.append(constraints.sell_tax_rate_per_unit @ sell <= constraints.tax_budget)
+        if constraints.transaction_cost_budget is not None and constraints.transaction_cost_rate_per_unit is not None:
+            built.append(
+                constraints.transaction_cost_rate_per_unit @ (buy + sell)
+                <= constraints.transaction_cost_budget
+            )
     return built
 
 
@@ -298,6 +318,8 @@ def solve_cvar_weights(
     fixed_sector_exposure: dict[str, float] | None = None,
     tax_budget: float | None = None,
     transaction_cost_budget: float | None = None,
+    sell_tax_rate_per_unit: np.ndarray | None = None,
+    transaction_cost_rate_per_unit: np.ndarray | None = None,
 ) -> tuple[list[float] | None, dict[str, Any]]:
     try:
         import cvxpy as cp
@@ -326,6 +348,8 @@ def solve_cvar_weights(
         fixed_sector_exposure=fixed_sector_exposure or {},
         tax_budget=tax_budget,
         transaction_cost_budget=transaction_cost_budget,
+        sell_tax_rate_per_unit=sell_tax_rate_per_unit,
+        transaction_cost_rate_per_unit=transaction_cost_rate_per_unit,
     )
     constraints = build_cvxpy_constraints(weights, constraint_set)
     constraints.extend([tail_losses >= losses - var])
@@ -366,6 +390,8 @@ def solve_mean_variance_with_constraints(
     fixed_sector_exposure: dict[str, float] | None = None,
     tax_budget: float | None = None,
     transaction_cost_budget: float | None = None,
+    sell_tax_rate_per_unit: np.ndarray | None = None,
+    transaction_cost_rate_per_unit: np.ndarray | None = None,
 ) -> tuple[list[float] | None, dict[str, Any]]:
     try:
         import cvxpy as cp
@@ -391,6 +417,8 @@ def solve_mean_variance_with_constraints(
         fixed_sector_exposure=fixed_sector_exposure or {},
         tax_budget=tax_budget,
         transaction_cost_budget=transaction_cost_budget,
+        sell_tax_rate_per_unit=sell_tax_rate_per_unit,
+        transaction_cost_rate_per_unit=transaction_cost_rate_per_unit,
     )
     constraints = build_cvxpy_constraints(weights, constraint_set)
     problem = cp.Problem(cp.Maximize(mu @ weights - 0.5 * cp.quad_form(weights, sigma)), constraints)

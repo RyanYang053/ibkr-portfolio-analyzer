@@ -35,7 +35,15 @@ def gate_professional_response(
     principal: Principal,
     account_id: Optional[str],
     result: Any,
+    *,
+    methodology_id: str | None = None,
 ) -> dict[str, Any]:
     _, summary, positions = load_portfolio_snapshot(adapter, principal, account_id)
     validation = validate_and_gate_snapshot(summary, positions)
-    return prepare_professional_response(result, summary, positions, validation)
+    return prepare_professional_response(
+        result,
+        summary,
+        positions,
+        validation,
+        methodology_id=methodology_id,
+    )

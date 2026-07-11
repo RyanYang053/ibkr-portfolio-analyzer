@@ -187,29 +187,34 @@ def compute_period_mark_effects(
     currency = str((opening or closing or {}).get("currency") or base_currency)
 
     signed_qty = _decimal(opening.get("quantity") if opening else None)
-    for txn in instrument_txns:
-        trade_fx = _resolve_fx(currency, base_currency, txn.trade_date, fx_resolver)
-        close_fx = _resolve_fx(currency, base_currency, period_end, fx_resolver)
-        if trade_fx is None or close_fx is None:
-            result.exclusions.append(f"fx_unavailable:{instrument_key}")
-            result.complete = False
-            continue
-        try:
-            timing = trade_timing_effect(
-                txn,
-                opening_price=open_price if open_price > 0 else None,
-                closing_price=close_price if close_price > 0 else None,
-                trade_fx=trade_fx,
-                closing_fx=close_fx,
-                multiplier=multiplier,
-            )
-        except IncompletePeriodEffect as exc:
-            result.exclusions.append(f"trade_timing_incomplete:{instrument_key}:{exc}")
-            result.complete = False
-            continue
+    open_fx = _resolve_fx(currency, base_currency, period_start, fx_resolver)
+    close_fx = _resolve_fx(currency, base_currency, period_end, fx_resolver)
+
+    from app.services.portfolio.signed_inventory_engine import compute_signed_inventory_trade_timing
+
+    if instrument_txns and open_fx is not None and close_fx is not None:
+        timing, final_inventory, timing_exclusions, timing_complete = compute_signed_inventory_trade_timing(
+            signed_qty,
+            instrument_txns,
+            open_price=open_price if open_price > 0 else Decimal("0"),
+            close_price=close_price if close_price > 0 else Decimal("0"),
+            open_fx=open_fx,
+            close_fx=close_fx,
+            multiplier=multiplier,
+            period_start=period_start,
+            period_end=period_end,
+            currency=currency,
+            base_currency=base_currency,
+            fx_resolver=fx_resolver,
+        )
         result.trade_timing_effect += timing
-        qty_delta = Decimal(str(txn.quantity)) if txn.action == "buy" else -Decimal(str(abs(txn.quantity)))
-        signed_qty += qty_delta
+        result.exclusions.extend(timing_exclusions)
+        if not timing_complete:
+            result.complete = False
+        signed_qty = final_inventory
+    elif instrument_txns:
+        result.exclusions.append(f"fx_unavailable:{instrument_key}")
+        result.complete = False
 
     closing_qty = _decimal(closing.get("quantity") if closing else None)
     result.quantity_bridge = signed_qty - closing_qty
