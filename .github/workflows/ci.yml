@@ -158,7 +158,7 @@ jobs:
           fi
       - name: Start web server
         env:
-          DISABLE_AUTH_MIDDLEWARE: "true"
+          DISABLE_AUTH_MIDDLEWARE: "false"
           BACKEND_URL: http://127.0.0.1:8000
         run: |
           STANDALONE_SERVER="$(find apps/web/.next/standalone -path '*/apps/web/server.js' | head -n 1)"

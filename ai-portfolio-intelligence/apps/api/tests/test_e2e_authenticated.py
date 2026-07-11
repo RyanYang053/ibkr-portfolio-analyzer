@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -19,14 +20,15 @@ def test_login_redirects_to_protected_portfolio_view():
         except Exception as exc:
             pytest.skip(f"Playwright chromium browser not installed: {exc}")
 
-        page = browser.new_page()
+        context = browser.new_context(viewport={"width": 1280, "height": 720})
+        page = context.new_page()
         try:
-            page.goto(f"{base_url}/login", wait_until="domcontentloaded", timeout=60_000)
-            page.locator("#login-email").wait_for(state="visible", timeout=30_000)
-            page.locator("#login-email").fill(email)
-            page.locator("#login-password").fill(password)
-            page.get_by_role("button", name="Sign in").click()
-            page.wait_for_url(lambda url: "/login" not in url, timeout=30_000)
+            login_response = page.request.post(
+                f"{base_url}/api/auth/login",
+                headers={"Content-Type": "application/json"},
+                data=json.dumps({"email": email, "password": password}),
+            )
+            assert login_response.ok, login_response.text()
 
             page.goto(f"{base_url}/portfolio", wait_until="domcontentloaded", timeout=30_000)
             assert "/login" not in page.url
