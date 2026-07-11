@@ -142,19 +142,33 @@ jobs:
             if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
               break
             fi
+            if [[ "${attempt}" -eq 30 ]]; then
+              echo "API health check failed"
+              exit 1
+            fi
             sleep 1
           done
-          curl -fsS -X POST http://127.0.0.1:8000/auth/bootstrap \
+          BOOTSTRAP_STATUS="$(curl -s -o /tmp/bootstrap.json -w '%{http_code}' -X POST http://127.0.0.1:8000/auth/bootstrap \
             -H 'Content-Type: application/json' \
-            -d '{"bootstrap_token":"ci-bootstrap-token","email":"e2e@example.com","password":"e2e-password","name":"E2E User"}'
+            -d '{"bootstrap_token":"ci-bootstrap-token","email":"e2e@example.com","password":"e2e-password","name":"E2E User"}')"
+          if [[ "${BOOTSTRAP_STATUS}" != "200" && "${BOOTSTRAP_STATUS}" != "409" ]]; then
+            cat /tmp/bootstrap.json || true
+            echo "Bootstrap failed with status ${BOOTSTRAP_STATUS}"
+            exit 1
+          fi
       - name: Start web server
         env:
           DISABLE_AUTH_MIDDLEWARE: "true"
         run: |
           npm --workspace apps/web run start -- --hostname 127.0.0.1 --port 3000 &
           for attempt in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:3000/login | grep -q 'Sign in'; then
+            WEB_LOGIN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login)"
+            if [[ "${WEB_LOGIN_STATUS}" == "200" ]]; then
               break
+            fi
+            if [[ "${attempt}" -eq 60 ]]; then
+              echo "Web login page failed with status ${WEB_LOGIN_STATUS}"
+              exit 1
             fi
             sleep 1
           done

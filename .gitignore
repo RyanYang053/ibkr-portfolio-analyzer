@@ -44,5 +44,7 @@ config.json
 
 # Local user-specific data and history databases
 ai-portfolio-intelligence/apps/api/app/data/*.json
+ai-portfolio-intelligence/apps/api/app/data/state/
 ai-portfolio-intelligence/apps/api/ai_reports.json
 ai-portfolio-intelligence/apps/api/theses.json
+*.tsbuildinfo

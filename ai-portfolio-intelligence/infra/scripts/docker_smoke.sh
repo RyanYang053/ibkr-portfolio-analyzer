@@ -45,11 +45,13 @@ curl -fsS "${API_BASE}/openapi.json" | grep -q '"openapi"'
 docker compose -f "${COMPOSE_FILE}" exec -T api alembic upgrade head
 
 for attempt in $(seq 1 60); do
-  if curl -fsS "${WEB_BASE}/login" | grep -q 'Sign in'; then
+  WEB_LOGIN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${WEB_BASE}/login")"
+  if [[ "${WEB_LOGIN_STATUS}" == "200" ]]; then
     break
   fi
   if [[ "${attempt}" -eq 60 ]]; then
     docker compose -f "${COMPOSE_FILE}" logs web || true
+    echo "Expected login page to return 200, got ${WEB_LOGIN_STATUS}"
     exit 1
   fi
   sleep 2
@@ -87,7 +89,11 @@ if [[ "${UNAUTHORIZED_STATUS}" != "403" ]]; then
   exit 1
 fi
 
-curl -fsS "${WEB_BASE}/login" | grep -q 'Sign in'
+WEB_LOGIN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${WEB_BASE}/login")"
+if [[ "${WEB_LOGIN_STATUS}" != "200" ]]; then
+  echo "Expected login page to return 200, got ${WEB_LOGIN_STATUS}"
+  exit 1
+fi
 curl -fsS "${API_BASE}/health/ready" | grep -q '"status"'
 
 docker compose -f "${COMPOSE_FILE}" ps --format json | grep -q '"State":"running"'
