@@ -5,7 +5,6 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-
 DISCLAIMER = (
     "This is portfolio analysis and decision support only. "
     "The system does not execute trades. The user must independently review any "

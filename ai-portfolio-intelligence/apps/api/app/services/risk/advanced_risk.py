@@ -57,7 +57,7 @@ def _snapshot_spacing_valid(dates: list[str]) -> bool:
 
     if len(dates) < 2:
         return True
-    for previous, current in zip(dates, dates[1:]):
+    for previous, current in zip(dates, dates[1:], strict=False):
         sessions = trading_sessions_between(date.fromisoformat(previous), date.fromisoformat(current))
         if sessions == 0 or sessions > MAX_TRADING_SESSION_GAP:
             return False
@@ -76,7 +76,7 @@ def _ols_intercept(y: list[float], x: list[float]) -> float | None:
     variance = sum((value - x_mean) ** 2 for value in x) / (len(x) - 1)
     if variance <= 0:
         return None
-    covariance = sum((a - x_mean) * (b - y_mean) for a, b in zip(x, y)) / (len(x) - 1)
+    covariance = sum((a - x_mean) * (b - y_mean) for a, b in zip(x, y, strict=False)) / (len(x) - 1)
     slope = covariance / variance
     return y_mean - slope * x_mean
 
@@ -123,7 +123,7 @@ def _actual_account_returns(
     returns_by_date: dict[str, float] = {}
     from app.services.market_data.exchange_calendar import normalize_period_return, trading_sessions_between
 
-    for previous, current in zip(ordered, ordered[1:]):
+    for previous, current in zip(ordered, ordered[1:], strict=False):
         previous_date = date.fromisoformat(previous.date)
         current_date = date.fromisoformat(current.date)
         sessions = trading_sessions_between(previous_date, current_date)
@@ -184,7 +184,7 @@ def _benchmark_returns_for_dates(
 
     returns: list[float] = []
     for previous_day, current_day, previous_price, current_price in zip(
-        dates, dates[1:], aligned, aligned[1:]
+        dates, dates[1:], aligned, aligned[1:], strict=False
     ):
         sessions = trading_sessions_between(
             date.fromisoformat(previous_day),
@@ -207,7 +207,7 @@ def _covariance(x: list[float], y: list[float]) -> float | None:
         return None
     mean_x = fmean(x)
     mean_y = fmean(y)
-    return sum((a - mean_x) * (b - mean_y) for a, b in zip(x, y)) / (len(x) - 1)
+    return sum((a - mean_x) * (b - mean_y) for a, b in zip(x, y, strict=False)) / (len(x) - 1)
 
 
 def _beta(portfolio_returns: list[float], benchmark_returns: list[float]) -> float | None:
@@ -282,7 +282,7 @@ def _historical_metrics(
     if len(spy_returns) == len(returns) and len(spy_returns) >= MIN_RISK_RETURNS:
         beta = _beta(returns, spy_returns)
         result["portfolio_beta_spy"] = beta
-        active_returns = [portfolio - benchmark for portfolio, benchmark in zip(returns, spy_returns)]
+        active_returns = [portfolio - benchmark for portfolio, benchmark in zip(returns, spy_returns, strict=False)]
         tracking_daily = _sample_std(active_returns)
         excess_market = [value - rf_daily for value in spy_returns]
         if beta is not None:
@@ -341,7 +341,7 @@ def _resolve_underlying_spot(
     option_position: Position,
     positions: list[Position],
 ) -> tuple[float | None, str]:
-    stock_positions = {
+    {
         position.con_id: position
         for position in positions
         if position.asset_class not in {"OPT", "FOP"} and position.con_id is not None
@@ -561,8 +561,8 @@ def _risk_contribution(weights: dict[str, float], covariance: list[list[float]],
     weight_vector = [weights.get(symbol, 0.0) for symbol in symbols]
     portfolio_variance = 0.0
     sigma_w = [0.0 for _ in symbols]
-    for i, left in enumerate(symbols):
-        for j, right in enumerate(symbols):
+    for i, _left in enumerate(symbols):
+        for j, _right in enumerate(symbols):
             contribution = weight_vector[i] * covariance[i][j] * weight_vector[j]
             portfolio_variance += contribution
             sigma_w[i] += covariance[i][j] * weight_vector[j]

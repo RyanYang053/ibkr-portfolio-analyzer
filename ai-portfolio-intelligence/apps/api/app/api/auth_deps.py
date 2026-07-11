@@ -4,7 +4,7 @@ from typing import Literal, Set
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from jose import JWTError
 from pydantic import BaseModel
 
 from app.api.user_store import get_user

@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
-from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db.postgres_guard import require_postgres_persistence, require_postgres_read
 from app.db.state_store import get_state_store, postgres_available
 
 
@@ -81,7 +79,6 @@ def _json_key(namespace: str, record_key: str) -> tuple[str, str]:
 
 def upsert_benchmark_definition(record: BenchmarkDefinition) -> None:
     if postgres_available() and _table_available("benchmark_definitions"):
-        require_postgres_persistence()
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:
@@ -113,7 +110,6 @@ def list_benchmark_constituent_weights(
     effective_date: date,
 ) -> list[BenchmarkConstituentWeight]:
     if postgres_available() and _table_available("benchmark_constituent_weights"):
-        require_postgres_read()
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:
@@ -177,7 +173,6 @@ def get_security_classification(
     con_id: int | None = None,
 ) -> SecurityClassification | None:
     if postgres_available() and _table_available("security_classifications"):
-        require_postgres_read()
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:
@@ -216,7 +211,6 @@ def get_security_classification(
 
 def save_security_classification(record: SecurityClassification) -> None:
     if postgres_available() and _table_available("security_classifications"):
-        require_postgres_persistence()
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:
@@ -247,7 +241,6 @@ def save_security_classification(record: SecurityClassification) -> None:
 
 def save_daily_attribution_contribution(record: DailyAttributionContribution) -> None:
     if postgres_available() and _table_available("daily_attribution_contributions"):
-        require_postgres_persistence()
         from app.db.session import SessionLocal
 
         payload = record.model_dump()
@@ -285,7 +278,6 @@ def list_daily_attribution_contributions(
     period_end: date,
 ) -> list[DailyAttributionContribution]:
     if postgres_available() and _table_available("daily_attribution_contributions"):
-        require_postgres_read()
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:

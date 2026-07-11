@@ -7,17 +7,20 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.account_deps import resolve_authorized_account_id, resolve_authorized_account_ids
 from app.api.auth_deps import Principal, get_current_principal
-from app.api.deps import broker_not_configured_error, data_provider_not_configured_error, demo_mode_enabled, get_broker_adapter
+from app.api.deps import (
+    data_provider_not_configured_error,
+    demo_mode_enabled,
+    get_broker_adapter,
+)
 from app.services.broker.base import BrokerAdapter
-from app.services.portfolio.account_scope import find_portfolio_position, is_symbol_held
-from app.services.portfolio.snapshot import gate_professional_response, is_portfolio_position
 from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.market_data.mock_provider import MockMarketDataProvider
+from app.services.portfolio.account_scope import find_portfolio_position, is_symbol_held
+from app.services.portfolio.snapshot import gate_professional_response, is_portfolio_position
 from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
 from app.services.technicals.indicators import calculate_technical_indicators
 from app.services.tenant_scope import tenant_user_id
-
 
 router = APIRouter(
     prefix="/stocks",
@@ -42,10 +45,10 @@ def _authorized_position(
 
 def _research_position(symbol: str, principal: Principal):
     """Synthetic watchlist/research position. Never reads broker account data."""
-    from app.services.watchlist_store import symbol_on_user_watchlist
-    from app.services.broker.securities import classify_security
-    from app.schemas.domain import Position, utc_now
     from app.core.config import settings
+    from app.schemas.domain import Position, utc_now
+    from app.services.broker.securities import classify_security
+    from app.services.watchlist_store import symbol_on_user_watchlist
 
     sym = symbol.upper().strip()
     if not symbol_on_user_watchlist(sym, tenant_user_id(principal)):

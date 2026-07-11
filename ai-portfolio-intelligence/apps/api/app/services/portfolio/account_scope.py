@@ -8,7 +8,6 @@ from app.core.config import settings
 from app.schemas.domain import Position
 from app.services.broker.base import BrokerAdapter
 
-
 CONSOLIDATED_ANALYTICS_UNAVAILABLE = {
     "code": "CONSOLIDATED_ANALYTICS_UNAVAILABLE",
     "message": (

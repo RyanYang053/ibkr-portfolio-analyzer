@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import text
 
-from app.core.config import settings
 from app.db.postgres_guard import require_postgres_persistence
 from app.db.user_repo import _row_to_user, _table_available, _utc_now
 

@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
-
 from app.db.legacy_bridge import read_json_with_legacy, write_json_state
 from app.services.tenant_scope import auth_scoped_defaults_enabled
-
 
 _DEFAULT_WATCHLIST = [
     {

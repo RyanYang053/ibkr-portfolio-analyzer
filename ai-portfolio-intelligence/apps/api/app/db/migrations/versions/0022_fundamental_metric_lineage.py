@@ -4,8 +4,8 @@ Revision ID: 0022_fundamental_metric_lineage
 Revises: 0021_option_contract_master
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0022_fundamental_metric_lineage"

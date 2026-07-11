@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from app.services.portfolio_construction.tax_transition import TaxLotTransitionInput, TaxTransitionRequest, evaluate_tax_transition
+from app.services.portfolio_construction.tax_transition import (
+    TaxLotTransitionInput,
+    TaxTransitionRequest,
+    evaluate_tax_transition,
+)
 
 
 def test_tax_transition_blocks_lots_when_budget_exceeded():

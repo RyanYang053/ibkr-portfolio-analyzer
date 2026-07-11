@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,14 +10,14 @@ from pydantic import BaseModel, Field
 from app.api.account_deps import resolve_authorized_account_id
 from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
+from app.core.audit import log_audit_action
 from app.core.config import settings
 from app.services.ai.client import GeminiClient, configure_runtime_gemini
 from app.services.ai.report_generator import generate_ai_portfolio_memo, generate_stock_research_report
 from app.services.ai.thesis_tracker import get_thesis, update_thesis
 from app.services.broker.base import BrokerAdapter
-from app.services.portfolio.account_scope import find_portfolio_position, resolve_portfolio_account_id
+from app.services.portfolio.account_scope import find_portfolio_position
 from app.services.portfolio.snapshot import gate_professional_response
-from app.core.audit import log_audit_action
 
 router = APIRouter(
     prefix="/ai",

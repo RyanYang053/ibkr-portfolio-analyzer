@@ -1,9 +1,8 @@
-from datetime import date, timedelta
-import pytest
-from app.services.market_data.mock_provider import MockMarketDataProvider
+from app.schemas.domain import AccountSummary, Position, utc_now
 from app.services.fundamentals.mock_provider import MockFundamentalProvider
+from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.risk.history_reconstructor import reconstruct_portfolio_history
-from app.schemas.domain import Position, AccountSummary, utc_now
+
 
 def test_live_yahoo_finance_connectivity():
     # 1. Test market price fetching
@@ -94,6 +93,7 @@ def test_live_history_reconstruction_and_alignment():
 
 def test_live_advanced_risk_metrics_calculation(monkeypatch):
     import sys
+
     from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
     # Force MockMarketDataProvider to not use mock
     monkeypatch.setattr(MockMarketDataProvider, "__init__", lambda self, allow_mock=None: setattr(self, "allow_mock", False))

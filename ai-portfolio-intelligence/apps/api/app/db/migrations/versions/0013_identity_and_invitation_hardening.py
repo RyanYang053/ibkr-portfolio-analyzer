@@ -4,8 +4,8 @@ Revision ID: 0013_identity_and_invitation_hardening
 Revises: 0012_iv_dimensions
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0013_identity_and_invitation_hardening"
 down_revision = "0012_iv_dimensions"

@@ -4,8 +4,8 @@ Revision ID: 0010_iv_observations
 Revises: 0009_broker_batches_positions
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0010_iv_observations"
 down_revision = "0009_broker_batches_positions"

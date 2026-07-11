@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+
 def update_env_file(updates: dict[str, str]) -> None:
     import sys
     if "pytest" in sys.modules:

@@ -1,6 +1,6 @@
 from app.services.broker.mock_ibkr import MockIBKRAdapter
-from app.services.scoring.stock_score import score_stock
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
+from app.services.scoring.stock_score import score_stock
 
 
 def test_mock_ibkr_portfolio_contains_required_sample_symbols_and_classifications():

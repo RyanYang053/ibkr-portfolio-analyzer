@@ -4,8 +4,8 @@ Revision ID: 0017_edgar_fact_lineage
 Revises: 0016_position_snapshot_lineage
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0017_edgar_fact_lineage"

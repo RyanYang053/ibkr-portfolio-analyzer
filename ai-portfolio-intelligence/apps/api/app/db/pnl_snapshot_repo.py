@@ -4,8 +4,8 @@ import json
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.db.postgres_guard import require_postgres_persistence

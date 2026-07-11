@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.schemas.domain import Position, utc_now
 from app.services.portfolio.pnl_period_effects import compute_period_effects
 
 

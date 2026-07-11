@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from app.api import invitation_store
 from app.core.security import token_is_revoked
 

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
+import json
+import os
 from datetime import datetime, timezone
 from typing import Any
 
 from app.schemas.domain import Position
 from app.services.tenant_scope import scoped_record_key
-
-
-import json
-import os
 
 THESES_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "theses.json")
 

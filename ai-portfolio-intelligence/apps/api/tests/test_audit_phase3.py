@@ -1,11 +1,9 @@
 from datetime import date, timedelta
 
-import pytest
-
 from app.schemas.domain import Transaction
 from app.services.broker.flex_query import _map_flex_action, _parse_flex_csv, mock_flex_transactions
-from app.services.fundamentals.snapshot_store import get_point_in_time_fundamentals, seed_demo_fundamentals_records
 from app.services.fundamentals.mock_provider import MockFundamentalProvider
+from app.services.fundamentals.snapshot_store import get_point_in_time_fundamentals, seed_demo_fundamentals_records
 from app.services.portfolio.benchmark_returns import align_benchmark_comparison
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
 from app.services.portfolio.tax_lots import build_tax_lot_attribution

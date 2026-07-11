@@ -79,7 +79,8 @@ class MockFundamentalProvider:
                     pe_forward = stats.get("forwardPE", {}).get("raw")
                     ev_sales = stats.get("enterpriseToRevenue", {}).get("raw")
                     most_recent_quarter = stats.get("mostRecentQuarter", {}).get("raw")
-                    from datetime import date as date_type, datetime, timezone
+                    from datetime import date as date_type
+                    from datetime import datetime, timezone
 
                     filing_date = None
                     sec_filings = res.get("secFilings", {}) or {}

@@ -4,8 +4,8 @@ Revision ID: 0019_accounting_hardening
 Revises: 0018_audit_event_ledger
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0019_accounting_hardening"

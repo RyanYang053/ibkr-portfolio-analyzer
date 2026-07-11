@@ -6,7 +6,6 @@ from decimal import Decimal
 import pytest
 
 from app.services.methodology_registry import MethodologyRecord
-from app.services.model_governance import require_methodology_status
 from app.services.valuation.models.base import ValuationScenario
 from app.services.valuation.models.dcf import DcfInputs, evaluate_dcf
 

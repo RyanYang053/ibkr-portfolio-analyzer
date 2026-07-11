@@ -1,4 +1,5 @@
 import pytest
+from fastapi import HTTPException
 
 from app.services.broker.mock_ibkr import MockIBKRAdapter
 from app.services.portfolio.account_scope import find_portfolio_position
@@ -6,7 +7,7 @@ from app.services.portfolio.account_scope import find_portfolio_position
 
 def test_find_position_by_con_id_requires_account():
     adapter = MockIBKRAdapter()
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException):
         find_portfolio_position("AAPL", adapter, con_id=12345)
 
 

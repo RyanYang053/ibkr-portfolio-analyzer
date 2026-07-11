@@ -17,7 +17,7 @@ MIN_FACTOR_OBSERVATIONS = 126
 def _daily_returns_from_closes(closes: dict[str, float]) -> dict[str, float]:
     dates = sorted(closes)
     returns: dict[str, float] = {}
-    for left, right in zip(dates, dates[1:]):
+    for left, right in zip(dates, dates[1:], strict=False):
         prior = closes[left]
         current = closes[right]
         if prior > 0:
@@ -87,12 +87,12 @@ def _matrix_ols(
 
     fitted = []
     for row in design:
-        prediction = sum(coeff * value for coeff, value in zip(coefficients, row))
+        prediction = sum(coeff * value for coeff, value in zip(coefficients, row, strict=False))
         fitted.append(prediction)
 
     y_mean = fmean(y)
     ss_tot = sum((value - y_mean) ** 2 for value in y)
-    ss_res = sum((actual - predicted) ** 2 for actual, predicted in zip(y, fitted))
+    ss_res = sum((actual - predicted) ** 2 for actual, predicted in zip(y, fitted, strict=False))
     r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else None
     dof = max(length - size, 1)
     residual_std = math.sqrt(ss_res / dof) if length > size else None
@@ -140,7 +140,7 @@ def _matrix_ols(
     if vif_values:
         diagnostics["vif_max"] = round(max(vif_values), 2)
 
-    residuals = [actual - predicted for actual, predicted in zip(y, fitted)]
+    residuals = [actual - predicted for actual, predicted in zip(y, fitted, strict=False)]
     from app.services.risk.regression_diagnostics import build_regression_diagnostics
 
     diagnostics.update(
@@ -180,7 +180,7 @@ def compute_measured_factor_exposures(
         return {}, "insufficient_factor_history", {}
 
     aligned_portfolio = [portfolio_returns_by_date[day] for day in common_dates]
-    spy = [series["SPY"][day] for day in common_dates]
+    [series["SPY"][day] for day in common_dates]
     factor_names = ["Market", *FACTOR_PROXIES.keys()]
     factor_matrix = [[series["SPY"][day] for day in common_dates]]
     for name in FACTOR_PROXIES:

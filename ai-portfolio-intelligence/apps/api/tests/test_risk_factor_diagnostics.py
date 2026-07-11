@@ -1,6 +1,5 @@
 import math
-
-import pytest
+from datetime import date, timedelta
 
 from app.services.risk.factor_model import _matrix_ols, compute_measured_factor_exposures
 from app.services.risk.regression_diagnostics import build_regression_diagnostics, newey_west_lag
@@ -32,9 +31,6 @@ def test_regression_diagnostics_include_hac_standard_errors():
     )
     assert diagnostics["newey_west_lag"] == newey_west_lag(5)
     assert diagnostics["coefficients"][0]["hac_standard_error"] is not None
-
-
-from datetime import date, timedelta
 
 
 def test_measured_and_heuristic_factor_fields_are_separate():

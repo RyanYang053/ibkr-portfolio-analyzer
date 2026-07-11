@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-import pytest
-
 from app.schemas.domain import FundamentalSnapshot
 from app.services.valuation.models.bank_residual_income import BankResidualIncomeInputs, evaluate_bank_residual_income
 from app.services.valuation.models.base import ValuationScenario

@@ -1,4 +1,3 @@
-import math
 
 from fastapi.testclient import TestClient
 

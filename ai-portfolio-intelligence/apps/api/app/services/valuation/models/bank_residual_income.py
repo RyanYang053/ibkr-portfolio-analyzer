@@ -6,7 +6,12 @@ from datetime import date
 from decimal import Decimal
 
 from app.services.model_governance import MethodologyNotApproved, require_methodology_status
-from app.services.valuation.models.base import ScenarioValuation, ValuationInputLineage, ValuationOutput, ValuationScenario
+from app.services.valuation.models.base import (
+    ScenarioValuation,
+    ValuationInputLineage,
+    ValuationOutput,
+    ValuationScenario,
+)
 from app.services.valuation.models.validation import positive_decimal
 
 METHODOLOGY_ID = "bank_residual_income"

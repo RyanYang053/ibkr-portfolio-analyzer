@@ -4,8 +4,8 @@ Revision ID: 0025_tax_lot_transition
 Revises: 0024_benchmark_attribution
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0025_tax_lot_transition"

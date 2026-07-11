@@ -9,7 +9,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
-from app.db.legacy_bridge import read_json_with_legacy, write_json_state
 from app.db.postgres_guard import require_postgres_persistence
 from app.db.state_store import postgres_available
 

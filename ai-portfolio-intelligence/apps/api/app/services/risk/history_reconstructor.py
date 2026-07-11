@@ -141,7 +141,7 @@ def reconstruct_portfolio_history(
 
     def returns(values: list[float]) -> list[float]:
         result: list[float] = []
-        for previous, current in zip(values, values[1:]):
+        for previous, current in zip(values, values[1:], strict=False):
             result.append(current / previous - 1.0 if previous > 0 else 0.0)
         return result
 
@@ -180,7 +180,7 @@ def calculate_covariance(x: list[float], y: list[float]) -> float:
         return 0.0
     mean_x = sum(x) / len(x)
     mean_y = sum(y) / len(y)
-    return sum((x_i - mean_x) * (y_i - mean_y) for x_i, y_i in zip(x, y)) / (len(x) - 1)
+    return sum((x_i - mean_x) * (y_i - mean_y) for x_i, y_i in zip(x, y, strict=False)) / (len(x) - 1)
 
 
 def calculate_variance(x: list[float]) -> float:

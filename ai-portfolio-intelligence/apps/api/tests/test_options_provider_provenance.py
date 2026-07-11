@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from app.core.config import settings
-from app.services.options.chain_provider import ChainResolution, OptionsChainUnavailable
 from app.services.options import ibkr_options_provider as provider
+from app.services.options.chain_provider import ChainResolution, OptionsChainUnavailable
 
 
 def test_resolve_options_chain_raises_when_all_providers_fail(monkeypatch):

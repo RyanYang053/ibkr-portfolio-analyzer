@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
 import sys
+from datetime import date, timedelta
 from typing import Any
 
 from app.core.config import settings
@@ -71,7 +71,7 @@ class MockMarketDataProvider:
                 label = "live_yahoo_adjclose" if series is adj else "live_yahoo_finance"
 
                 prices = []
-                for ts, close in zip(timestamps, series):
+                for ts, close in zip(timestamps, series, strict=False):
                     if close is not None:
                         date_str = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
                         prices.append({"date": date_str, "close": float(close), "source": label})
@@ -169,7 +169,7 @@ class MockMarketDataProvider:
                         
                         prices = []
                         from datetime import datetime, timezone
-                        for ts, close, open_p, high, low in zip(timestamps, closes, opens, highs, lows):
+                        for ts, close, open_p, high, low in zip(timestamps, closes, opens, highs, lows, strict=False):
                             if None not in (close, open_p, high, low):
                                 date_str = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
                                 prices.append({

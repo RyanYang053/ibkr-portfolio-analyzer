@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
-
-import hashlib
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError

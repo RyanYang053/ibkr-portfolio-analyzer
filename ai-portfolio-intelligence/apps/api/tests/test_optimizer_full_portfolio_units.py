@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from app.services.portfolio_construction.advanced_optimizer import OptimizationConstraints, verify_optimization_constraints
 import numpy as np
+
+from app.services.portfolio_construction.advanced_optimizer import (
+    OptimizationConstraints,
+    verify_optimization_constraints,
+)
 
 
 def test_full_portfolio_sector_cap_accounts_for_fixed_exposure():

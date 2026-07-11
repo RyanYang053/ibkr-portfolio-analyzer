@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from app.schemas.domain import Transaction, utc_now, Position
+from app.schemas.domain import Position, Transaction, utc_now
 from app.services.attribution.benchmark_weights import benchmark_sector_weights_as_of
 from app.services.attribution.brinson_ledger import (
     AttributionDataIncomplete,

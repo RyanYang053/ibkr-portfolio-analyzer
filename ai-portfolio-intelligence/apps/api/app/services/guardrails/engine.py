@@ -1,4 +1,5 @@
 from typing import Any
+
 from app.schemas.domain import DISCLAIMER
 
 # SEC/FINRA Compliance standard robo-advisory disclosure text

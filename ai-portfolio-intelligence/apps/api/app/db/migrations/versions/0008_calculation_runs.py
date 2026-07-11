@@ -4,8 +4,8 @@ Revision ID: 0008_calculation_runs
 Revises: 0007_scheduler_dedup
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0008_calculation_runs"
 down_revision = "0007_scheduler_dedup"

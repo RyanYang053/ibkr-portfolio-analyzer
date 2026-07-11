@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.db.methodology_version_repo import MethodologyVersion, get_effective_methodology_version
+from app.db.methodology_version_repo import get_effective_methodology_version
 from app.services.model_governance import MethodologyNotApproved, require_methodology_status
 
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
-
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
 
 

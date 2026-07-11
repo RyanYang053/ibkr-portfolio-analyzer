@@ -1,12 +1,11 @@
-from pydantic import BaseModel, EmailStr, Field
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, EmailStr, Field
 
 from app.api.account_access_store import grant_account_access, list_accessible_accounts, revoke_account_access
 from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.invitation_store import create_invitation, list_invitations
 from app.api.user_store import list_users, update_user_role
 from app.core.audit import get_audit_logs, log_audit_action
-
 
 router = APIRouter(
     prefix="/admin",

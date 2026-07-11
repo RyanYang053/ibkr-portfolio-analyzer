@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
 from app.services import scheduler
 from app.services.system_actor import SCHEDULER_ACTOR
 

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.portfolio_construction.liquidity_model import LiquidityInputs, liquidity_capacity_weight, maximum_trade_value
+from app.services.portfolio_construction.liquidity_model import (
+    LiquidityInputs,
+    liquidity_capacity_weight,
+    maximum_trade_value,
+)
 
 
 def test_liquidity_capacity_derived_from_participation_and_exit_days():

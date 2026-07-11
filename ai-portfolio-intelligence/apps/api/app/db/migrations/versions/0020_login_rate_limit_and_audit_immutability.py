@@ -4,8 +4,8 @@ Revision ID: 0020_login_rate_limit_audit
 Revises: 0019_accounting_hardening
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0020_login_rate_limit_audit"
 down_revision = "0019_accounting_hardening"

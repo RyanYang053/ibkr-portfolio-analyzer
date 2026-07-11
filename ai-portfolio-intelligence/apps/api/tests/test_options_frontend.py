@@ -1,5 +1,5 @@
 import os
-import sys
+
 import pytest
 
 playwright = pytest.importorskip("playwright")

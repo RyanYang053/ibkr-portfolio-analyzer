@@ -1,24 +1,25 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
 from datetime import date, timedelta
+from typing import Any, Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core.config import settings
+from app.api.account_deps import resolve_authorized_account_id
 from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import get_broker_adapter
+from app.core.config import settings
+from app.schemas.domain import Position, utc_now
+from app.services.ai.client import GeminiClient
 from app.services.broker.base import BrokerAdapter
 from app.services.broker.securities import classify_security
-from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.fundamentals.providers import get_fundamental_provider
-from app.services.technicals.indicators import calculate_technical_indicators
-from app.services.ai.client import GeminiClient
-from app.services.tenant_scope import tenant_user_id
-from app.api.account_deps import resolve_authorized_account_id
+from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.portfolio.account_scope import find_portfolio_position
-from app.schemas.domain import Position, utc_now
+from app.services.technicals.indicators import calculate_technical_indicators
+from app.services.tenant_scope import tenant_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -255,10 +256,9 @@ def chat(
             pass
 
         try:
-            from app.services.suitability.engine import get_investor_profile, check_position_suitability
-            from app.services.policy.engine import get_portfolio_policy, analyze_policy_drift
-
             from app.services.broker.ibkr_readonly import get_exchange_rate
+            from app.services.policy.engine import analyze_policy_drift, get_portfolio_policy
+            from app.services.suitability.engine import check_position_suitability, get_investor_profile
 
             profile = get_investor_profile(active_id, user_id=tenant_user_id(principal))
             policy = get_portfolio_policy(active_id, user_id=tenant_user_id(principal))

@@ -4,8 +4,8 @@ Revision ID: 0012_iv_dimensions
 Revises: 0011_position_lineage_conid
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0012_iv_dimensions"
 down_revision = "0011_position_lineage_conid"

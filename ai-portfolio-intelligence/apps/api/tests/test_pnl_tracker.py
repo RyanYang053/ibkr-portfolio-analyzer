@@ -1,5 +1,5 @@
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from app.api.deps import get_broker_adapter
 from app.api.routes import ai as ai_routes

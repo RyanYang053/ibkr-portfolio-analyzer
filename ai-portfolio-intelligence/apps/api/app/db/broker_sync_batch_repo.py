@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import date, datetime, timezone
-from typing import Any
 
 from pydantic import BaseModel, Field
 from sqlalchemy import text

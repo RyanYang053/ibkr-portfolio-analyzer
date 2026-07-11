@@ -2,11 +2,11 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_broker_adapter
 from app.main import app
+from app.schemas.domain import Position, utc_now
 from app.services.ai.client import GeminiAPIError, GeminiClient
 from app.services.ai.prompt_templates import build_stock_analysis_prompt
 from app.services.ai.report_generator import generate_stock_research_report
 from app.services.ai.structured_outputs import build_structured_stock_context, evaluate_confidence_limits
-from app.schemas.domain import Position, utc_now
 from app.services.broker.mock_ibkr import MockIBKRAdapter
 
 

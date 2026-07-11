@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from app.schemas.domain import AccountSummary, Position
 from app.services.market_data.fx_store import make_transaction_fx_resolver
+from app.services.portfolio.performance_returns import calculate_performance_returns
 from app.services.portfolio.pnl_decomposition import calculate_pnl_decomposition
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot, get_pnl_history
-from app.services.portfolio.performance_returns import calculate_performance_returns
 from app.services.risk.advanced_risk import calculate_advanced_risk_metrics
 
 

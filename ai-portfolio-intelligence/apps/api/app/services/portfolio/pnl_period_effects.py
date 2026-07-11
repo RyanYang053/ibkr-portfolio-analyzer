@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Callable
 
-from app.schemas.domain import Position, Transaction
+from app.schemas.domain import Position
 from app.services.portfolio.instrument_identity import instrument_key_from_position, instrument_key_from_row
 from app.services.portfolio.period_mark_engine import (
     IncompletePeriodEffect,

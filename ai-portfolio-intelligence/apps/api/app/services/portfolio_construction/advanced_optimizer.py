@@ -211,7 +211,7 @@ def verify_weight_constraints(
     if abs(slack["budget"]) > tolerance:
         violations.append("budget")
     if current_full_weights is not None and turnover_budget is not None:
-        turnover = sum(abs(left - right) for left, right in zip(weights, current_full_weights))
+        turnover = sum(abs(left - right) for left, right in zip(weights, current_full_weights, strict=False))
         slack["turnover"] = round(turnover_budget - turnover, 6)
         if turnover > turnover_budget + tolerance:
             violations.append("turnover")

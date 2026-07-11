@@ -1,4 +1,5 @@
 import math
+from datetime import date
 from statistics import fmean
 
 import pytest
@@ -7,9 +8,8 @@ from fastapi.testclient import TestClient
 from app.api import invitation_store, user_store
 from app.core.config import settings
 from app.main import app
-from app.services.fundamentals.sector_models import score_fundamentals_for_sector
 from app.schemas.domain import FundamentalSnapshot
-from datetime import date
+from app.services.fundamentals.sector_models import score_fundamentals_for_sector
 from app.services.risk.advanced_risk import TRADING_DAYS
 
 

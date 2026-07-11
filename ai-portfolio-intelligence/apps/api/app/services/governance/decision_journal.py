@@ -39,7 +39,6 @@ def list_decision_journal_entries(user_id: str, account_id: str, *, limit: int =
     store = get_state_store()
     namespace_path = store._path("decision_journal", "placeholder") if hasattr(store, "_path") else None
     _ = namespace_path
-    prefix = f"{user_id}:{account_id}:"
     # JsonStateStore has no list API; use account-scoped aggregate key.
     aggregate = store.read_json("decision_journal", f"{user_id}:{account_id}", default=[])
     if not isinstance(aggregate, list):

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import uuid
 from contextvars import ContextVar, Token
 from dataclasses import dataclass

@@ -4,7 +4,6 @@ import math
 from statistics import fmean
 from typing import Any
 
-
 TRADING_DAYS = 252
 
 
@@ -26,7 +25,7 @@ def newey_west_standard_errors(
 
     size = len(design[0])
     normal = [[0.0 for _ in range(size)] for _ in range(size)]
-    for row_index, row in enumerate(design):
+    for _row_index, row in enumerate(design):
         for i in range(size):
             for j in range(size):
                 normal[i][j] += row[i] * row[j]

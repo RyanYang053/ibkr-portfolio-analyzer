@@ -4,8 +4,8 @@ Revision ID: 0021_option_contract_master
 Revises: 0020_login_rate_limit_audit
 Create Date: 2026-07-10
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0021_option_contract_master"

@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
+
 from app.core.config import settings
 from app.main import app
+
 
 def test_multi_account_and_consolidation():
     # Force mock mode for test isolation

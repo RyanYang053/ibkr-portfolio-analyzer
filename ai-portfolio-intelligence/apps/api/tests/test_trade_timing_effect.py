@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.schemas.domain import Transaction, utc_now
+from app.schemas.domain import Transaction
 from app.services.portfolio.period_mark_engine import trade_timing_effect
 
 

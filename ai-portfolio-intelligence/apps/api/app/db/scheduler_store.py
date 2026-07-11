@@ -7,13 +7,11 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-
-from app.core.config import settings
-from app.db.state_store import get_state_store
-
+from sqlalchemy.exc import IntegrityError
 
 from app.api.account_deps import SCHEDULER_ALL_ACCOUNTS
+from app.core.config import settings
+from app.db.state_store import get_state_store
 
 
 def _job_account_id(account_id: str | None) -> str:

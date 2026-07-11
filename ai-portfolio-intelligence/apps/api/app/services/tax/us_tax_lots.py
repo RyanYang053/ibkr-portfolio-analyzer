@@ -4,7 +4,7 @@ import math
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Callable, Deque, Literal, Optional
+from typing import Callable, Deque, Optional
 
 from app.schemas.domain import Transaction
 from app.services.portfolio.corporate_actions import apply_corporate_action_to_lots, parse_corporate_action

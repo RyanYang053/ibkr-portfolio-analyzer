@@ -2,8 +2,6 @@ from datetime import date, timedelta
 
 from app.schemas.domain import AccountSummary, BrokerAccount, OpenOrderReadOnly, Position, Transaction, utc_now
 from app.services.broker.base import BrokerAdapter
-
-
 from app.services.broker.securities import SECURITIES_DB as SAMPLE_SECURITIES
 
 MOCK_CON_IDS = {

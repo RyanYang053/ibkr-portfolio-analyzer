@@ -3,23 +3,20 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+
 from app.api.account_deps import resolve_authorized_account_id, resolve_authorized_account_ids
 from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
+from app.core.audit import log_audit_action
 from app.services.broker.base import BrokerAdapter
-from app.services.portfolio.pnl_tracker import get_pnl_history, record_pnl_snapshot, PortfolioPnLSnapshot
-
 from app.services.data_quality.validation import validate_and_gate_snapshot
-
+from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot, get_pnl_history, record_pnl_snapshot
 
 router = APIRouter(
     prefix="/portfolio/pnl-history",
     tags=["portfolio-pnl"],
     dependencies=[Depends(get_current_principal)],
 )
-
-
-from app.core.audit import log_audit_action
 
 
 @router.get("", response_model=list[PortfolioPnLSnapshot])

@@ -1,6 +1,6 @@
+import os
 from datetime import date
 
-import os
 import pytest
 
 from app.db.scheduler_store import complete_job, try_acquire_job

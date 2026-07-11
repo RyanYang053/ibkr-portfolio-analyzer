@@ -1,6 +1,7 @@
+from datetime import date
+
 from app.schemas.domain import FundamentalSnapshot
 from app.services.fundamentals.sector_models import score_fundamentals_for_sector
-from datetime import date
 
 
 def _fundamentals(**overrides):
