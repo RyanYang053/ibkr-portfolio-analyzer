@@ -13,6 +13,8 @@ DECISION_ACTIONS = (
     "Data insufficient",
 )
 
+MAX_DRAWDOWN_DECIMAL_THRESHOLD = 0.35
+
 
 def evaluate_holding_decision(context: HoldingContext) -> dict[str, Any]:
     """Ordered gates: data → thesis → risk/policy → valuation → portfolio fit → lens synthesis."""
@@ -32,27 +34,50 @@ def evaluate_holding_decision(context: HoldingContext) -> dict[str, Any]:
     if not thesis_ok:
         return _result("Review thesis", gates, context)
 
-    # 3. Risk / policy
+    # 3. Risk / policy — require decimal units (e.g. -0.35), never infer percent.
     risk = context.risk or {}
-    max_dd = risk.get("max_drawdown")
-    risk_flag = max_dd is not None and abs(float(max_dd)) >= 35.0
-    gates.append({"gate": "risk_policy", "passed": not risk_flag, "detail": {"max_drawdown": max_dd}})
+    max_dd = risk.get("max_drawdown_decimal", risk.get("max_drawdown"))
+    if max_dd is not None:
+        max_dd_value = float(max_dd)
+        if abs(max_dd_value) > 1.0:
+            gates.append(
+                {
+                    "gate": "risk_policy",
+                    "passed": False,
+                    "detail": {
+                        "max_drawdown": max_dd_value,
+                        "error": "max_drawdown_must_be_decimal_unit",
+                    },
+                }
+            )
+            return _result("Data insufficient", gates, context)
+        risk_flag = abs(max_dd_value) >= MAX_DRAWDOWN_DECIMAL_THRESHOLD
+    else:
+        risk_flag = False
+    gates.append(
+        {
+            "gate": "risk_policy",
+            "passed": not risk_flag,
+            "detail": {"max_drawdown_decimal": max_dd},
+        }
+    )
     if risk_flag:
         return _result("Review trim", gates, context)
 
-    # 4. Valuation status — remain withheld
+    # 4. Valuation — real gate; without approved valuation, never recommend add.
     valuation_ok = context.valuation_status in {"available", "approved"}
     gates.append(
         {
             "gate": "valuation_status",
-            "passed": True,
+            "passed": valuation_ok,
             "detail": {
                 "valuation_status": context.valuation_status,
-                "note": "Valuation withheld; gate does not unlock buy pressure from fair value.",
+                "note": "Add reviews require available/approved valuation evidence.",
             },
         }
     )
-    _ = valuation_ok
+    if not valuation_ok:
+        return _result("Review thesis", gates, context)
 
     # 5. Portfolio fit
     fit = context.portfolio_fit or {}

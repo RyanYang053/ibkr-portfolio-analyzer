@@ -15,7 +15,11 @@ from app.services.decision_center.evidence_graph import build_evidence_graph
 from app.services.decision_center.holding_context import build_holding_context
 from app.services.decision_center.holding_decision import evaluate_holding_decision
 from app.services.decision_center.market_inputs import load_account_risk_bundle, load_holding_market_inputs
-from app.services.decision_center.monitoring_rules import create_monitoring_rule, list_monitoring_rules
+from app.services.decision_center.monitoring_rules import (
+    create_monitoring_rule,
+    evaluate_monitoring_rules,
+    list_monitoring_rules,
+)
 from app.services.decision_center.portfolio_decision import build_portfolio_decision_matrix
 from app.services.decision_center.thesis_service import get_thesis, put_thesis
 from app.services.investor_lenses import ensemble_synthesis, evaluate_all_lenses
@@ -260,11 +264,39 @@ def simulate_holding(
     summary, positions, validation = _snapshot(adapter, resolved)
     position = _find_position(positions, instrument_key)
     weight = float(getattr(position, "portfolio_weight", 0) or 0) if position else 0.0
+    market = load_holding_market_inputs(
+        symbol=(getattr(position, "symbol", None) or instrument_key.split(":")[0]),
+        account_id=resolved,
+        positions=positions,
+        summary=summary,
+    )
+    profile_type = None
+    jurisdiction = None
+    try:
+        from app.services.suitability.engine import get_investor_profile
+
+        profile = get_investor_profile(resolved, user_id=principal.user_id)
+        profile_type = getattr(profile, "account_type", None)
+        residency = getattr(profile, "tax_residency", None)
+        if residency == "Canada":
+            jurisdiction = "CA"
+        elif residency == "US":
+            jurisdiction = "US"
+    except Exception:
+        profile_type = None
+        jurisdiction = None
     sim = simulate_holding_action(
         action=body.action,
         current_weight=weight,
         proposed_weight=body.proposed_weight,
         estimated_tax=body.estimated_tax,
+        account_id=resolved,
+        symbol=getattr(position, "symbol", None) if position else instrument_key.split(":")[0],
+        position=position,
+        summary=summary,
+        risk_metrics=market.get("risk_metrics") or {},
+        tax_jurisdiction=jurisdiction,
+        account_type=str(profile_type) if profile_type else None,
     )
     sim["instrument_key"] = instrument_key
     return prepare_professional_response(
@@ -284,9 +316,31 @@ def get_decision_monitoring(
 ) -> dict[str, Any]:
     resolved = resolve_authorized_account_id(adapter, principal, account_id)
     summary, positions, validation = _snapshot(adapter, resolved)
+    holdings = []
+    theses: dict[str, dict[str, Any]] = {}
+    for position in positions:
+        key = f"{position.symbol}:{position.con_id}" if getattr(position, "con_id", None) else position.symbol
+        holdings.append(
+            {
+                "instrument_key": key,
+                "symbol": position.symbol,
+                "portfolio_weight": float(getattr(position, "portfolio_weight", 0) or 0),
+            }
+        )
+        thesis = get_thesis(resolved, key)
+        if thesis:
+            theses[key.upper()] = thesis
+    risk_metrics, _factors = load_account_risk_bundle(account_id=resolved, positions=positions, summary=summary)
+    evaluation = evaluate_monitoring_rules(
+        resolved,
+        holdings=holdings,
+        risk_metrics=risk_metrics,
+        theses=theses,
+    )
     body = {
         "account_id": resolved,
         "rules": list_monitoring_rules(resolved),
+        "evaluation": evaluation,
         "methodology_status": "experimental",
     }
     return prepare_professional_response(

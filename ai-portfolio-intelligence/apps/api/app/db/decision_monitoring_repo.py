@@ -37,8 +37,9 @@ def _write_index(index: dict[str, dict[str, Any]]) -> None:
 
 
 def list_rules(account_id: str) -> list[dict[str, Any]]:
-    if settings.persistence_backend == "postgres" and _table_available():
-        require_postgres_read("decision monitoring rules read", table_available=True)
+    if settings.persistence_backend == "postgres":
+        available = _table_available()
+        require_postgres_read("decision monitoring rules read", table_available=available)
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:

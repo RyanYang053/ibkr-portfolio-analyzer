@@ -51,7 +51,35 @@ def test_release_manifest_writer_includes_sha_and_approvals(monkeypatch, tmp_pat
     assert "methodology_approvals" in loaded
     assert "approval_status" in loaded
     assert loaded["certification"]["certified"] is False
+    assert loaded["certification"]["mode"] == "ci_evidence"
     assert "container_digest_placeholder" in loaded["certification"]["blockers"]
+    assert loaded["certification"]["evidence_complete"] is True
+
+
+def test_production_release_mode_requires_real_container(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("GIT_SHA", "prod-sha-001")
+    pytest_report = tmp_path / "pytest.xml"
+    pytest_report.write_text("<testsuite/>", encoding="utf-8")
+    golden = tmp_path / "golden.txt"
+    golden.write_text("abc", encoding="utf-8")
+    from scripts.write_release_manifest import build_manifest
+
+    evidence = build_manifest(
+        pytest_report=pytest_report,
+        golden_hash_file=golden,
+        mode="ci_evidence",
+    )
+    assert evidence["certification"]["certified"] is False
+    assert evidence["certification"]["evidence_complete"] is True
+
+    production = build_manifest(
+        pytest_report=pytest_report,
+        golden_hash_file=golden,
+        container_digest="sha256:deadbeef",
+        mode="production_release",
+    )
+    assert production["certification"]["certified"] is True
+    assert production["certification"]["blockers"] == []
 
 
 def test_release_manifest_require_certified_rejects_unknown_sha(monkeypatch, tmp_path: Path, capsys):

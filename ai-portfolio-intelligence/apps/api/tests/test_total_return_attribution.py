@@ -5,9 +5,12 @@ from datetime import date
 from app.schemas.domain import Transaction
 from app.services.attribution.daily_series import (
     DailySecurityInput,
+    PARTIAL_LEDGER_ATTRIBUTION_STATUS,
     TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+    WITHHELD_ATTRIBUTION_STATUS,
     allocate_ledger_legs_for_day,
     build_daily_attribution_contributions,
+    build_daily_security_inputs_from_history,
     enrich_security_inputs_with_ledger_legs,
 )
 
@@ -115,7 +118,7 @@ def test_income_fee_tax_fx_corp_legs_compose_total_return():
         security_inputs=enriched,
         cash_sleeve_returns=cash,
     )
-    assert status == TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS
+    assert status == WITHHELD_ATTRIBUTION_STATUS
     assert contributions
     day = next(c for c in contributions if c.contribution_date == date(2025, 1, 3))
     assert abs(day.income_contribution - 0.02) < 1e-9
@@ -124,21 +127,130 @@ def test_income_fee_tax_fx_corp_legs_compose_total_return():
     assert "cash_sleeve_contribution_sum" in quality
 
 
-def test_sold_between_snapshots_keeps_exit_and_income_leg():
+def test_non_price_legs_are_portfolio_contributions_not_double_weighted():
+    """Ledger dollars/NAV must not be multiplied again by beginning_weight."""
     inputs = [
         DailySecurityInput(
             date=date(2025, 1, 3),
-            instrument_key="EXIT:9",
+            instrument_key="AAA:1",
             sector="Technology",
-            beginning_weight=0.5,
-            total_return=-1.0,  # full exit of long
-        ),
-        DailySecurityInput(
-            date=date(2025, 1, 3),
-            instrument_key="KEEP:1",
-            sector="Technology",
-            beginning_weight=0.5,
+            beginning_weight=0.25,
             total_return=0.0,
+        )
+    ]
+    transactions = [
+        _txn(
+            account_id="A1",
+            symbol="AAA",
+            con_id=1,
+            trade_date=date(2025, 1, 3),
+            action="dividend",
+            quantity=0,
+            price=0,
+            commission=0,
+            currency="USD",
+            amount=4.0,
+        )
+    ]
+    enriched, cash = enrich_security_inputs_with_ledger_legs(
+        inputs,
+        transactions,
+        beginning_nav_by_day={date(2025, 1, 3): 100.0},
+    )
+    assert abs(enriched[0].income_return - 0.04) < 1e-9
+    contributions, _status, _quality = build_daily_attribution_contributions(
+        positions=[],
+        period_start=date(2025, 1, 2),
+        period_end=date(2025, 1, 6),
+        portfolio_sector_weights={"Technology": 1.0},
+        allow_mock=True,
+        security_inputs=enriched,
+        cash_sleeve_returns=cash,
+    )
+    day = next(c for c in contributions if c.contribution_date == date(2025, 1, 3))
+    assert abs(day.income_contribution - 0.04) < 1e-9
+
+
+def test_exit_without_execution_evidence_is_withheld():
+    from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot, PositionPnL
+
+    history = [
+        PortfolioPnLSnapshot(
+            date="2025-01-02",
+            timestamp="2025-01-02T16:00:00+00:00",
+            net_liquidation=100.0,
+            cash=0.0,
+            buying_power=0.0,
+            margin_requirement=0.0,
+            daily_pnl=0.0,
+            daily_pnl_percent=0.0,
+            positions=[
+                PositionPnL(
+                    symbol="EXIT",
+                    quantity=1,
+                    market_price=100.0,
+                    market_value=100.0,
+                    unrealized_pnl=0.0,
+                    con_id=9,
+                )
+            ],
+        ),
+        PortfolioPnLSnapshot(
+            date="2025-01-03",
+            timestamp="2025-01-03T16:00:00+00:00",
+            net_liquidation=105.0,
+            cash=105.0,
+            buying_power=0.0,
+            margin_requirement=0.0,
+            daily_pnl=5.0,
+            daily_pnl_percent=5.0,
+            positions=[],
+        ),
+    ]
+    rows = build_daily_security_inputs_from_history(
+        history,
+        period_start=date(2025, 1, 2),
+        period_end=date(2025, 1, 3),
+        positions=[],
+        transactions=[],
+    )
+    assert rows == []
+
+
+def test_exit_uses_execution_price_not_minus_one():
+    from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot, PositionPnL
+
+    history = [
+        PortfolioPnLSnapshot(
+            date="2025-01-02",
+            timestamp="2025-01-02T16:00:00+00:00",
+            net_liquidation=100.0,
+            cash=0.0,
+            buying_power=0.0,
+            margin_requirement=0.0,
+            daily_pnl=0.0,
+            daily_pnl_percent=0.0,
+            positions=[
+                PositionPnL(
+                    symbol="EXIT",
+                    quantity=1,
+                    market_price=100.0,
+                    market_value=100.0,
+                    unrealized_pnl=0.0,
+                    con_id=9,
+                )
+            ],
+        ),
+        PortfolioPnLSnapshot(
+            date="2025-01-03",
+            timestamp="2025-01-03T16:00:00+00:00",
+            net_liquidation=105.0,
+            cash=105.0,
+            buying_power=0.0,
+            margin_requirement=0.0,
+            daily_pnl=5.0,
+            daily_pnl_percent=5.0,
+            positions=[],
         ),
     ]
     transactions = [
@@ -147,22 +259,47 @@ def test_sold_between_snapshots_keeps_exit_and_income_leg():
             symbol="EXIT",
             con_id=9,
             trade_date=date(2025, 1, 3),
-            action="dividend",
-            quantity=0,
-            price=0,
+            action="sell",
+            quantity=1,
+            price=105.0,
             commission=0,
             currency="USD",
-            amount=5.0,
         )
     ]
-    enriched, _cash = enrich_security_inputs_with_ledger_legs(
-        inputs,
-        transactions,
-        beginning_nav_by_day={date(2025, 1, 3): 100.0},
+    rows = build_daily_security_inputs_from_history(
+        history,
+        period_start=date(2025, 1, 2),
+        period_end=date(2025, 1, 3),
+        positions=[],
+        transactions=transactions,
     )
-    exit_row = next(row for row in enriched if row.instrument_key == "EXIT:9")
-    assert exit_row.total_return == -1.0
-    assert abs(exit_row.income_return - 0.05) < 1e-9
+    assert len(rows) == 1
+    assert abs(rows[0].total_return - 0.05) < 1e-9
+
+
+def test_zero_non_price_legs_are_not_total_return():
+    inputs = [
+        DailySecurityInput(
+            date=date(2025, 1, 3),
+            instrument_key="AAA:1",
+            sector="Technology",
+            beginning_weight=1.0,
+            total_return=0.01,
+            legs_from_ledger=True,
+        )
+    ]
+    _contributions, status, _quality = build_daily_attribution_contributions(
+        positions=[],
+        period_start=date(2025, 1, 2),
+        period_end=date(2025, 1, 6),
+        portfolio_sector_weights={"Technology": 1.0},
+        allow_mock=True,
+        security_inputs=inputs,
+        cash_sleeve_returns={},
+        history=[],
+    )
+    assert status == WITHHELD_ATTRIBUTION_STATUS
+    assert status != TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS
 
 
 def test_cash_sleeve_interest_allocated_separately():
@@ -214,10 +351,12 @@ def test_nav_residual_gate_fails_without_history_alignment():
         cash_sleeve_returns={},
         history=[],
     )
-    assert status == TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS
+    assert status == WITHHELD_ATTRIBUTION_STATUS
     assert contributions
     assert quality.get("nav_residual_within_tolerance") is False
     assert quality.get("contribution_identity_ok") is False
+    # Zero non-price legs must not claim full total-return status.
+    assert status != TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS
 
 
 def test_production_brinson_requires_nav_residual():

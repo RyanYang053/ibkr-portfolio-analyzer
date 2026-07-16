@@ -48,6 +48,7 @@ def build_holding_context(
     liquidity: dict[str, Any] | None = None,
     tax_flags: dict[str, Any] | None = None,
     thesis: dict[str, Any] | None = None,
+    valuation_status: str = "withheld",
 ) -> HoldingContext:
     from app.services.investor_lenses import ensemble_synthesis, evaluate_all_lenses
     from app.services.investor_lenses.base import LensInputs
@@ -59,6 +60,11 @@ def build_holding_context(
     liq = dict(liquidity or {})
     tax = dict(tax_flags or {})
     thesis_payload = dict(thesis or {})
+
+    # Normalize drawdown into explicit decimal units at the schema boundary.
+    if "max_drawdown_decimal" not in risk and risk.get("max_drawdown") is not None:
+        raw = float(risk["max_drawdown"])
+        risk["max_drawdown_decimal"] = raw / 100.0 if abs(raw) > 1.0 else raw
 
     missing: list[str] = []
     if not fund:
@@ -104,7 +110,7 @@ def build_holding_context(
         },
         thesis=thesis_payload,
         risk=risk,
-        valuation_status="withheld",
+        valuation_status=valuation_status,
         portfolio_fit=portfolio_fit,
         lens_results=[r.as_dict() for r in lens_results],
         lens_ensemble=ensemble,

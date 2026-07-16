@@ -108,8 +108,9 @@ def upsert_tax_transition_inputs(
 
 def get_latest_tax_transition_inputs(account_id: str, *, as_of: date | None = None) -> dict[str, Any] | None:
     as_of = as_of or date.today()
-    if settings.persistence_backend == "postgres" and _table_available():
-        require_postgres_read("tax transition inputs read", table_available=True)
+    if settings.persistence_backend == "postgres":
+        available = _table_available()
+        require_postgres_read("tax transition inputs read", table_available=available)
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:

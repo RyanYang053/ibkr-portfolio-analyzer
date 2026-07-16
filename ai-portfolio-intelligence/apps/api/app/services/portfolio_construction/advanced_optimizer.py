@@ -158,6 +158,7 @@ def verify_optimization_constraints(
     constraints: OptimizationConstraints,
     *,
     tolerance: float = 1e-4,
+    lot_sell_weights: list[float] | None = None,
 ) -> dict[str, Any]:
     result = verify_weight_constraints(
         weights,
@@ -203,6 +204,59 @@ def verify_optimization_constraints(
             result["slack"][slack_key] = round(limit - sell_change, 6)
             if sell_change > limit + tolerance:
                 result["violations"].append(slack_key)
+
+    result["feasible"] = not result["violations"]
+
+    # Reconstruct buy/sell from weight change for tax/cost post-validation.
+    buys = np.maximum(changes, 0.0)
+    sells = np.maximum(-changes, 0.0)
+    lot_sells = (
+        np.asarray(lot_sell_weights, dtype=float)
+        if lot_sell_weights is not None
+        else None
+    )
+
+    if _has_lot_tax_vars(constraints) and lot_sells is not None:
+        for symbol_index in range(len(weights)):
+            lot_indices = [
+                lot_index
+                for lot_index, mapped in enumerate(constraints.lot_symbol_indices or ())
+                if mapped == symbol_index
+            ]
+            if not lot_indices:
+                continue
+            bridge = float(np.sum(lot_sells[lot_indices]))
+            slack_key = f"symbol_to_lot_sell_bridge_{symbol_index}"
+            result["slack"][slack_key] = round(bridge - float(sells[symbol_index]), 6)
+            if abs(bridge - float(sells[symbol_index])) > tolerance:
+                result["violations"].append(slack_key)
+            for lot_index in lot_indices:
+                cap = float(constraints.lot_max_sell_weights[lot_index])
+                lot_slack_key = f"lot_capacity_{lot_index}"
+                result["slack"][lot_slack_key] = round(cap - float(lot_sells[lot_index]), 6)
+                if float(lot_sells[lot_index]) > cap + tolerance:
+                    result["violations"].append(lot_slack_key)
+        if constraints.tax_budget is not None and constraints.lot_tax_rate_per_unit is not None:
+            lot_tax = float(np.dot(constraints.lot_tax_rate_per_unit, lot_sells))
+            result["slack"]["lot_tax_slack"] = round(float(constraints.tax_budget) - lot_tax, 6)
+            if lot_tax > float(constraints.tax_budget) + tolerance:
+                result["violations"].append("lot_tax_slack")
+    elif constraints.tax_budget is not None and constraints.sell_tax_rate_per_unit is not None:
+        tax_used = float(np.dot(constraints.sell_tax_rate_per_unit, sells))
+        result["slack"]["lot_tax_slack"] = round(float(constraints.tax_budget) - tax_used, 6)
+        if tax_used > float(constraints.tax_budget) + tolerance:
+            result["violations"].append("lot_tax_slack")
+
+    if (
+        constraints.transaction_cost_budget is not None
+        and constraints.transaction_cost_rate_per_unit is not None
+    ):
+        cost_used = float(np.dot(constraints.transaction_cost_rate_per_unit, buys + sells))
+        result["slack"]["transaction_cost_slack"] = round(
+            float(constraints.transaction_cost_budget) - cost_used, 6
+        )
+        if cost_used > float(constraints.transaction_cost_budget) + tolerance:
+            result["violations"].append("transaction_cost_slack")
 
     result["feasible"] = not result["violations"]
     return result
@@ -364,9 +418,15 @@ def verify_weight_constraints(
 def _finalize_solver_weights(
     weights: np.ndarray,
     constraints: OptimizationConstraints,
+    *,
+    lot_sell_weights: list[float] | None = None,
 ) -> tuple[list[float] | None, dict[str, Any]]:
     values = [max(0.0, float(value)) for value in weights]
-    feasibility = verify_optimization_constraints(values, constraints)
+    feasibility = verify_optimization_constraints(
+        values,
+        constraints,
+        lot_sell_weights=lot_sell_weights,
+    )
     if not feasibility["feasible"]:
         return None, {"status": "post_solve_infeasible", "feasibility": feasibility}
     return values, {"feasibility": feasibility}
@@ -397,10 +457,15 @@ def solve_min_variance_with_constraints(
         problem.solve()
     if weights.value is None or problem.status not in {"optimal", "optimal_inaccurate"}:
         return None, {"status": problem.status or "solver_failed"}
-    finalized, metadata = _finalize_solver_weights(weights.value, constraints)
+    lot_meta = _lot_sell_metadata(aux)
+    finalized, metadata = _finalize_solver_weights(
+        weights.value,
+        constraints,
+        lot_sell_weights=lot_meta.get("lot_sell_weights"),
+    )
     if finalized is None:
         return None, metadata
-    return finalized, {"status": problem.status, **metadata, **_lot_sell_metadata(aux)}
+    return finalized, {"status": problem.status, **metadata, **lot_meta}
 
 
 def solve_cvar_weights(
@@ -480,14 +545,19 @@ def solve_cvar_weights(
         problem.solve()
     if weights.value is None or problem.status not in {"optimal", "optimal_inaccurate"}:
         return None, {"status": problem.status or "solver_failed"}
-    finalized, metadata = _finalize_solver_weights(weights.value, constraint_set)
+    lot_meta = _lot_sell_metadata(aux)
+    finalized, metadata = _finalize_solver_weights(
+        weights.value,
+        constraint_set,
+        lot_sell_weights=lot_meta.get("lot_sell_weights"),
+    )
     if finalized is None:
         return None, metadata
     return finalized, {
         "status": problem.status,
         "objective": float(problem.value) if problem.value is not None else None,
         **metadata,
-        **_lot_sell_metadata(aux),
+        **lot_meta,
     }
 
 
@@ -560,7 +630,12 @@ def solve_mean_variance_with_constraints(
         problem.solve()
     if weights.value is None or problem.status not in {"optimal", "optimal_inaccurate"}:
         return None, {"status": problem.status or "solver_failed"}
-    finalized, metadata = _finalize_solver_weights(weights.value, constraint_set)
+    lot_meta = _lot_sell_metadata(aux)
+    finalized, metadata = _finalize_solver_weights(
+        weights.value,
+        constraint_set,
+        lot_sell_weights=lot_meta.get("lot_sell_weights"),
+    )
     if finalized is None:
         return None, metadata
-    return finalized, {"status": problem.status, **metadata, **_lot_sell_metadata(aux)}
+    return finalized, {"status": problem.status, **metadata, **lot_meta}

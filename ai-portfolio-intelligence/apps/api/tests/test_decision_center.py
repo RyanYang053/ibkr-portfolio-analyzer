@@ -28,10 +28,34 @@ def test_review_thesis_when_data_present_but_thesis_missing():
         symbol="AAA",
         position={"portfolio_weight": 3.0},
         fundamentals={"return_on_equity": 0.2},
-        risk_metrics={"max_drawdown": 10.0},
+        risk_metrics={"max_drawdown_decimal": -0.10},
     )
     decision = evaluate_holding_decision(context)
     assert decision["action"] == "Review thesis"
+
+
+def test_valuation_gate_blocks_add_without_approved_valuation():
+    put_thesis("A1", "AAA:1", text="Long-term compounder with durable moat.")
+    context = build_holding_context(
+        account_id="A1",
+        instrument_key="AAA:1",
+        symbol="AAA",
+        position={"portfolio_weight": 3.0},
+        fundamentals={
+            "return_on_equity": 0.25,
+            "fcf_yield": 0.06,
+            "operating_margin": 0.3,
+            "total_debt": 5,
+            "average_common_equity": 100,
+        },
+        risk_metrics={"volatility": 0.15, "max_drawdown_decimal": -0.10},
+        thesis={"text": "Long-term compounder with durable moat."},
+        valuation_status="withheld",
+    )
+    decision = evaluate_holding_decision(context)
+    assert decision["action"] == "Review thesis"
+    valuation_gate = next(g for g in decision["gates"] if g["gate"] == "valuation_status")
+    assert valuation_gate["passed"] is False
 
 
 def test_no_action_when_gates_clear():
@@ -54,11 +78,12 @@ def test_no_action_when_gates_clear():
             "gross_margin": 0.5,
             "revenue_growth_yoy": 0.1,
         },
-        risk_metrics={"volatility": 15.0, "max_drawdown": 10.0, "conditional_var_95": 5.0},
+        risk_metrics={"volatility": 0.15, "max_drawdown_decimal": -0.10, "conditional_var_95": 0.05},
         factor_exposures={"quality": 0.4, "market": 0.05, "value": 0.1, "momentum": 0.0},
         liquidity={"participation_rate": 0.04},
         thesis={"text": "Long-term compounder with durable moat."},
         tax_flags={"methodology_status": "available"},
+        valuation_status="approved",
     )
     decision = evaluate_holding_decision(context)
     assert decision["action"] in DECISION_ACTIONS
@@ -167,6 +192,53 @@ def test_monitoring_rules_persist_via_json_fallback(tmp_path, monkeypatch):
     assert len(listed) == 1
     assert listed[0]["rule_id"] == rule["rule_id"]
     assert listed[0]["threshold"] == 15.0
+
+
+def test_monitoring_rule_evaluation_triggers_concentration(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.persistence_backend", "json")
+    monkeypatch.setattr("app.db.state_store._data_dir", lambda: str(tmp_path))
+    from app.services.decision_center import monitoring_rules
+
+    rule = monitoring_rules.create_monitoring_rule(
+        "ACC-MON",
+        instrument_key="AAA:1",
+        rule_type="concentration",
+        threshold=8.0,
+        note="size",
+    )
+    assert rule["instrument_key"] == "AAA:1"
+    listed = monitoring_rules.list_monitoring_rules("ACC-MON")
+    assert listed
+    result = monitoring_rules.evaluate_monitoring_rules(
+        "ACC-MON",
+        holdings=[{"instrument_key": "AAA:1", "portfolio_weight": 12.0}],
+        risk_metrics={"max_drawdown_decimal": -0.1},
+        theses={},
+    )
+    assert result["rules_evaluated"] >= 1
+    assert result["evaluations"]
+    assert any(item.get("triggered") for item in result["evaluations"])
+    assert any(alert.get("triggered") for alert in result["alerts"])
+    assert result["alert_delivery"] == "withheld_not_implemented"
+
+
+def test_action_simulator_uses_tax_and_risk_blocks():
+    from app.services.decision_center.action_simulator import simulate_holding_action
+
+    sim = simulate_holding_action(
+        action="Review trim",
+        current_weight=10.0,
+        proposed_weight=5.0,
+        summary=SimpleNamespace(net_liquidation=100000.0, base_currency="USD"),
+        risk_metrics={"max_drawdown_decimal": -0.12},
+        account_type="IRA",
+        symbol="AAA",
+        account_id="A1",
+    )
+    assert sim["direction"] == "reduce"
+    assert sim["implementation_ready"] is False
+    assert sim["tax"]["estimated_tax"] == 0.0
+    assert sim["risk"]["over_concentrated_after"] is False
 
 
 def test_tax_transition_inputs_and_lot_snapshots_json_roundtrip(tmp_path, monkeypatch):

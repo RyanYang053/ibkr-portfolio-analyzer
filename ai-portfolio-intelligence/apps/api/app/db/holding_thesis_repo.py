@@ -46,8 +46,9 @@ def _write_index(index: dict[str, Any]) -> None:
 
 def get_thesis(account_id: str, instrument_key: str) -> dict[str, Any] | None:
     key = _record_key(account_id, instrument_key)
-    if settings.persistence_backend == "postgres" and _table_available():
-        require_postgres_read("holding thesis read", table_available=True)
+    if settings.persistence_backend == "postgres":
+        available = _table_available()
+        require_postgres_read("holding thesis read", table_available=available)
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:
@@ -78,8 +79,9 @@ def get_thesis(account_id: str, instrument_key: str) -> dict[str, Any] | None:
 
 
 def list_thesis_versions(account_id: str, instrument_key: str) -> list[dict[str, Any]]:
-    if settings.persistence_backend == "postgres" and _table_available():
-        require_postgres_read("holding thesis versions read", table_available=True)
+    if settings.persistence_backend == "postgres":
+        available = _table_available()
+        require_postgres_read("holding thesis versions read", table_available=available)
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:
@@ -124,29 +126,7 @@ def put_thesis(
     author: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    existing = get_thesis(account_id, instrument_key) or {}
-    version = int(existing.get("version") or 0) + 1
     now = datetime.now(timezone.utc)
-    payload = {
-        "account_id": account_id,
-        "instrument_key": instrument_key,
-        "text": text,
-        "summary": text[:240],
-        "author": author,
-        "version": version,
-        "updated_at": now.isoformat(),
-        "metadata": metadata or {},
-        "methodology_status": "experimental",
-    }
-    version_row = {
-        "account_id": account_id,
-        "instrument_key": instrument_key,
-        "version": version,
-        "thesis_text": text,
-        "author": author,
-        "created_at": now.isoformat(),
-        "payload": dict(payload),
-    }
 
     if settings.persistence_backend == "postgres":
         require_postgres_persistence("holding thesis write", table_available=_table_available())
@@ -154,6 +134,29 @@ def put_thesis(
         import json
 
         with SessionLocal() as session:
+            locked = session.execute(
+                text(
+                    """
+                    SELECT current_version
+                    FROM holding_theses
+                    WHERE account_id = :account_id AND UPPER(instrument_key) = :instrument_key
+                    FOR UPDATE
+                    """
+                ),
+                {"account_id": account_id, "instrument_key": _norm_key(instrument_key)},
+            ).mappings().first()
+            version = int(locked["current_version"] if locked else 0) + 1
+            payload = {
+                "account_id": account_id,
+                "instrument_key": instrument_key,
+                "text": text,
+                "summary": text[:240],
+                "author": author,
+                "version": version,
+                "updated_at": now.isoformat(),
+                "metadata": metadata or {},
+                "methodology_status": "experimental",
+            }
             session.execute(
                 text(
                     """
@@ -186,7 +189,6 @@ def put_thesis(
                         :account_id, :instrument_key, :version, :thesis_text, :author, :created_at,
                         CAST(:payload_json AS jsonb)
                     )
-                    ON CONFLICT (account_id, instrument_key, version) DO NOTHING
                     """
                 ),
                 {
@@ -202,6 +204,28 @@ def put_thesis(
             session.commit()
         return payload
 
+    existing = get_thesis(account_id, instrument_key) or {}
+    version = int(existing.get("version") or 0) + 1
+    payload = {
+        "account_id": account_id,
+        "instrument_key": instrument_key,
+        "text": text,
+        "summary": text[:240],
+        "author": author,
+        "version": version,
+        "updated_at": now.isoformat(),
+        "metadata": metadata or {},
+        "methodology_status": "experimental",
+    }
+    version_row = {
+        "account_id": account_id,
+        "instrument_key": instrument_key,
+        "version": version,
+        "thesis_text": text,
+        "author": author,
+        "created_at": now.isoformat(),
+        "payload": dict(payload),
+    }
     index = _read_index()
     key = _record_key(account_id, instrument_key)
     prior = index.get(key) if isinstance(index.get(key), dict) else {}

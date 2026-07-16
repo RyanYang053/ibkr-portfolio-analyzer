@@ -65,11 +65,17 @@ def test_short_put_reports_assignment_and_uncovered_exposure(monkeypatch):
         }
     )
 
-    summary, _ = compute_portfolio_greeks([stock, short_put], base_currency="USD")
+    summary, exclusions = compute_portfolio_greeks([stock, short_put], base_currency="USD")
     assert summary is not None
     assert summary.assignment_exposure > 0
     assert summary.uncovered_notional > 0
-    assert summary.margin_stress > 0
+    assert summary.margin_stress == 0.0
+    assert any("ibkr_portfolio_margin_withheld" in item for item in exclusions)
+    from app.services.options.portfolio_greeks import portfolio_greeks_as_dict
+
+    payload = portfolio_greeks_as_dict(summary)
+    assert payload["margin_stress"] is None
+    assert payload["ibkr_portfolio_margin_status"] == "withheld"
 
 
 def test_option_stress_withholds_without_contract_master(monkeypatch):

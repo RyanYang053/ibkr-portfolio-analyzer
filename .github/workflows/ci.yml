@@ -72,9 +72,9 @@ jobs:
             --out release-manifest.json \
             --pytest-report pytest-release-report.xml \
             --golden-hash-file golden-fixture-digest.txt \
-            --require-certified \
-            --allow-placeholder-container
-      - name: Assert manifest not falsely certified without digests
+            --mode ci_evidence \
+            --require-certified
+      - name: Assert CI evidence complete without false production certification
         run: |
           python - <<'PY'
           import json
@@ -84,14 +84,13 @@ jobs:
           assert manifest["pytest_report_sha256"]
           assert manifest["golden_fixture_sha256"]
           cert = manifest["certification"]
-          assert "pytest_report_digest_missing" not in cert["blockers"]
-          assert "golden_fixture_digest_missing" not in cert["blockers"]
+          assert cert["mode"] == "ci_evidence"
+          assert cert["evidence_complete"] is True
+          assert cert["certified"] is False
           assert "code_sha_unknown" not in cert["blockers"]
-          # placeholder container must never be treated as fully certified
           if manifest.get("container_digest") == "placeholder":
               assert "container_digest_placeholder" in cert["blockers"]
-              assert cert["certified"] is False
-          print("release-manifest digests ok")
+          print("CI evidence manifest ok; production certified=false as expected")
           PY
       - name: Upload release-manifest artifact
         uses: actions/upload-artifact@v4

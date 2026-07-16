@@ -23,10 +23,12 @@ class LensResult:
     evidence_refs: tuple[str, ...] = ()
     methodology_id: str = ""
     inputs_used: tuple[str, ...] = ()
+    display_name: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "lens_id": self.lens_id,
+            "display_name": self.display_name or self.lens_id,
             "version": self.version,
             "status": self.status,
             "score": self.score,

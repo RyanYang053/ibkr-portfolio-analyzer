@@ -42,3 +42,28 @@ def test_buffett_withheld_without_fundamentals():
     result = buffett(LensInputs(symbol="ZZZ"))
     assert result.status == "withheld"
     assert result.score is None
+
+
+def test_buffett_includes_roic_and_owner_earnings_proxies():
+    result = buffett(
+        LensInputs(
+            symbol="AAA",
+            fundamentals={
+                "return_on_equity": 0.22,
+                "fcf_yield": 0.05,
+                "operating_margin": 0.28,
+                "gross_margin": 0.45,
+                "total_debt": 10,
+                "average_common_equity": 100,
+                "net_income_common": 20,
+                "free_cash_flow": 15,
+                "cash": 5,
+            },
+        )
+    )
+    assert result.display_name == "Quality and Leverage Heuristic"
+    names = {c.name for c in result.components}
+    assert "roic_proxy" in names
+    assert "owner_earnings_proxy" in names
+    assert "moat_durability_score_not_implemented" in result.exclusions
+    assert result.score is not None

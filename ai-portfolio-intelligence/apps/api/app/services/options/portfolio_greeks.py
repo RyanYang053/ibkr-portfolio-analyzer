@@ -57,7 +57,6 @@ def compute_portfolio_greeks(
     expiry_notional: dict[str, float] = defaultdict(float)
     assignment_exposure = 0.0
     uncovered_notional = 0.0
-    margin_stress = 0.0
     option_positions = [position for position in positions if position.asset_class in {"OPT", "FOP"}]
     if not option_positions:
         return None, exclusions
@@ -140,9 +139,8 @@ def compute_portfolio_greeks(
                 uncovered_shares = max(0.0, shares_needed - covered_shares)
                 uncovered = uncovered_shares * underlying_spot * fx_rate
             uncovered_notional += uncovered
-            # Documented stress proxy only — not IBKR margin; experimental.
-            margin_stress += uncovered * 0.20
-            exclusions.append(f"{position.symbol}:margin_stress_experimental")
+            # IBKR portfolio-margin is not implemented — do not invent a substitute.
+            exclusions.append(f"{position.symbol}:ibkr_portfolio_margin_withheld")
 
     if fresh_contracts == 0:
         return None, exclusions
@@ -163,7 +161,7 @@ def compute_portfolio_greeks(
             expiry_concentration=expiry_concentration,
             assignment_exposure=round(assignment_exposure, 2),
             uncovered_notional=round(uncovered_notional, 2),
-            margin_stress=round(margin_stress, 2),
+            margin_stress=0.0,
             quote_observation_time=oldest_quote,
             quote_coverage_percent=quote_coverage,
         ),
@@ -182,7 +180,9 @@ def portfolio_greeks_as_dict(summary: PortfolioGreeksSummary | None) -> dict[str
         "expiry_concentration": summary.expiry_concentration,
         "assignment_exposure": summary.assignment_exposure,
         "uncovered_notional": summary.uncovered_notional,
-        "margin_stress": summary.margin_stress,
+        "margin_stress": None,
+        "ibkr_portfolio_margin_status": "withheld",
+        "ibkr_portfolio_margin": None,
         "quote_observation_time": summary.quote_observation_time.isoformat() if summary.quote_observation_time else None,
         "quote_coverage_percent": summary.quote_coverage_percent,
         "greek_units": {
@@ -194,7 +194,7 @@ def portfolio_greeks_as_dict(summary: PortfolioGreeksSummary | None) -> dict[str
         "methodology": (
             "Contract-master Greeks scaled by quantity, multiplier, and FX to account currency. "
             "Underlying resolved strictly by underlying_con_id then verified symbol (fail closed). "
-            "Margin stress is a documented experimental proxy — not IBKR margin. "
+            "IBKR portfolio-margin engines are withheld (not approximated). "
             "American exercise is withheld from European Black-Scholes stress paths. "
             "Contracts with missing or stale quote/Greek timestamps are excluded."
         ),

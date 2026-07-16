@@ -12,8 +12,13 @@ from app.services.market_data.exchange_calendar import is_us_equity_trading_day,
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
 
 DAILY_ATTRIBUTION_STATUS = "experimental_static_weight_daily_attribution"
-HOLDINGS_DAILY_ATTRIBUTION_STATUS = "ledger_backed_daily_holdings_attribution"
-TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS = "ledger_backed_total_return_daily_attribution"
+HOLDINGS_DAILY_ATTRIBUTION_STATUS = "price_only_holdings_attribution"
+PARTIAL_LEDGER_ATTRIBUTION_STATUS = "ledger_enriched_partial_attribution"
+TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS = "ledger_backed_total_return_attribution"
+WITHHELD_ATTRIBUTION_STATUS = "withheld_attribution_identity_failure"
+# Backward-compatible aliases used by older tests/callers.
+LEGACY_HOLDINGS_DAILY_ATTRIBUTION_STATUS = "ledger_backed_daily_holdings_attribution"
+LEGACY_TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS = "ledger_backed_total_return_daily_attribution"
 
 INCOME_ACTIONS = {"dividend", "dividend_reversal", "interest", "interest_reversal"}
 FEE_ACTIONS = {"fee", "fee_reversal"}
@@ -40,6 +45,8 @@ class DailySecurityInput:
     sector: str
     beginning_weight: float
     total_return: float
+    # When legs_from_ledger is True, non-price fields are portfolio contributions
+    # (ledger dollars / beginning NAV), not instrument returns.
     income_return: float = 0.0
     fx_return: float = 0.0
     fee_return: float = 0.0
@@ -48,16 +55,31 @@ class DailySecurityInput:
     legs_from_ledger: bool = False
 
     @property
-    def composed_total_return(self) -> float:
-        """price + income + FX + fee + tax + corp (fee/tax stored signed negative)."""
+    def non_price_portfolio_contribution(self) -> float:
         return (
-            self.price_return
-            + self.income_return
+            self.income_return
             + self.fx_return
             + self.fee_return
             + self.tax_return
             + self.corp_action_return
         )
+
+    @property
+    def composed_total_return(self) -> float:
+        """Instrument total return used for sector Brinson sleeves."""
+        if self.legs_from_ledger:
+            if abs(self.beginning_weight) <= 1e-12:
+                return self.price_return
+            return self.price_return + (self.non_price_portfolio_contribution / self.beginning_weight)
+        residual = (
+            self.total_return
+            - self.income_return
+            - self.fx_return
+            - self.fee_return
+            - self.tax_return
+            - self.corp_action_return
+        )
+        return residual
 
     @property
     def price_return(self) -> float:
@@ -177,10 +199,56 @@ def _legs_populated(inputs: Iterable[DailySecurityInput]) -> bool:
     rows = list(inputs)
     if not rows:
         return False
-    if not any(row.legs_from_ledger for row in rows):
-        return False
-    # At least one non-price leg observed somewhere, or explicit zeroed ledger enrichment ran.
-    return True
+    return any(row.legs_from_ledger for row in rows)
+
+
+def _non_price_legs_observed(inputs: Iterable[DailySecurityInput]) -> bool:
+    return any(
+        abs(row.non_price_portfolio_contribution) > 1e-12
+        for row in inputs
+        if row.legs_from_ledger
+    )
+
+
+def _exit_price_return_from_transactions(
+    *,
+    symbol: str,
+    con_id: int | None,
+    prior_price: float,
+    beginning_value: float,
+    day: date,
+    transactions: list[Transaction] | None,
+) -> float | None:
+    """Derive exit return from execution evidence; None means withhold."""
+    if not transactions or prior_price <= 0:
+        return None
+    symbol_u = symbol.upper()
+    matched: list[Transaction] = []
+    for txn in transactions:
+        if txn.trade_date != day:
+            continue
+        if str(txn.symbol or "").upper() != symbol_u:
+            continue
+        if con_id is not None and txn.con_id is not None and int(txn.con_id) != int(con_id):
+            continue
+        if txn.action not in {"sell", "sell_short", "buy_to_cover", "buy"}:
+            continue
+        # Closing a long uses sell; closing a short uses buy/buy_to_cover.
+        if beginning_value > 0 and txn.action not in {"sell", "sell_short"}:
+            continue
+        if beginning_value < 0 and txn.action not in {"buy", "buy_to_cover"}:
+            continue
+        if float(txn.price or 0.0) <= 0 or abs(float(txn.quantity or 0.0)) <= 0:
+            continue
+        matched.append(txn)
+    if not matched:
+        return None
+    notional = sum(abs(float(txn.quantity)) * float(txn.price) for txn in matched)
+    qty = sum(abs(float(txn.quantity)) for txn in matched)
+    if qty <= 0:
+        return None
+    vwap = notional / qty
+    return (vwap / prior_price) - 1.0
 
 
 def allocate_ledger_legs_for_day(
@@ -324,9 +392,8 @@ def build_daily_security_inputs_from_history(
     """Derive beginning-weight security returns from consecutive PnL snapshots.
 
     Uses signed market values (shorts included). Positions that exit between
-    snapshots remain with a realized price return of -1.0 on MV (full exit of
-    beginning exposure) unless the next mark is unavailable — then price return
-    is 0 and any ledger legs still attach via enrichment.
+    snapshots require execution evidence; without it the security/day is withheld
+    rather than inventing a ±100% price return.
     """
     ordered = sorted(
         (
@@ -367,8 +434,16 @@ def build_daily_security_inputs_from_history(
                 # Signed quantity path: short price rise is negative local return.
                 price_return = (float(current_row.market_price) / float(prior.market_price)) - 1.0
             else:
-                # Sold / covered between snapshots — attribute remaining open PnL as exit.
-                price_return = -1.0 if beginning_value > 0 else 1.0
+                price_return = _exit_price_return_from_transactions(
+                    symbol=prior.symbol,
+                    con_id=prior.con_id,
+                    prior_price=float(prior.market_price),
+                    beginning_value=beginning_value,
+                    day=current_date,
+                    transactions=transactions,
+                )
+                if price_return is None:
+                    continue
             inputs.append(
                 DailySecurityInput(
                     date=current_date,
@@ -413,6 +488,14 @@ def build_daily_security_inputs_from_daily_positions(
             by_date[day] = rows
 
     dated = sorted(by_date)
+    if transactions is None:
+        try:
+            from app.services.portfolio.transaction_store import get_transactions
+
+            transactions = get_transactions(account_id)
+        except Exception:
+            transactions = []
+
     inputs: list[DailySecurityInput] = []
     beginning_nav_by_day: dict[date, float] = {}
     for previous_date, current_date in zip(dated, dated[1:], strict=False):
@@ -446,7 +529,16 @@ def build_daily_security_inputs_from_daily_positions(
                     continue
                 price_return = (current_price / prior_price) - 1.0
             else:
-                price_return = -1.0 if beginning_value > 0 else 1.0
+                price_return = _exit_price_return_from_transactions(
+                    symbol=str(prior.get("symbol", "")),
+                    con_id=prior.get("con_id"),
+                    prior_price=prior_price,
+                    beginning_value=beginning_value,
+                    day=current_date,
+                    transactions=transactions,
+                )
+                if price_return is None:
+                    continue
             sector = str(prior.get("sector") or _sector_for_symbol(str(prior.get("symbol", "")), positions))
             inputs.append(
                 DailySecurityInput(
@@ -457,14 +549,6 @@ def build_daily_security_inputs_from_daily_positions(
                     total_return=price_return,
                 )
             )
-
-    if transactions is None:
-        try:
-            from app.services.portfolio.transaction_store import get_transactions
-
-            transactions = get_transactions(account_id)
-        except Exception:
-            transactions = []
 
     if transactions:
         enriched, _cash = enrich_security_inputs_with_ledger_legs(
@@ -581,8 +665,16 @@ def build_daily_attribution_contributions(
             quality=quality,
             history=history,
         )
-        if _legs_populated(resolved_inputs):
+        if (
+            _non_price_legs_observed(resolved_inputs)
+            and quality.get("nav_residual_within_tolerance") is True
+            and quality.get("contribution_identity_ok") is True
+        ):
             status = TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS
+        elif _legs_populated(resolved_inputs) and quality.get("contribution_identity_ok") is False:
+            status = WITHHELD_ATTRIBUTION_STATUS
+        elif _legs_populated(resolved_inputs):
+            status = PARTIAL_LEDGER_ATTRIBUTION_STATUS
         else:
             status = HOLDINGS_DAILY_ATTRIBUTION_STATUS
         return contributions, status, quality
@@ -629,11 +721,19 @@ def _build_holdings_based_contributions(
         if not day_rows:
             continue
         price_daily = sum(row.beginning_weight * row.price_return for row in day_rows)
-        income_daily = sum(row.beginning_weight * row.income_return for row in day_rows)
-        fx_daily = sum(row.beginning_weight * row.fx_return for row in day_rows)
-        fee_daily = sum(row.beginning_weight * row.fee_return for row in day_rows)
-        tax_daily = sum(row.beginning_weight * row.tax_return for row in day_rows)
-        corp_daily = sum(row.beginning_weight * row.corp_action_return for row in day_rows)
+        if any(row.legs_from_ledger for row in day_rows):
+            # Non-price fields are already portfolio contributions (dollars / NAV).
+            income_daily = sum(row.income_return for row in day_rows)
+            fx_daily = sum(row.fx_return for row in day_rows)
+            fee_daily = sum(row.fee_return for row in day_rows)
+            tax_daily = sum(row.tax_return for row in day_rows)
+            corp_daily = sum(row.corp_action_return for row in day_rows)
+        else:
+            income_daily = sum(row.beginning_weight * row.income_return for row in day_rows)
+            fx_daily = sum(row.beginning_weight * row.fx_return for row in day_rows)
+            fee_daily = sum(row.beginning_weight * row.fee_return for row in day_rows)
+            tax_daily = sum(row.beginning_weight * row.tax_return for row in day_rows)
+            corp_daily = sum(row.beginning_weight * row.corp_action_return for row in day_rows)
 
         cash_legs = (cash_sleeve_returns or {}).get(day, {})
         cash_income = float(cash_legs.get("income", 0.0))

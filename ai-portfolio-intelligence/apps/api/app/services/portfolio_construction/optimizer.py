@@ -498,8 +498,26 @@ def generate_portfolio_optimization(
             )
             sell_tax_rates.append(rate)
             sellable_fraction_by_symbol[position.symbol.upper()] = sellable_fraction
-            spread_rate = liquidity_inputs_by_instrument[instrument].bid_ask_spread_bps / 10_000.0
-            transaction_cost_rates.append(spread_rate + 0.0005)
+            from app.services.portfolio_construction.transaction_cost_model import (
+                TransactionCostInputs,
+                estimate_transaction_cost,
+            )
+
+            liquidity = liquidity_inputs_by_instrument[instrument]
+            cost_estimate = estimate_transaction_cost(
+                TransactionCostInputs(
+                    instrument_key=_instrument_label(instrument),
+                    trade_value=max(market_value, 1.0),
+                    bid_ask_spread_bps=float(liquidity.bid_ask_spread_bps),
+                    commission_bps=1.0,
+                    market_impact_bps=max(float(liquidity.bid_ask_spread_bps) * 0.25, 0.5),
+                    fx_conversion_bps=0.0 if position.currency.upper() == summary.base_currency.upper() else 5.0,
+                    option_contract_cost=0.0,
+                    minimum_ticket_cost=1.0,
+                    is_option=position.asset_class in {"OPT", "FOP"},
+                )
+            )
+            transaction_cost_rates.append(cost_estimate.total_expected / max(market_value, 1e-6))
         # Reduce sell capacity for blocked lots.
         for index, instrument in enumerate(covariance_symbols):
             symbol = _instrument_label(instrument).upper()
@@ -533,17 +551,70 @@ def generate_portfolio_optimization(
             lot_max_sell_weights.append(lot_weight)
             lot_tax_rate_per_unit.append(tax_dollars / lot_mv)
     except Exception:
-        # Fail open to prior proxy only when lot data unavailable — still label provisional.
         sell_tax_rates = []
         transaction_cost_rates = []
+        lot_ids_for_solver = []
+        lot_symbol_indices = []
+        lot_max_sell_weights = []
+        lot_tax_rate_per_unit = []
+        if str(profile.account_type or "") == "Taxable":
+            tax_transition_summary = TaxTransitionSummary(
+                jurisdiction=jurisdiction,
+                methodology_status="withheld_lot_inputs_unavailable",
+                after_tax_feasible=False,
+                exclusions=["lot_level_tax_inputs_unavailable"],
+            )
+            return PortfolioOptimizationProposal(
+                objective=objective,
+                proposed_trades=[],
+                expected_volatility=None,
+                expected_return=None,
+                sharpe_ratio=None,
+                modeled_sleeve_expected_volatility=None,
+                modeled_sleeve_expected_return=None,
+                modeled_sleeve_sharpe=None,
+                standalone_sleeve_expected_return=None,
+                standalone_sleeve_expected_volatility=None,
+                standalone_sleeve_sharpe=None,
+                portfolio_expected_return_contribution=None,
+                portfolio_expected_volatility_contribution=None,
+                modeled_portfolio_coverage_percent=None,
+                constraints_applied=[
+                    f"objective={objective}",
+                    "tax_transition_status=withheld_lot_inputs_unavailable",
+                    "implementation_ready=false",
+                ],
+                methodology=(
+                    "Tax-aware optimization withheld: lot-level tax inputs unavailable. "
+                    "No implementation proposal is emitted for taxable accounts."
+                ),
+                tax_transition=tax_transition_summary,
+                tax_lot_ids_considered=[],
+            )
         for instrument in covariance_symbols:
             position = next(item for item in optimizable_positions if _instrument_key(item) == instrument)
             market_value = max(abs(float(position.market_value)), 1e-6)
-            gain = max(0.0, float(position.unrealized_pnl))
-            # Keep rate zero rather than inventing flat 25% when lots unavailable.
-            sell_tax_rates.append(0.0 if jurisdiction != "US" else (gain / market_value) * 0.15)
-            spread_rate = liquidity_inputs_by_instrument[instrument].bid_ask_spread_bps / 10_000.0
-            transaction_cost_rates.append(spread_rate + 0.0005)
+            sell_tax_rates.append(0.0)
+            from app.services.portfolio_construction.transaction_cost_model import (
+                TransactionCostInputs,
+                estimate_transaction_cost,
+            )
+
+            liquidity = liquidity_inputs_by_instrument[instrument]
+            cost_estimate = estimate_transaction_cost(
+                TransactionCostInputs(
+                    instrument_key=_instrument_label(instrument),
+                    trade_value=max(market_value, 1.0),
+                    bid_ask_spread_bps=float(liquidity.bid_ask_spread_bps),
+                    commission_bps=1.0,
+                    market_impact_bps=max(float(liquidity.bid_ask_spread_bps) * 0.25, 0.5),
+                    fx_conversion_bps=0.0 if position.currency.upper() == summary.base_currency.upper() else 5.0,
+                    option_contract_cost=0.0,
+                    minimum_ticket_cost=1.0,
+                    is_option=position.asset_class in {"OPT", "FOP"},
+                )
+            )
+            transaction_cost_rates.append(cost_estimate.total_expected / max(market_value, 1e-6))
         tax_transition_summary = TaxTransitionSummary(
             jurisdiction=jurisdiction,
             methodology_status="provisional_lot_inputs_unavailable",

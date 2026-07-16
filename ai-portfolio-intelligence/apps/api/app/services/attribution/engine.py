@@ -65,20 +65,32 @@ def _production_brinson_ready(
     from app.services.attribution.daily_series import (
         DAILY_ATTRIBUTION_STATUS,
         HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+        LEGACY_HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+        LEGACY_TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+        PARTIAL_LEDGER_ATTRIBUTION_STATUS,
         TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+        WITHHELD_ATTRIBUTION_STATUS,
     )
 
     if daily_attribution_status == DAILY_ATTRIBUTION_STATUS:
         # Static-weight daily attribution is experimental and must not approve methodology.
         return False
+    production_statuses = {
+        TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+        LEGACY_TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+    }
     if daily_contributions and daily_attribution_status in {
         HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+        PARTIAL_LEDGER_ATTRIBUTION_STATUS,
+        LEGACY_HOLDINGS_DAILY_ATTRIBUTION_STATUS,
         TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+        LEGACY_TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+        WITHHELD_ATTRIBUTION_STATUS,
     }:
         from app.services.attribution.linking import active_return_reconciles
 
-        # Production ledger_backed requires total-return legs, not price-only holdings.
-        if daily_attribution_status != TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS:
+        # Production ledger_backed requires total-return legs, not price-only/partial.
+        if daily_attribution_status not in production_statuses:
             return False
         ok, _gap = active_return_reconciles(
             daily_contributions,
@@ -453,7 +465,11 @@ def calculate_performance_attribution(
         from app.services.attribution.daily_series import (
             DAILY_ATTRIBUTION_STATUS,
             HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+            LEGACY_HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+            LEGACY_TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+            PARTIAL_LEDGER_ATTRIBUTION_STATUS,
             TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+            WITHHELD_ATTRIBUTION_STATUS,
             build_daily_attribution_contributions,
         )
 
@@ -529,7 +545,14 @@ def calculate_performance_attribution(
             brinson_status = (
                 daily_attribution_status
                 if daily_attribution_status
-                in {HOLDINGS_DAILY_ATTRIBUTION_STATUS, TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS}
+                in {
+                    HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+                    PARTIAL_LEDGER_ATTRIBUTION_STATUS,
+                    TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+                    WITHHELD_ATTRIBUTION_STATUS,
+                    LEGACY_HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+                    LEGACY_TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+                }
                 else "ledger_backed"
             )
         elif _by_sector and allow_mock:

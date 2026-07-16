@@ -71,6 +71,7 @@ def certification_status(
     pytest_report_sha256: str | None,
     golden_fixture_sha256: str | None,
     container_digest: str | None,
+    mode: str = "ci_evidence",
 ) -> dict[str, object]:
     blockers: list[str] = []
     if not code_sha or code_sha == "unknown":
@@ -79,10 +80,17 @@ def certification_status(
         blockers.append("pytest_report_digest_missing")
     if not golden_fixture_sha256:
         blockers.append("golden_fixture_digest_missing")
-    if not container_digest or container_digest == "placeholder":
+    if mode == "production_release":
+        if not container_digest or container_digest == "placeholder":
+            blockers.append("container_digest_placeholder")
+    elif not container_digest or container_digest == "placeholder":
         blockers.append("container_digest_placeholder")
     return {
-        "certified": not blockers,
+        "mode": mode,
+        "certified": not blockers if mode == "production_release" else False,
+        "evidence_complete": not [b for b in blockers if b != "container_digest_placeholder"]
+        if mode == "ci_evidence"
+        else not blockers,
         "blockers": blockers,
     }
 
@@ -92,6 +100,7 @@ def build_manifest(
     pytest_report: Path | None = None,
     golden_hash_file: Path | None = None,
     container_digest: str | None = None,
+    mode: str = "ci_evidence",
 ) -> dict[str, object]:
     approvals = _methodology_approvals()
     code_sha = _git_sha()
@@ -114,6 +123,7 @@ def build_manifest(
             pytest_report_sha256=pytest_digest,
             golden_fixture_sha256=golden_digest,
             container_digest=resolved_container,
+            mode=mode,
         ),
         "approval_status": {
             "all_experimental_or_approved": all(
@@ -135,15 +145,16 @@ def main() -> int:
     parser.add_argument("--golden-hash-file", type=Path, default=None)
     parser.add_argument("--container-digest", type=str, default=None)
     parser.add_argument(
-        "--require-certified",
-        action="store_true",
-        help="Exit non-zero unless code SHA and digests are present (container may remain placeholder).",
+        "--mode",
+        choices=("ci_evidence", "production_release"),
+        default="ci_evidence",
+        help="ci_evidence writes digests without claiming production certification; "
+        "production_release requires a real container digest.",
     )
     parser.add_argument(
-        "--allow-placeholder-container",
+        "--require-certified",
         action="store_true",
-        default=True,
-        help="Treat container_digest=placeholder as non-blocking when --require-certified.",
+        help="Exit non-zero unless mode requirements are satisfied.",
     )
     args = parser.parse_args()
 
@@ -151,17 +162,20 @@ def main() -> int:
         pytest_report=args.pytest_report,
         golden_hash_file=args.golden_hash_file,
         container_digest=args.container_digest,
+        mode=args.mode,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Wrote {args.out}")
 
     if args.require_certified:
-        blockers = list(manifest["certification"]["blockers"])  # type: ignore[index]
-        if args.allow_placeholder_container:
-            blockers = [item for item in blockers if item != "container_digest_placeholder"]
-        if blockers:
-            print(f"Release manifest not certifiable: {blockers}", file=sys.stderr)
+        cert = manifest["certification"]  # type: ignore[index]
+        if args.mode == "production_release":
+            if not cert.get("certified"):
+                print(f"Production release not certifiable: {cert.get('blockers')}", file=sys.stderr)
+                return 1
+        elif not cert.get("evidence_complete"):
+            print(f"CI evidence incomplete: {cert.get('blockers')}", file=sys.stderr)
             return 1
     return 0
 

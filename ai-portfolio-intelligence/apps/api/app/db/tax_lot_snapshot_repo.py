@@ -125,8 +125,9 @@ def list_tax_lot_snapshots(
     as_of_date: date | None = None,
 ) -> list[dict[str, Any]]:
     as_of_date = as_of_date or date.today()
-    if settings.persistence_backend == "postgres" and _table_available():
-        require_postgres_read("tax lot snapshot read", table_available=True)
+    if settings.persistence_backend == "postgres":
+        available = _table_available()
+        require_postgres_read("tax lot snapshot read", table_available=available)
         from app.db.session import SessionLocal
 
         with SessionLocal() as session:

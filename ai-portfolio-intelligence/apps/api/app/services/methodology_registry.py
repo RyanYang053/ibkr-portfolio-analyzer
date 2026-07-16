@@ -181,14 +181,17 @@ DEFAULT_METHODOLOGIES: tuple[MethodologyRecord, ...] = (
     ),
     MethodologyRecord(
         methodology_id="investor_lens_buffett_quality",
-        name="Investor Lens Buffett Quality",
-        version="0.1.0",
+        name="Quality and Leverage Heuristic",
+        version="0.2.0",
         effective_date=date(2026, 7, 15),
         owner="decision-center",
         approval_status="experimental",
         independent_validation_fixture="tests/test_investor_lenses.py",
-        known_limitations=("Deterministic heuristic only; not an endorsed valuation.",),
-        rollback_version=None,
+        known_limitations=(
+            "Deterministic heuristic with ROIC/owner-earnings proxies; not full Buffett methodology "
+            "(moat, capital allocation, valuation range still not implemented).",
+        ),
+        rollback_version="0.1.0",
     ),
     MethodologyRecord(
         methodology_id="investor_lens_graham_piotroski",
