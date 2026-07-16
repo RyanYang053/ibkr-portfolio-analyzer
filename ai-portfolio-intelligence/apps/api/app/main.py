@@ -15,6 +15,7 @@ from app.api.routes import (
     auth,
     broker,
     chat,
+    decision_center,
     health,
     pnl,
     portfolio,
@@ -82,6 +83,7 @@ app.include_router(health.router)
 app.include_router(ai.router)
 app.include_router(broker.router)
 app.include_router(portfolio.router)
+app.include_router(decision_center.router)
 app.include_router(stocks.router)
 app.include_router(analysis.router)
 app.include_router(reports.router)

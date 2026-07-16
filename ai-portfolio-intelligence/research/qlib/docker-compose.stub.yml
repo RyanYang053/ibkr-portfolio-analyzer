@@ -1,0 +1,9 @@
+# Optional research service stub — not started by default CI.
+# services:
+#   qlib-research:
+#     image: python:3.12-slim
+#     working_dir: /workspace
+#     volumes:
+#       - ./:/workspace
+#     command: ["python", "-c", "print('qlib research stub idle')"]
+#     profiles: ["research"]

@@ -402,6 +402,52 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "MonitoringRuleRequest": {
+        "properties": {
+          "instrument_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Key"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "rule_type": {
+            "title": "Rule Type",
+            "type": "string"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          }
+        },
+        "required": [
+          "rule_type"
+        ],
+        "title": "MonitoringRuleRequest",
+        "type": "object"
+      },
       "PortfolioPnLSnapshot": {
         "properties": {
           "buying_power": {
@@ -770,6 +816,66 @@
           "period"
         ],
         "title": "ScheduledAnalyzeRequest",
+        "type": "object"
+      },
+      "SimulateRequest": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "estimated_tax": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Tax"
+          },
+          "proposed_weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Weight"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "SimulateRequest",
+        "type": "object"
+      },
+      "ThesisPutRequest": {
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "ThesisPutRequest",
         "type": "object"
       },
       "ThesisUpdateRequest": {
@@ -2650,6 +2756,61 @@
         ]
       }
     },
+    "/portfolio/decision-center": {
+      "get": {
+        "operationId": "decision_center_overview_portfolio_decision_center_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Decision Center Overview Portfolio Decision Center Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decision Center Overview",
+        "tags": [
+          "decision-center"
+        ]
+      }
+    },
     "/portfolio/decision-journal": {
       "get": {
         "operationId": "decision_journal_portfolio_decision_journal_get",
@@ -2699,6 +2860,124 @@
         "summary": "Decision Journal",
         "tags": [
           "portfolio"
+        ]
+      }
+    },
+    "/portfolio/decision-monitoring": {
+      "get": {
+        "operationId": "get_decision_monitoring_portfolio_decision_monitoring_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Decision Monitoring Portfolio Decision Monitoring Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Decision Monitoring",
+        "tags": [
+          "decision-center"
+        ]
+      },
+      "post": {
+        "operationId": "post_decision_monitoring_portfolio_decision_monitoring_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitoringRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Post Decision Monitoring Portfolio Decision Monitoring Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Decision Monitoring",
+        "tags": [
+          "decision-center"
         ]
       }
     },
@@ -2760,6 +3039,344 @@
         "summary": "Point In Time Fundamentals",
         "tags": [
           "portfolio"
+        ]
+      }
+    },
+    "/portfolio/holdings/{instrument_key}/decision": {
+      "get": {
+        "operationId": "holding_decision_portfolio_holdings__instrument_key__decision_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instrument_key",
+            "required": true,
+            "schema": {
+              "title": "Instrument Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Holding Decision Portfolio Holdings  Instrument Key  Decision Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Holding Decision",
+        "tags": [
+          "decision-center"
+        ]
+      }
+    },
+    "/portfolio/holdings/{instrument_key}/lenses": {
+      "get": {
+        "operationId": "holding_lenses_portfolio_holdings__instrument_key__lenses_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instrument_key",
+            "required": true,
+            "schema": {
+              "title": "Instrument Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Holding Lenses Portfolio Holdings  Instrument Key  Lenses Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Holding Lenses",
+        "tags": [
+          "decision-center"
+        ]
+      }
+    },
+    "/portfolio/holdings/{instrument_key}/simulate": {
+      "post": {
+        "operationId": "simulate_holding_portfolio_holdings__instrument_key__simulate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instrument_key",
+            "required": true,
+            "schema": {
+              "title": "Instrument Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Simulate Holding Portfolio Holdings  Instrument Key  Simulate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Simulate Holding",
+        "tags": [
+          "decision-center"
+        ]
+      }
+    },
+    "/portfolio/holdings/{instrument_key}/thesis": {
+      "get": {
+        "operationId": "get_holding_thesis_portfolio_holdings__instrument_key__thesis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instrument_key",
+            "required": true,
+            "schema": {
+              "title": "Instrument Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Holding Thesis Portfolio Holdings  Instrument Key  Thesis Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Holding Thesis",
+        "tags": [
+          "decision-center"
+        ]
+      },
+      "put": {
+        "operationId": "put_holding_thesis_portfolio_holdings__instrument_key__thesis_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instrument_key",
+            "required": true,
+            "schema": {
+              "title": "Instrument Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThesisPutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Put Holding Thesis Portfolio Holdings  Instrument Key  Thesis Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Holding Thesis",
+        "tags": [
+          "decision-center"
         ]
       }
     },
@@ -4994,6 +5611,28 @@
         "summary": "Xbrl Facts",
         "tags": [
           "stocks"
+        ]
+      }
+    },
+    "/version": {
+      "get": {
+        "operationId": "version_info_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Version Info Version Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Version Info",
+        "tags": [
+          "health"
         ]
       }
     },

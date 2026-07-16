@@ -13,6 +13,7 @@ from app.schemas.domain import (
     PortfolioOptimizationItem,
     PortfolioOptimizationProposal,
     Position,
+    TaxTransitionSummary,
 )
 from app.services.policy.engine import analyze_policy_drift
 from app.services.portfolio_construction.advanced_optimizer import InstrumentKey
@@ -354,13 +355,201 @@ def generate_portfolio_optimization(
 
     sell_tax_rates = []
     transaction_cost_rates = []
-    for instrument in covariance_symbols:
-        position = next(item for item in optimizable_positions if _instrument_key(item) == instrument)
-        market_value = max(abs(float(position.market_value)), 1e-6)
-        gain = max(0.0, float(position.unrealized_pnl))
-        sell_tax_rates.append((gain / market_value) * 0.25)
-        spread_rate = liquidity_inputs_by_instrument[instrument].bid_ask_spread_bps / 10_000.0
-        transaction_cost_rates.append(spread_rate + 0.0005)
+    tax_transition_summary: TaxTransitionSummary | None = None
+    tax_lot_ids_considered: list[str] = []
+    sellable_fraction_by_symbol: dict[str, float] = {}
+    lot_ids_for_solver: list[str] = []
+    lot_symbol_indices: list[int] = []
+    lot_max_sell_weights: list[float] = []
+    lot_tax_rate_per_unit: list[float] = []
+
+    jurisdiction = "OTHER"
+    if getattr(profile, "tax_residency", None) == "US":
+        jurisdiction = "US"
+    elif getattr(profile, "tax_residency", None) == "Canada":
+        jurisdiction = "CA"
+
+    try:
+        from datetime import date as date_cls
+
+        from app.services.portfolio.tax_lots import build_tax_lot_attribution
+        from app.services.portfolio.transaction_store import get_transactions
+        from app.services.portfolio_construction.tax_transition import (
+            TaxTransitionRequest,
+            build_tax_lot_transition_inputs_from_open_lots,
+            evaluate_tax_transition,
+            lot_marginal_tax_rate,
+            symbol_sell_tax_rate_and_capacity,
+        )
+        from app.services.tax.canadian_acb import superficial_loss_blocked_symbols
+
+        from app.db.tax_lot_snapshot_repo import replace_tax_lot_snapshots
+        from app.db.tax_transition_inputs_repo import (
+            get_latest_tax_transition_inputs,
+            upsert_tax_transition_inputs,
+        )
+
+        transactions = get_transactions(summary.account_id)
+        tax_report = build_tax_lot_attribution(
+            summary.account_id,
+            transactions,
+            reporting_currency=summary.base_currency,
+            tax_labeling_jurisdiction=jurisdiction,  # type: ignore[arg-type]
+        )
+        as_of = date_cls.today()
+        account_type = str(profile.account_type or "Taxable")
+        persisted_inputs = get_latest_tax_transition_inputs(summary.account_id, as_of=as_of)
+        tax_budget = (
+            persisted_inputs.get("tax_budget")
+            if isinstance(persisted_inputs, dict) and persisted_inputs.get("tax_budget") is not None
+            else settings.optimization_tax_budget
+        )
+        try:
+            replace_tax_lot_snapshots(
+                account_id=summary.account_id,
+                as_of_date=as_of,
+                lots=[
+                    {
+                        "symbol": lot.symbol,
+                        "con_id": lot.con_id,
+                        "quantity": lot.quantity,
+                        "cost_basis_per_share": lot.cost_basis_per_share,
+                        "acquired_date": lot.acquired_date,
+                        "currency": lot.currency,
+                        "jurisdiction": jurisdiction,
+                        "lot_method": str(getattr(tax_report, "methodology", None) or "fifo"),
+                        "source": "optimizer",
+                        "payload": {"source": lot.source},
+                    }
+                    for lot in tax_report.lots_open
+                ],
+            )
+            upsert_tax_transition_inputs(
+                account_id=summary.account_id,
+                jurisdiction=jurisdiction,
+                account_type=account_type,
+                tax_budget=float(tax_budget) if tax_budget is not None else None,
+                effective_date=as_of,
+                source="optimizer",
+                constraints={"methodology_status": str(tax_report.methodology_status or "available")},
+            )
+        except Exception:
+            # Persistence is best-effort; optimizer continues with live ledger lots.
+            pass
+        marks = {
+            position.symbol.upper(): float(position.market_price)
+            for position in optimizable_positions
+        }
+        lot_inputs = build_tax_lot_transition_inputs_from_open_lots(
+            tax_report.lots_open,
+            marks_by_symbol=marks,
+            as_of=as_of,
+        )
+        tax_lot_ids_considered = [lot.lot_id for lot in lot_inputs]
+        blocked_symbols: tuple[str, ...] = ()
+        if jurisdiction == "CA":
+            # Prefer data_quality string from CA report path when present.
+            raw = (tax_report.data_quality or {}).get("superficial_loss_blocked_symbols", "")
+            if raw:
+                blocked_symbols = tuple(part for part in str(raw).split(",") if part)
+            else:
+                try:
+                    blocked_symbols = superficial_loss_blocked_symbols(tax_report)  # type: ignore[arg-type]
+                except Exception:
+                    blocked_symbols = ()
+        transition_request = TaxTransitionRequest(
+            account_type=account_type,
+            jurisdiction=jurisdiction,
+            tax_lots=lot_inputs,
+            tax_budget=tax_budget,
+            superficial_loss_blocked_symbols=blocked_symbols,
+        )
+        transition_result = evaluate_tax_transition(transition_request)
+        methodology_status = str(tax_report.methodology_status or "available")
+        if jurisdiction == "CA" and not methodology_status.startswith("provisional"):
+            if str((tax_report.data_quality or {}).get("status") or "") == "provisional":
+                methodology_status = "provisional"
+        blocked_detail = []
+        for lot_id in transition_result.blocked_lots:
+            reason = next(
+                (item for item in transition_result.exclusions if lot_id in item or item.endswith(lot_id)),
+                "blocked",
+            )
+            blocked_detail.append({"lot_id": lot_id, "reason": reason})
+        tax_transition_summary = TaxTransitionSummary(
+            jurisdiction=jurisdiction,
+            methodology_status=methodology_status,
+            sell_candidate_lot_ids=list(transition_result.sell_candidates),
+            blocked_lots=blocked_detail,
+            estimated_tax=round(transition_result.estimated_tax, 2),
+            after_tax_feasible=transition_result.after_tax_feasible,
+            exclusions=list(transition_result.exclusions),
+        )
+        for instrument in covariance_symbols:
+            position = next(item for item in optimizable_positions if _instrument_key(item) == instrument)
+            market_value = max(abs(float(position.market_value)), 1e-6)
+            rate, sellable_fraction = symbol_sell_tax_rate_and_capacity(
+                symbol=position.symbol,
+                market_value=market_value,
+                lots=lot_inputs,
+                transition=transition_result,
+                account_type=str(profile.account_type or "Taxable"),
+                jurisdiction=jurisdiction,
+            )
+            sell_tax_rates.append(rate)
+            sellable_fraction_by_symbol[position.symbol.upper()] = sellable_fraction
+            spread_rate = liquidity_inputs_by_instrument[instrument].bid_ask_spread_bps / 10_000.0
+            transaction_cost_rates.append(spread_rate + 0.0005)
+        # Reduce sell capacity for blocked lots.
+        for index, instrument in enumerate(covariance_symbols):
+            symbol = _instrument_label(instrument).upper()
+            fraction = sellable_fraction_by_symbol.get(symbol, 1.0)
+            max_sell_weight_changes[index] = float(max_sell_weight_changes[index]) * max(0.0, min(1.0, fraction))
+
+        symbol_index_by_label = {
+            _instrument_label(instrument).upper(): index
+            for index, instrument in enumerate(covariance_symbols)
+        }
+        sellable_ids = set(transition_result.sell_candidates)
+        blocked_ids = set(transition_result.blocked_lots)
+        for lot in lot_inputs:
+            if lot.lot_id in blocked_ids or lot.lot_id not in sellable_ids:
+                continue
+            symbol_index = symbol_index_by_label.get(lot.symbol.upper())
+            if symbol_index is None:
+                continue
+            lot_weight = abs(float(lot.market_value)) / max(total_value, 1e-6)
+            if lot_weight <= 0:
+                continue
+            lot_mv = max(abs(float(lot.market_value)), 1e-6)
+            marginal = lot_marginal_tax_rate(
+                lot,
+                account_type=account_type,
+                jurisdiction=jurisdiction,
+            )
+            tax_dollars = max(0.0, float(lot.unrealized_gain_loss)) * marginal
+            lot_ids_for_solver.append(lot.lot_id)
+            lot_symbol_indices.append(symbol_index)
+            lot_max_sell_weights.append(lot_weight)
+            lot_tax_rate_per_unit.append(tax_dollars / lot_mv)
+    except Exception:
+        # Fail open to prior proxy only when lot data unavailable — still label provisional.
+        sell_tax_rates = []
+        transaction_cost_rates = []
+        for instrument in covariance_symbols:
+            position = next(item for item in optimizable_positions if _instrument_key(item) == instrument)
+            market_value = max(abs(float(position.market_value)), 1e-6)
+            gain = max(0.0, float(position.unrealized_pnl))
+            # Keep rate zero rather than inventing flat 25% when lots unavailable.
+            sell_tax_rates.append(0.0 if jurisdiction != "US" else (gain / market_value) * 0.15)
+            spread_rate = liquidity_inputs_by_instrument[instrument].bid_ask_spread_bps / 10_000.0
+            transaction_cost_rates.append(spread_rate + 0.0005)
+        tax_transition_summary = TaxTransitionSummary(
+            jurisdiction=jurisdiction,
+            methodology_status="provisional_lot_inputs_unavailable",
+            after_tax_feasible=True,
+            exclusions=["lot_level_tax_inputs_unavailable"],
+        )
 
     per_asset_caps = _per_asset_full_caps(
         covariance_symbols,
@@ -388,6 +577,14 @@ def generate_portfolio_optimization(
         transaction_cost_budget=settings.optimization_transaction_cost_budget,
         sell_tax_rate_per_unit=np.array(sell_tax_rates, dtype=float),
         transaction_cost_rate_per_unit=np.array(transaction_cost_rates, dtype=float),
+        lot_ids=tuple(lot_ids_for_solver) if lot_ids_for_solver else None,
+        lot_symbol_indices=tuple(lot_symbol_indices) if lot_symbol_indices else None,
+        lot_max_sell_weights=(
+            np.array(lot_max_sell_weights, dtype=float) if lot_max_sell_weights else None
+        ),
+        lot_tax_rate_per_unit=(
+            np.array(lot_tax_rate_per_unit, dtype=float) if lot_tax_rate_per_unit else None
+        ),
     )
     solver_metadata: dict[str, object] = {}
     used_cvxpy_solver = False
@@ -431,6 +628,14 @@ def generate_portfolio_optimization(
             transaction_cost_budget=settings.optimization_transaction_cost_budget,
             sell_tax_rate_per_unit=np.array(sell_tax_rates, dtype=float),
             transaction_cost_rate_per_unit=np.array(transaction_cost_rates, dtype=float),
+            lot_ids=tuple(lot_ids_for_solver) if lot_ids_for_solver else None,
+            lot_symbol_indices=tuple(lot_symbol_indices) if lot_symbol_indices else None,
+            lot_max_sell_weights=(
+                np.array(lot_max_sell_weights, dtype=float) if lot_max_sell_weights else None
+            ),
+            lot_tax_rate_per_unit=(
+                np.array(lot_tax_rate_per_unit, dtype=float) if lot_tax_rate_per_unit else None
+            ),
         )
         if raw_weights is None:
             raise ValueError("Black-Litterman optimization failed")
@@ -458,6 +663,14 @@ def generate_portfolio_optimization(
             transaction_cost_budget=settings.optimization_transaction_cost_budget,
             sell_tax_rate_per_unit=np.array(sell_tax_rates, dtype=float),
             transaction_cost_rate_per_unit=np.array(transaction_cost_rates, dtype=float),
+            lot_ids=tuple(lot_ids_for_solver) if lot_ids_for_solver else None,
+            lot_symbol_indices=tuple(lot_symbol_indices) if lot_symbol_indices else None,
+            lot_max_sell_weights=(
+                np.array(lot_max_sell_weights, dtype=float) if lot_max_sell_weights else None
+            ),
+            lot_tax_rate_per_unit=(
+                np.array(lot_tax_rate_per_unit, dtype=float) if lot_tax_rate_per_unit else None
+            ),
         )
         if raw_weights is None:
             raise ValueError("CVaR optimization failed")
@@ -601,6 +814,22 @@ def generate_portfolio_optimization(
         constraints.append(f"post_solve_feasible={feasibility.get('feasible', False)}")
     if profile.account_type == "Taxable":
         constraints.append("tax_aware_turnover_cap=true")
+    if tax_transition_summary is not None:
+        constraints.append(f"tax_transition_jurisdiction={tax_transition_summary.jurisdiction}")
+        constraints.append(f"tax_transition_status={tax_transition_summary.methodology_status}")
+        if tax_transition_summary.blocked_lots:
+            constraints.append(f"tax_transition_blocked_lots={len(tax_transition_summary.blocked_lots)}")
+        if lot_ids_for_solver:
+            constraints.append(f"lot_level_sell_vars={len(lot_ids_for_solver)}")
+            constraints.append("tax_sell_selection=lot_level_cvxpy")
+        if solver_metadata.get("lot_level_tax_selection"):
+            constraints.append("lot_level_tax_selection=true")
+            selected = solver_metadata.get("selected_lot_sells") or []
+            constraints.append(f"selected_lot_sells={len(selected)}")
+        elif not lot_ids_for_solver and "lot_level_tax_inputs_unavailable" not in (
+            tax_transition_summary.exclusions or []
+        ):
+            constraints.append("tax_sell_selection=symbol_aggregated_fallback")
     if drift.get("rebalance_triggered"):
         constraints.append("policy_drift_triggered=true")
 
@@ -626,6 +855,9 @@ def generate_portfolio_optimization(
             "holdings, restricted symbols, and positions without return history are reserved outside the optimizable "
             "sleeve. Production minimum-variance proposals are solved with turnover, liquidity, sector, and "
             "single-name caps enforced in the solver and revalidated post-solve. Displayed metrics are modeled-sleeve "
-            "ex-ante estimates (w^T mu, sqrt(w^T Sigma w), Sharpe with risk-free rate). Output is a review proposal only."
+            "ex-ante estimates (w^T mu, sqrt(w^T Sigma w), Sharpe with risk-free rate). Lot-level tax transition "
+            "inputs gate sell capacity and marginal tax rates when available. Output is a review proposal only."
         ),
+        tax_transition=tax_transition_summary,
+        tax_lot_ids_considered=tax_lot_ids_considered,
     )

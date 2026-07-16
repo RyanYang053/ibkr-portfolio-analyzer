@@ -15,6 +15,7 @@ REQUIRED_PATHS = {
     "/stocks/{symbol}/score",
     "/recommendations",
     "/health",
+    "/version",
 }
 
 

@@ -219,7 +219,7 @@ def test_daily_attribution_series_builds_linked_contributions():
             investment_return_percent=0.0,
         ),
     ]
-    contributions, status = build_daily_attribution_contributions(
+    contributions, status, _quality = build_daily_attribution_contributions(
         positions=[],
         period_start=date(2025, 1, 2),
         period_end=date(2025, 1, 10),
@@ -257,7 +257,7 @@ def test_holdings_based_daily_attribution_from_security_inputs():
             total_return=-0.005,
         ),
     ]
-    contributions, status = build_daily_attribution_contributions(
+    contributions, status, _quality = build_daily_attribution_contributions(
         positions=[],
         period_start=date(2025, 1, 2),
         period_end=date(2025, 1, 10),

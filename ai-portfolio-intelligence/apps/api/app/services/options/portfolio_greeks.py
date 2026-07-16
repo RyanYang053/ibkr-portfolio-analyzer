@@ -90,20 +90,33 @@ def compute_portfolio_greeks(
             exclusions.append(f"{position.symbol}:stale_or_missing_greek_quote")
             continue
 
-        observation_time = _as_utc(observation_time) if observation_time is not None else None
-        if observation_time is not None and (oldest_quote is None or observation_time < oldest_quote):
-            oldest_quote = observation_time
-        fresh_contracts += 1
-
-        fx_rate = _fx_to_base(position, base_currency)
-        qty = float(position.quantity)
-        multiplier = float(position.multiplier or contract.multiplier or 100.0)
         underlying = None
         if contract.underlying_con_id is not None:
             underlying = stock_by_con_id.get(contract.underlying_con_id)
         if underlying is None:
-            underlying_symbol = (getattr(contract, "underlying_symbol", None) or contract.symbol).upper()
+            # Contract master stores underlying ticker on `symbol` (see upsert_contract).
+            underlying_symbol = (
+                getattr(contract, "underlying_symbol", None) or contract.symbol or ""
+            ).upper()
+            if not underlying_symbol:
+                exclusions.append(f"{position.symbol}:underlying_identity_missing")
+                continue
             underlying = stock_by_symbol.get(underlying_symbol)
+            if underlying is None:
+                exclusions.append(f"{position.symbol}:underlying_symbol_unverified")
+                continue
+            if contract.underlying_con_id is not None:
+                exclusions.append(f"{position.symbol}:underlying_con_id_fallback_symbol")
+
+        # Count coverage only after underlying resolution succeeds.
+        fresh_contracts += 1
+        observation_time = _as_utc(observation_time) if observation_time is not None else None
+        if observation_time is not None and (oldest_quote is None or observation_time < oldest_quote):
+            oldest_quote = observation_time
+
+        fx_rate = _fx_to_base(position, base_currency)
+        qty = float(position.quantity)
+        multiplier = float(position.multiplier or contract.multiplier or 100.0)
         underlying_spot = underlying.market_price if underlying else 0.0
 
         if contract.delta is not None:
@@ -127,7 +140,9 @@ def compute_portfolio_greeks(
                 uncovered_shares = max(0.0, shares_needed - covered_shares)
                 uncovered = uncovered_shares * underlying_spot * fx_rate
             uncovered_notional += uncovered
+            # Documented stress proxy only — not IBKR margin; experimental.
             margin_stress += uncovered * 0.20
+            exclusions.append(f"{position.symbol}:margin_stress_experimental")
 
     if fresh_contracts == 0:
         return None, exclusions
@@ -178,6 +193,10 @@ def portfolio_greeks_as_dict(summary: PortfolioGreeksSummary | None) -> dict[str
         },
         "methodology": (
             "Contract-master Greeks scaled by quantity, multiplier, and FX to account currency. "
+            "Underlying resolved strictly by underlying_con_id then verified symbol (fail closed). "
+            "Margin stress is a documented experimental proxy — not IBKR margin. "
+            "American exercise is withheld from European Black-Scholes stress paths. "
             "Contracts with missing or stale quote/Greek timestamps are excluded."
         ),
+        "methodology_status": "experimental",
     }

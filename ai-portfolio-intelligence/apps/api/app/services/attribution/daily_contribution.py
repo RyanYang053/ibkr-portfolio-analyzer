@@ -17,6 +17,8 @@ class DailyContribution:
     interaction_effect: float
     portfolio_return: float | None = None
     benchmark_return: float | None = None
+    corp_action_contribution: float = 0.0
+    cash_contribution: float = 0.0
 
     @property
     def total_return_contribution(self) -> float:
@@ -26,6 +28,7 @@ class DailyContribution:
             + self.fx_contribution
             + self.fee_contribution
             + self.tax_contribution
+            + self.corp_action_contribution
         )
 
     @property
@@ -42,6 +45,7 @@ def build_daily_contribution(
     fx_return: float = 0.0,
     fee_return: float = 0.0,
     tax_return: float = 0.0,
+    corp_action_return: float = 0.0,
     portfolio_sector_weight: float,
     benchmark_sector_weight: float,
     portfolio_sector_return: float,
@@ -54,6 +58,7 @@ def build_daily_contribution(
     fx_contribution = portfolio_weight * fx_return
     fee_contribution = portfolio_weight * fee_return
     tax_contribution = portfolio_weight * tax_return
+    corp_action_contribution = portfolio_weight * corp_action_return
 
     allocation = (portfolio_sector_weight - benchmark_sector_weight) * benchmark_sector_return
     selection = benchmark_sector_weight * (portfolio_sector_return - benchmark_sector_return)
@@ -68,6 +73,7 @@ def build_daily_contribution(
         fx_contribution=fx_contribution,
         fee_contribution=fee_contribution,
         tax_contribution=tax_contribution,
+        corp_action_contribution=corp_action_contribution,
         allocation_effect=allocation,
         selection_effect=selection,
         interaction_effect=interaction,

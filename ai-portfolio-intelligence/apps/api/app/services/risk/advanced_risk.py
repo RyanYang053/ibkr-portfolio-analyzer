@@ -366,6 +366,7 @@ def _option_stress_loss(
     volatility_shock_points: float,
     days_forward: int,
     positions: list[Position],
+    reporting_currency: str | None = None,
 ) -> OptionStressResult:
     """Reprice listed options using contract master metadata when available."""
     if position.asset_class not in {"OPT", "FOP"}:
@@ -373,6 +374,7 @@ def _option_stress_loss(
 
     try:
         from app.db.option_contract_repo import OptionContractNotFoundError, require_contract
+        from app.services.broker.ibkr_readonly import get_exchange_rate
         from app.services.options.market_inputs import option_market_inputs, reprice_option_scenario
 
         contract = require_contract(position.con_id)
@@ -386,6 +388,7 @@ def _option_stress_loss(
         resolved_iv = implied_volatility if implied_volatility > 0 else None
         resolved_rf = risk_free_rate if risk_free_rate > 0 else None
         resolved_div = dividend_yield
+        account_ccy = (reporting_currency or position.currency or "USD").upper()
 
         if spot is None or resolved_iv is None or resolved_rf is None:
             market_inputs = option_market_inputs(
@@ -393,6 +396,7 @@ def _option_stress_loss(
                 expiration=contract.expiration,
                 currency=contract.currency,
                 underlying_symbol=contract.symbol,
+                reporting_currency=account_ccy,
             )
             if market_inputs.status == "available" and market_inputs.inputs is not None:
                 resolved = market_inputs.inputs
@@ -427,6 +431,34 @@ def _option_stress_loss(
                 "European Black-Scholes repricing; market inputs withheld",
             )
 
+        fx_rate = 1.0
+        if contract.currency.upper() != account_ccy:
+            try:
+                fx_rate = float(get_exchange_rate(contract.currency, account_ccy))
+            except Exception:
+                return OptionStressResult(
+                    None,
+                    "withheld",
+                    ["fx_observation_required"],
+                    "Dual-currency option stress withheld without FX observation",
+                )
+            if fx_rate <= 0:
+                return OptionStressResult(
+                    None,
+                    "withheld",
+                    ["fx_observation_required"],
+                    "Dual-currency option stress withheld without FX observation",
+                )
+
+        raw_style = getattr(contract, "exercise_style", None)
+        if not raw_style:
+            return OptionStressResult(
+                None,
+                "withheld",
+                ["exercise_style_unspecified"],
+                "Option stress withheld until exercise_style is present on contract master",
+            )
+        exercise_style = str(raw_style).lower()
         result = reprice_option_scenario(
             contract=contract,
             current_option_mark=float(position.market_price),
@@ -438,6 +470,9 @@ def _option_stress_loss(
             volatility_shock_points=volatility_shock_points,
             days_forward=days_forward,
             quantity=float(position.quantity),
+            reporting_currency=account_ccy,
+            fx_rate=fx_rate,
+            exercise_style=exercise_style,
         )
         return OptionStressResult(
             result.loss,
@@ -454,7 +489,13 @@ def _option_stress_loss(
         )
 
 
-def _legacy_option_stress_loss(position: Position, spot_shock_pct: float, positions: list[Position]) -> float | None:
+def _legacy_option_stress_loss(
+    position: Position,
+    spot_shock_pct: float,
+    positions: list[Position],
+    *,
+    reporting_currency: str | None = None,
+) -> float | None:
     result = _option_stress_loss(
         position,
         underlying_spot=None,
@@ -466,6 +507,7 @@ def _legacy_option_stress_loss(position: Position, spot_shock_pct: float, positi
         volatility_shock_points=0.0,
         days_forward=0,
         positions=positions,
+        reporting_currency=reporting_currency,
     )
     return result.loss
 
@@ -473,6 +515,7 @@ def _legacy_option_stress_loss(position: Position, spot_shock_pct: float, positi
 def _stress_tests(positions: list[Position], summary: Any, total_value: float) -> tuple[list[StressScenario], list[str]]:
     from app.services.broker.ibkr_readonly import get_exchange_rate
 
+    reporting_currency = str(getattr(summary, "base_currency", "USD") or "USD")
     scenarios = [
         ("Illustrative pandemic-style equity shock", "Broad equities -30%; speculative assets -45%.", -30.0, -45.0, -90.0),
         ("Illustrative inflation and rate shock", "Broad equities -20%; technology -33%; speculative assets -55%.", -20.0, -55.0, -75.0),
@@ -490,11 +533,17 @@ def _stress_tests(positions: list[Position], summary: Any, total_value: float) -
                 excluded.append(position.symbol)
                 continue
             if position.asset_class in {"OPT", "FOP"}:
-                repriced_loss = _legacy_option_stress_loss(position, market_shock, positions)
+                repriced_loss = _legacy_option_stress_loss(
+                    position,
+                    market_shock,
+                    positions,
+                    reporting_currency=reporting_currency,
+                )
                 if repriced_loss is not None:
-                    shock_value += repriced_loss * get_exchange_rate(position.currency, summary.base_currency)
+                    # Loss already converted via fx_rate inside reprice when dual-currency.
+                    shock_value += repriced_loss
                     continue
-                excluded.append(f"{position.symbol}:underlying_spot_unavailable")
+                excluded.append(f"{position.symbol}:option_stress_withheld")
                 shock = option_shock
             elif position.is_speculative:
                 shock = speculative_shock

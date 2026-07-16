@@ -402,4 +402,38 @@ export async function getOptionsStrategy(
   return requireJson<OptionsStrategyReport>(`/stocks/${symbol}/options-strategy${query}`);
 }
 
+export async function getDecisionCenter(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/portfolio/decision-center${query}`);
+}
+
+export async function getHoldingDecision(
+  instrumentKey: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/portfolio/holdings/${encodeURIComponent(instrumentKey)}/decision${query}`);
+}
+
+export async function getHoldingLenses(
+  instrumentKey: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/portfolio/holdings/${encodeURIComponent(instrumentKey)}/lenses${query}`);
+}
+
+export async function putHoldingThesis(
+  instrumentKey: string,
+  text: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/portfolio/holdings/${encodeURIComponent(instrumentKey)}/thesis${query}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+}
+
 

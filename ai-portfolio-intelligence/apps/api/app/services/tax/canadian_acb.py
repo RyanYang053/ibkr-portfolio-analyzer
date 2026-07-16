@@ -170,12 +170,17 @@ def build_canadian_acb_report(
     unsupported_events = 0
     affiliated_txns = list(affiliated_transactions or [])
 
+    # Superficial-loss completeness requires affiliated household data. Missing or
+    # incomplete affiliated coverage is fail-closed provisional — not filing-ready.
     if affiliated_accounts and affiliated_txns:
         methodology_status = "affiliated_accounts_applied"
+        affiliated_detail = "affiliated_accounts_applied"
     elif affiliated_accounts:
-        methodology_status = "provisional_affiliated_accounts_missing_transactions"
+        methodology_status = "provisional_affiliated_data_required"
+        affiliated_detail = "provisional_affiliated_accounts_missing_transactions"
     else:
-        methodology_status = "provisional_no_affiliated_accounts"
+        methodology_status = "provisional_affiliated_data_required"
+        affiliated_detail = "provisional_no_affiliated_accounts"
 
     ordered = sorted(
         (txn for txn in transactions if period_end is None or txn.trade_date <= period_end),
@@ -363,6 +368,7 @@ def build_canadian_acb_report(
         "tax_lot_method": "acb",
         "tax_labeling_jurisdiction": "CA",
         "tax_compliance_status": methodology_status,
+        "affiliated_data_detail": affiliated_detail,
         "superficial_loss_adjustments": str(superficial_adjustments),
         "return_of_capital_adjustments": str(roc_adjustments),
         "reinvested_distribution_adjustments": str(reinvest_adjustments),
@@ -375,6 +381,9 @@ def build_canadian_acb_report(
     if affiliated_accounts:
         data_quality["affiliated_account_count"] = str(len(affiliated_accounts))
         data_quality["affiliated_transaction_count"] = str(len(affiliated_txns))
+    if methodology_status == "provisional_affiliated_data_required":
+        data_quality["filing_ready"] = "false"
+        data_quality["professional_language_allowed"] = "false"
 
     methodology = (
         "Canadian taxable reporting uses pooled adjusted cost base (ACB) in CAD with superficial-loss, "
@@ -387,8 +396,9 @@ def build_canadian_acb_report(
         )
     else:
         methodology += (
-            " Option assignment/exercise and comprehensive corporate actions remain provisional; "
-            "affiliated-account coverage depends on configured household linkages and loaded ledgers."
+            " Filing-ready language is withheld until affiliated-account household linkages and ledgers "
+            "are complete for superficial-loss review. Option assignment/exercise and comprehensive "
+            "corporate actions remain provisional."
         )
 
     return TaxAttributionReport(

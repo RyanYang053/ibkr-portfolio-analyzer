@@ -14,6 +14,9 @@ jobs:
     defaults:
       run:
         working-directory: ai-portfolio-intelligence/apps/api
+    env:
+      GIT_SHA: ${{ github.sha }}
+      GITHUB_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,6 +28,80 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python scripts/check_openapi_schema.py
       - run: python -m pytest tests -q --ignore=tests/test_postgres_repos.py
+
+  release-manifest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence/apps/api
+    env:
+      GIT_SHA: ${{ github.sha }}
+      GITHUB_SHA: ${{ github.sha }}
+      ENVIRONMENT: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ai-portfolio-intelligence/apps/api/requirements.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - name: Run golden and release certification tests
+        run: |
+          python -m pytest tests/test_valuation_golden_fixtures.py tests/test_pnl_reconciliation_golden.py tests/test_version_and_release_manifest.py -q --junitxml=pytest-release-report.xml
+      - name: Write golden fixture digest file
+        run: |
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          roots = [
+              Path("tests/test_valuation_golden_fixtures.py"),
+              Path("tests/test_pnl_reconciliation_golden.py"),
+          ]
+          digest = hashlib.sha256()
+          for path in sorted(roots):
+              digest.update(path.read_bytes())
+          out = Path("golden-fixture-digest.txt")
+          out.write_text(digest.hexdigest() + "\n", encoding="utf-8")
+          print(out.read_text(encoding="utf-8").strip())
+          PY
+      - name: Write release manifest
+        run: |
+          python scripts/write_release_manifest.py \
+            --out release-manifest.json \
+            --pytest-report pytest-release-report.xml \
+            --golden-hash-file golden-fixture-digest.txt \
+            --require-certified \
+            --allow-placeholder-container
+      - name: Assert manifest not falsely certified without digests
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("release-manifest.json").read_text(encoding="utf-8"))
+          assert manifest["code_sha"] and manifest["code_sha"] != "unknown"
+          assert manifest["pytest_report_sha256"]
+          assert manifest["golden_fixture_sha256"]
+          cert = manifest["certification"]
+          assert "pytest_report_digest_missing" not in cert["blockers"]
+          assert "golden_fixture_digest_missing" not in cert["blockers"]
+          assert "code_sha_unknown" not in cert["blockers"]
+          # placeholder container must never be treated as fully certified
+          if manifest.get("container_digest") == "placeholder":
+              assert "container_digest_placeholder" in cert["blockers"]
+              assert cert["certified"] is False
+          print("release-manifest digests ok")
+          PY
+      - name: Upload release-manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: |
+            ai-portfolio-intelligence/apps/api/release-manifest.json
+            ai-portfolio-intelligence/apps/api/pytest-release-report.xml
+            ai-portfolio-intelligence/apps/api/golden-fixture-digest.txt
+          if-no-files-found: error
 
   api-financial-integrity:
     runs-on: ubuntu-latest

@@ -154,6 +154,7 @@ def test_option_stress_uses_contract_master(monkeypatch):
             multiplier=100.0,
             currency="USD",
             provider="IBKR",
+            exercise_style="european",
         )
     )
 
@@ -201,3 +202,78 @@ def test_option_stress_uses_contract_master(monkeypatch):
     )
     assert result.status == "available"
     assert result.loss is not None
+
+
+def test_option_stress_withholds_without_exercise_style(monkeypatch):
+    from datetime import date
+
+    from app.core.config import settings
+    from app.db.option_contract_repo import upsert_contract
+    from app.services.options.engine import OptionContract
+    from app.services.risk.advanced_risk import OptionStressResult, _option_stress_loss
+
+    monkeypatch.setattr(settings, "persistence_backend", "json")
+    upsert_contract(
+        OptionContract(
+            symbol="MSFT260116C00400000",
+            strike=400.0,
+            right="C",
+            expiration=date(2026, 1, 16),
+            bid=5.0,
+            ask=5.2,
+            mid=5.1,
+            implied_volatility=0.25,
+            con_id=424243,
+            underlying_symbol="MSFT",
+            multiplier=100.0,
+            currency="USD",
+            provider="IBKR",
+            exercise_style=None,
+        )
+    )
+    stock = Position(
+        account_id="MOCK-001",
+        symbol="MSFT",
+        company_name="Microsoft",
+        asset_class="STK",
+        quantity=100,
+        avg_cost=380,
+        market_price=400,
+        market_value=40000,
+        unrealized_pnl=2000,
+        realized_pnl=0,
+        currency="USD",
+        exchange="NASDAQ",
+        sector="Technology",
+        industry="Software",
+        portfolio_weight=80,
+        stock_type="mega_cap_quality",
+        updated_at=utc_now(),
+        con_id=1,
+    )
+    option = stock.model_copy(
+        update={
+            "asset_class": "OPT",
+            "quantity": 1,
+            "market_price": 6,
+            "market_value": 600,
+            "con_id": 424243,
+            "local_symbol": "MSFT  260116C00400000",
+            "multiplier": 100,
+        }
+    )
+    result = _option_stress_loss(
+        option,
+        underlying_spot=None,
+        underlying_spot_source="withheld",
+        implied_volatility=0.30,
+        risk_free_rate=0.045,
+        dividend_yield=0.0,
+        spot_shock_pct=-30,
+        volatility_shock_points=0.0,
+        days_forward=0,
+        positions=[stock, option],
+    )
+    assert isinstance(result, OptionStressResult)
+    assert result.status == "withheld"
+    assert "exercise_style_unspecified" in result.exclusions

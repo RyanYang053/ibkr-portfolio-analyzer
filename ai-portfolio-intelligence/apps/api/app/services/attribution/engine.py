@@ -52,6 +52,7 @@ def _production_brinson_ready(
     total_active: float | None,
     daily_contributions: list | None = None,
     daily_attribution_status: str | None = None,
+    daily_quality: dict[str, object] | None = None,
 ) -> bool:
     if not ledger_brinson_ready or not by_sector:
         return False
@@ -64,19 +65,33 @@ def _production_brinson_ready(
     from app.services.attribution.daily_series import (
         DAILY_ATTRIBUTION_STATUS,
         HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+        TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
     )
 
     if daily_attribution_status == DAILY_ATTRIBUTION_STATUS:
         # Static-weight daily attribution is experimental and must not approve methodology.
         return False
-    if daily_contributions and daily_attribution_status == HOLDINGS_DAILY_ATTRIBUTION_STATUS:
+    if daily_contributions and daily_attribution_status in {
+        HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+        TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
+    }:
         from app.services.attribution.linking import active_return_reconciles
 
+        # Production ledger_backed requires total-return legs, not price-only holdings.
+        if daily_attribution_status != TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS:
+            return False
         ok, _gap = active_return_reconciles(
             daily_contributions,
             tolerance=settings.attribution_reconciliation_tolerance,
         )
-        return ok
+        if not ok:
+            return False
+        quality = daily_quality or {}
+        if quality.get("nav_residual_within_tolerance") is not True:
+            return False
+        if quality.get("contribution_identity_ok") is False:
+            return False
+        return True
     if daily_contributions and daily_attribution_status is None:
         return False
     return True
@@ -351,6 +366,8 @@ def calculate_performance_attribution(
     attribution_linking_status = "not_computed"
     attribution_linking_gap: float | None = None
     linked_effects: dict[str, float] | None = None
+    cash_sleeve_residual: float | None = None
+    daily_quality: dict[str, object] = {}
 
     if positions:
         net_liq = sum(abs(p.market_value) for p in positions)
@@ -432,16 +449,18 @@ def calculate_performance_attribution(
 
         daily_contributions = []
         daily_attribution_status = None
+        daily_quality: dict[str, object] = {}
         from app.services.attribution.daily_series import (
             DAILY_ATTRIBUTION_STATUS,
             HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+            TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
             build_daily_attribution_contributions,
         )
 
         if ledger_brinson_ready and portfolio_sector_weights and period_start and period_end:
             from app.services.attribution.linking import geometric_link_attribution_effects
 
-            daily_contributions, daily_attribution_status = build_daily_attribution_contributions(
+            daily_contributions, daily_attribution_status, daily_quality = build_daily_attribution_contributions(
                 positions=positions,
                 period_start=period_start,
                 period_end=period_end,
@@ -466,7 +485,16 @@ def calculate_performance_attribution(
                     }
                 else:
                     attribution_linking_status = "gap_exceeds_tolerance"
-                brinson_status = daily_attribution_status or DAILY_ATTRIBUTION_STATUS
+                # Do not claim ledger_backed until NAV residual + production gates pass.
+                brinson_status = "experimental_daily_pending_reconciliation"
+                if daily_quality.get("cash_sleeve_contribution_sum") is not None:
+                    cash_sleeve_residual = daily_quality.get("cash_sleeve_contribution_sum")
+                else:
+                    cash_sleeve_residual = None
+            else:
+                cash_sleeve_residual = None
+        else:
+            cash_sleeve_residual = None
 
         benchmark_source = (
             benchmark_weights_source(period_start, allow_mock=allow_mock)
@@ -485,6 +513,7 @@ def calculate_performance_attribution(
             total_active=_active,
             daily_contributions=daily_contributions or None,
             daily_attribution_status=daily_attribution_status,
+            daily_quality=daily_quality or None,
         ):
             if linked_effects:
                 allocation_effect = linked_effects["allocation_effect"]
@@ -499,7 +528,8 @@ def calculate_performance_attribution(
             brinson_by_sector = _by_sector
             brinson_status = (
                 daily_attribution_status
-                if daily_attribution_status == HOLDINGS_DAILY_ATTRIBUTION_STATUS
+                if daily_attribution_status
+                in {HOLDINGS_DAILY_ATTRIBUTION_STATUS, TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS}
                 else "ledger_backed"
             )
         elif _by_sector and allow_mock:
@@ -510,9 +540,13 @@ def calculate_performance_attribution(
             brinson_by_sector = _by_sector
             if brinson_status not in {
                 DAILY_ATTRIBUTION_STATUS,
-                HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+                "experimental_daily_pending_reconciliation",
             }:
                 brinson_status = "experimental_modeled"
+            elif brinson_status == "experimental_daily_pending_reconciliation":
+                brinson_status = "experimental_daily_nav_unreconciled"
+        elif daily_contributions and brinson_status == "experimental_daily_pending_reconciliation":
+            brinson_status = "experimental_daily_nav_unreconciled"
 
     if ledger_brinson_ready and period_start and period_end and account_id:
         from app.services.analytics.calculation_run import create_calculation_run
@@ -556,6 +590,27 @@ def calculate_performance_attribution(
             **(
                 {"attribution_linking_gap": str(attribution_linking_gap)}
                 if attribution_linking_gap is not None
+                else {}
+            ),
+            **(
+                {"cash_sleeve_contribution_sum": str(cash_sleeve_residual)}
+                if cash_sleeve_residual is not None
+                else {}
+            ),
+            **(
+                {
+                    "nav_residual_max_abs": str(daily_quality.get("nav_residual_max_abs")),
+                    "nav_residual_within_tolerance": str(
+                        daily_quality.get("nav_residual_within_tolerance")
+                    ),
+                    "contribution_identity_ok": str(daily_quality.get("contribution_identity_ok")),
+                }
+                if daily_quality
+                and (
+                    daily_quality.get("nav_residual_max_abs") is not None
+                    or daily_quality.get("nav_residual_within_tolerance") is not None
+                    or daily_quality.get("contribution_identity_ok") is not None
+                )
                 else {}
             ),
         },

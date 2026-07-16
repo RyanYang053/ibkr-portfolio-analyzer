@@ -3,7 +3,7 @@
 import { useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Activity, Bell, ClipboardList, LayoutDashboard, Settings, ShieldCheck, Star, Search } from "lucide-react";
+import { Activity, Bell, ClipboardList, LayoutDashboard, Scale, Settings, ShieldCheck, Star, Search } from "lucide-react";
 import { BrokerStatusBadge } from "@/components/BrokerStatusBadge";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
 
@@ -11,6 +11,7 @@ const items = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/portfolio", label: "Portfolio", icon: ClipboardList },
   { href: "/risk", label: "Risk Center", icon: ShieldCheck },
+  { href: "/decision-center", label: "Decision Center", icon: Scale },
   { href: "/watchlist", label: "Watchlist", icon: Star },
   { href: "/reports", label: "Reports", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },

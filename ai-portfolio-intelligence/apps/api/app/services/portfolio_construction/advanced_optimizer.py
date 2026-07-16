@@ -26,9 +26,32 @@ class OptimizationConstraints:
     transaction_cost_budget: float | None = None
     sell_tax_rate_per_unit: np.ndarray | None = None
     transaction_cost_rate_per_unit: np.ndarray | None = None
+    # Lot-level sell decision variables (portfolio-weight units).
+    lot_ids: tuple[str, ...] | None = None
+    lot_symbol_indices: tuple[int, ...] | None = None
+    lot_max_sell_weights: np.ndarray | None = None
+    lot_tax_rate_per_unit: np.ndarray | None = None
 
 
-def build_cvxpy_constraints(weights, constraints: OptimizationConstraints) -> list:
+def _has_lot_tax_vars(constraints: OptimizationConstraints) -> bool:
+    return bool(
+        constraints.tax_budget is not None
+        and constraints.lot_ids
+        and constraints.lot_symbol_indices is not None
+        and constraints.lot_max_sell_weights is not None
+        and constraints.lot_tax_rate_per_unit is not None
+        and len(constraints.lot_ids) == len(constraints.lot_symbol_indices)
+        and len(constraints.lot_ids) == len(constraints.lot_max_sell_weights)
+        and len(constraints.lot_ids) == len(constraints.lot_tax_rate_per_unit)
+    )
+
+
+def build_cvxpy_constraints(
+    weights,
+    constraints: OptimizationConstraints,
+    *,
+    aux_out: dict[str, Any] | None = None,
+) -> list:
     import cvxpy as cp
 
     built: list = [
@@ -53,25 +76,81 @@ def build_cvxpy_constraints(weights, constraints: OptimizationConstraints) -> li
             optimized = cp.sum(weights[indices])
             fixed = constraints.fixed_sector_exposure.get(sector, 0.0)
             built.append(fixed + optimized <= constraints.sector_cap)
-    if (
-        constraints.tax_budget is not None
-        and constraints.sell_tax_rate_per_unit is not None
-    ) or (
-        constraints.transaction_cost_budget is not None
-        and constraints.transaction_cost_rate_per_unit is not None
-    ):
+
+    needs_buy_sell = (
+        (
+            constraints.tax_budget is not None
+            and (
+                constraints.sell_tax_rate_per_unit is not None
+                or _has_lot_tax_vars(constraints)
+            )
+        )
+        or (
+            constraints.transaction_cost_budget is not None
+            and constraints.transaction_cost_rate_per_unit is not None
+        )
+    )
+    if needs_buy_sell:
         size = len(constraints.current_full_weights)
         buy = cp.Variable(size, nonneg=True)
         sell = cp.Variable(size, nonneg=True)
         built.append(weights - constraints.current_full_weights == buy - sell)
-        if constraints.tax_budget is not None and constraints.sell_tax_rate_per_unit is not None:
+        if aux_out is not None:
+            aux_out["buy"] = buy
+            aux_out["sell"] = sell
+
+        if _has_lot_tax_vars(constraints):
+            n_lots = len(constraints.lot_ids or ())
+            sell_lot = cp.Variable(n_lots, nonneg=True)
+            built.append(sell_lot <= constraints.lot_max_sell_weights)
+            symbols_with_lots: set[int] = set()
+            for symbol_index in range(size):
+                lot_indices = [
+                    lot_index
+                    for lot_index, mapped in enumerate(constraints.lot_symbol_indices or ())
+                    if mapped == symbol_index
+                ]
+                if lot_indices:
+                    symbols_with_lots.add(symbol_index)
+                    built.append(sell[symbol_index] == cp.sum(sell_lot[lot_indices]))
+            lot_tax = constraints.lot_tax_rate_per_unit @ sell_lot
+            residual_symbol_tax = 0
+            if constraints.sell_tax_rate_per_unit is not None:
+                masked = np.array(constraints.sell_tax_rate_per_unit, dtype=float).copy()
+                for symbol_index in symbols_with_lots:
+                    masked[symbol_index] = 0.0
+                residual_symbol_tax = masked @ sell
+            built.append(lot_tax + residual_symbol_tax <= constraints.tax_budget)
+            if aux_out is not None:
+                aux_out["sell_lot"] = sell_lot
+                aux_out["lot_ids"] = list(constraints.lot_ids or ())
+        elif constraints.tax_budget is not None and constraints.sell_tax_rate_per_unit is not None:
             built.append(constraints.sell_tax_rate_per_unit @ sell <= constraints.tax_budget)
+
         if constraints.transaction_cost_budget is not None and constraints.transaction_cost_rate_per_unit is not None:
             built.append(
                 constraints.transaction_cost_rate_per_unit @ (buy + sell)
                 <= constraints.transaction_cost_budget
             )
     return built
+
+
+def _lot_sell_metadata(aux: dict[str, Any]) -> dict[str, Any]:
+    sell_lot = aux.get("sell_lot")
+    lot_ids = aux.get("lot_ids") or []
+    if sell_lot is None or getattr(sell_lot, "value", None) is None:
+        return {}
+    values = [float(value) for value in np.asarray(sell_lot.value).reshape(-1)]
+    selected = [
+        {"lot_id": lot_id, "sell_weight": round(weight, 8)}
+        for lot_id, weight in zip(lot_ids, values, strict=False)
+        if weight > 1e-8
+    ]
+    return {
+        "lot_sell_weights": values,
+        "selected_lot_sells": selected,
+        "lot_level_tax_selection": True,
+    }
 
 
 def verify_optimization_constraints(
@@ -307,9 +386,10 @@ def solve_min_variance_with_constraints(
         return None, {"status": "empty_covariance"}
     sigma = np.array(covariance, dtype=float)
     weights = cp.Variable(size, nonneg=True)
+    aux: dict[str, Any] = {}
     problem = cp.Problem(
         cp.Minimize(cp.quad_form(weights, sigma)),
-        build_cvxpy_constraints(weights, constraints),
+        build_cvxpy_constraints(weights, constraints, aux_out=aux),
     )
     try:
         problem.solve(solver=cp.OSQP, warm_start=True)
@@ -320,7 +400,7 @@ def solve_min_variance_with_constraints(
     finalized, metadata = _finalize_solver_weights(weights.value, constraints)
     if finalized is None:
         return None, metadata
-    return finalized, {"status": problem.status, **metadata}
+    return finalized, {"status": problem.status, **metadata, **_lot_sell_metadata(aux)}
 
 
 def solve_cvar_weights(
@@ -342,6 +422,10 @@ def solve_cvar_weights(
     transaction_cost_budget: float | None = None,
     sell_tax_rate_per_unit: np.ndarray | None = None,
     transaction_cost_rate_per_unit: np.ndarray | None = None,
+    lot_ids: tuple[str, ...] | None = None,
+    lot_symbol_indices: tuple[int, ...] | None = None,
+    lot_max_sell_weights: np.ndarray | None = None,
+    lot_tax_rate_per_unit: np.ndarray | None = None,
 ) -> tuple[list[float] | None, dict[str, Any]]:
     try:
         import cvxpy as cp
@@ -377,8 +461,13 @@ def solve_cvar_weights(
         transaction_cost_budget=transaction_cost_budget,
         sell_tax_rate_per_unit=sell_tax_rate_per_unit,
         transaction_cost_rate_per_unit=transaction_cost_rate_per_unit,
+        lot_ids=lot_ids,
+        lot_symbol_indices=lot_symbol_indices,
+        lot_max_sell_weights=lot_max_sell_weights,
+        lot_tax_rate_per_unit=lot_tax_rate_per_unit,
     )
-    constraints = build_cvxpy_constraints(weights, constraint_set)
+    aux: dict[str, Any] = {}
+    constraints = build_cvxpy_constraints(weights, constraint_set, aux_out=aux)
     constraints.extend([tail_losses >= losses - var])
 
     problem = cp.Problem(
@@ -398,6 +487,7 @@ def solve_cvar_weights(
         "status": problem.status,
         "objective": float(problem.value) if problem.value is not None else None,
         **metadata,
+        **_lot_sell_metadata(aux),
     }
 
 
@@ -420,6 +510,10 @@ def solve_mean_variance_with_constraints(
     transaction_cost_budget: float | None = None,
     sell_tax_rate_per_unit: np.ndarray | None = None,
     transaction_cost_rate_per_unit: np.ndarray | None = None,
+    lot_ids: tuple[str, ...] | None = None,
+    lot_symbol_indices: tuple[int, ...] | None = None,
+    lot_max_sell_weights: np.ndarray | None = None,
+    lot_tax_rate_per_unit: np.ndarray | None = None,
 ) -> tuple[list[float] | None, dict[str, Any]]:
     try:
         import cvxpy as cp
@@ -452,8 +546,13 @@ def solve_mean_variance_with_constraints(
         transaction_cost_budget=transaction_cost_budget,
         sell_tax_rate_per_unit=sell_tax_rate_per_unit,
         transaction_cost_rate_per_unit=transaction_cost_rate_per_unit,
+        lot_ids=lot_ids,
+        lot_symbol_indices=lot_symbol_indices,
+        lot_max_sell_weights=lot_max_sell_weights,
+        lot_tax_rate_per_unit=lot_tax_rate_per_unit,
     )
-    constraints = build_cvxpy_constraints(weights, constraint_set)
+    aux: dict[str, Any] = {}
+    constraints = build_cvxpy_constraints(weights, constraint_set, aux_out=aux)
     problem = cp.Problem(cp.Maximize(mu @ weights - 0.5 * cp.quad_form(weights, sigma)), constraints)
     try:
         problem.solve(solver=cp.OSQP, warm_start=True)
@@ -464,4 +563,4 @@ def solve_mean_variance_with_constraints(
     finalized, metadata = _finalize_solver_weights(weights.value, constraint_set)
     if finalized is None:
         return None, metadata
-    return finalized, {"status": problem.status, **metadata}
+    return finalized, {"status": problem.status, **metadata, **_lot_sell_metadata(aux)}

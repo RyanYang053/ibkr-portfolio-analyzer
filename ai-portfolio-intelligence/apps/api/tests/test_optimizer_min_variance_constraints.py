@@ -81,3 +81,34 @@ def test_fixed_sector_exposure_reduces_remaining_capacity():
     assert feasible["feasible"] is True
     result = verify_optimization_constraints([0.50, 0.0], constraints)
     assert result["feasible"] is False
+
+
+def test_lot_level_tax_budget_binds_in_cvxpy():
+    covariance = [[0.09, 0.0], [0.0, 0.01]]
+    constraints = _base_constraints(
+        target_budget=1.0,
+        current_full_weights=np.array([0.8, 0.2]),
+        turnover_budget=1.0,
+        max_buy_weight_changes=np.array([1.0, 1.0]),
+        max_sell_weight_changes=np.array([0.8, 0.2]),
+        max_weights=np.array([1.0, 1.0]),
+        sector_labels=["Tech", "Tech"],
+        sector_cap=1.0,
+        fixed_sector_exposure={},
+        tax_budget=0.02,
+        sell_tax_rate_per_unit=np.array([0.3, 0.0]),
+        lot_ids=("lot_high", "lot_low"),
+        lot_symbol_indices=(0, 0),
+        lot_max_sell_weights=np.array([0.4, 0.4]),
+        lot_tax_rate_per_unit=np.array([0.5, 0.05]),
+    )
+    solved, metadata = solve_min_variance_with_constraints(covariance, constraints)
+    if metadata.get("status") == "cvxpy_unavailable":
+        pytest.skip("cvxpy unavailable")
+    assert solved is not None
+    assert metadata.get("lot_level_tax_selection") is True
+    assert "selected_lot_sells" in metadata
+    sells = {item["lot_id"]: item["sell_weight"] for item in metadata.get("selected_lot_sells", [])}
+    if sells:
+        # High-tax lot should not dominate when a cheaper lot can fund the sell.
+        assert sells.get("lot_high", 0.0) <= sells.get("lot_low", 0.0) + 1e-5

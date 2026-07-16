@@ -358,6 +358,16 @@ class PortfolioOptimizationItem(BaseModel):
     reason: str
 
 
+class TaxTransitionSummary(BaseModel):
+    jurisdiction: str
+    methodology_status: str
+    sell_candidate_lot_ids: list[str] = Field(default_factory=list)
+    blocked_lots: list[dict[str, str]] = Field(default_factory=list)
+    estimated_tax: float = 0.0
+    after_tax_feasible: bool = True
+    exclusions: list[str] = Field(default_factory=list)
+
+
 class PortfolioOptimizationProposal(BaseModel):
     objective: str
     proposed_trades: list[PortfolioOptimizationItem]
@@ -376,6 +386,8 @@ class PortfolioOptimizationProposal(BaseModel):
     constraints_applied: list[str] = Field(default_factory=list)
     methodology: str
     compliance_disclaimer: str = DISCLAIMER
+    tax_transition: Optional[TaxTransitionSummary] = None
+    tax_lot_ids_considered: list[str] = Field(default_factory=list)
 
 
 class StressScenario(BaseModel):
