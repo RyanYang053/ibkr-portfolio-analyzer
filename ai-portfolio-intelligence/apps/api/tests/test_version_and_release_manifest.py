@@ -13,7 +13,6 @@ from app.services.tax.canadian_acb import build_canadian_acb_report
 from scripts.write_release_manifest import build_manifest
 from tests.test_tax_modules import _txn
 
-
 client = TestClient(app)
 
 
@@ -37,7 +36,6 @@ def test_release_manifest_writer_includes_sha_and_approvals(monkeypatch, tmp_pat
     pytest_report.write_text("<testsuite/>", encoding="utf-8")
     golden = tmp_path / "golden.txt"
     golden.write_text("abc", encoding="utf-8")
-    from scripts.write_release_manifest import build_manifest
 
     manifest = build_manifest(pytest_report=pytest_report, golden_hash_file=golden)
     out.write_text(json.dumps(manifest), encoding="utf-8")
@@ -62,7 +60,6 @@ def test_production_release_mode_requires_real_container(monkeypatch, tmp_path: 
     pytest_report.write_text("<testsuite/>", encoding="utf-8")
     golden = tmp_path / "golden.txt"
     golden.write_text("abc", encoding="utf-8")
-    from scripts.write_release_manifest import build_manifest
 
     evidence = build_manifest(
         pytest_report=pytest_report,

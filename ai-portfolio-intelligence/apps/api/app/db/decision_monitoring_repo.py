@@ -105,8 +105,9 @@ def create_rule(
 
     if settings.persistence_backend == "postgres":
         require_postgres_persistence("decision monitoring rule write", table_available=_table_available())
-        from app.db.session import SessionLocal
         import json
+
+        from app.db.session import SessionLocal
 
         with SessionLocal() as session:
             session.execute(

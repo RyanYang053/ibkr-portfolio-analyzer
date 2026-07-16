@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import threading
-import time
 from unittest.mock import MagicMock
-
-import pytest
 
 
 def test_sec_edgar_postgres_gate_serializes_requests(monkeypatch):

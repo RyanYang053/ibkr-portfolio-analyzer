@@ -636,6 +636,27 @@ def calculate_performance_attribution(
                 )
                 else {}
             ),
+            **(
+                {
+                    "exit_execution_evidence_missing": str(
+                        daily_quality.get("exit_execution_evidence_missing")
+                    )
+                }
+                if daily_quality and daily_quality.get("exit_execution_evidence_missing")
+                else {}
+            ),
+            **(
+                {
+                    "investment_return_non_authoritative": str(
+                        daily_quality.get("investment_return_non_authoritative")
+                    ),
+                    "investment_return_source": str(
+                        daily_quality.get("investment_return_source")
+                    ),
+                }
+                if daily_quality and daily_quality.get("investment_return_non_authoritative")
+                else {}
+            ),
         },
         methodology=(
             "Current Unrealized P&L Decomposition. "

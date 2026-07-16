@@ -13,7 +13,6 @@ from app.services.investor_lenses import (
 )
 from app.services.investor_lenses.base import LensInputs, LensResult
 
-
 LENS_MODULES = (
     buffett_quality,
     graham_piotroski,

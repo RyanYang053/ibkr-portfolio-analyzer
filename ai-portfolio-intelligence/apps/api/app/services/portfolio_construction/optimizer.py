@@ -21,6 +21,72 @@ from app.services.portfolio_construction.advanced_optimizer import InstrumentKey
 MINIMUM_TRADE_VALUE = 100.0
 TRADING_DAYS = 252
 
+# Named, disclosed cost-model assumptions (not broker-calibrated).
+COST_MODEL_ASSUMPTIONS = {
+    "source": "internal_default_cost_model",
+    "version": "v1-uncalibrated",
+    "commission_bps": 1.0,
+    "fx_conversion_bps_cross_currency": 5.0,
+    "fx_conversion_bps_base_currency": 0.0,
+    "minimum_ticket_cost": 1.0,
+    "option_contract_cost": 0.0,
+    "market_impact_formula": "max(bid_ask_spread_bps * 0.25, 0.5)",
+    "broker_calibrated": False,
+}
+
+
+def _cost_assumption_disclosures() -> list[str]:
+    return [
+        f"cost_model_source={COST_MODEL_ASSUMPTIONS['source']}",
+        f"cost_model_version={COST_MODEL_ASSUMPTIONS['version']}",
+        f"cost_assumption_commission_bps={COST_MODEL_ASSUMPTIONS['commission_bps']}",
+        (
+            "cost_assumption_fx_conversion_bps="
+            f"{COST_MODEL_ASSUMPTIONS['fx_conversion_bps_cross_currency']}_cross/"
+            f"{COST_MODEL_ASSUMPTIONS['fx_conversion_bps_base_currency']}_base"
+        ),
+        f"cost_assumption_minimum_ticket_cost={COST_MODEL_ASSUMPTIONS['minimum_ticket_cost']}",
+        f"cost_assumption_market_impact={COST_MODEL_ASSUMPTIONS['market_impact_formula']}",
+        "cost_assumption_broker_calibrated=false",
+    ]
+
+
+def _estimate_position_transaction_cost(
+    *,
+    instrument: InstrumentKey,
+    position: Position,
+    liquidity: Any,
+    base_currency: str,
+):
+    from app.services.portfolio_construction.transaction_cost_model import (
+        TransactionCostInputs,
+        estimate_transaction_cost,
+    )
+
+    market_value = max(abs(float(position.market_value)), 1e-6)
+    spread_bps = float(liquidity.bid_ask_spread_bps)
+    same_currency = position.currency.upper() == base_currency.upper()
+    return estimate_transaction_cost(
+        TransactionCostInputs(
+            instrument_key=_instrument_label(instrument),
+            trade_value=max(market_value, 1.0),
+            bid_ask_spread_bps=spread_bps,
+            commission_bps=float(COST_MODEL_ASSUMPTIONS["commission_bps"]),
+            market_impact_bps=max(
+                spread_bps * 0.25,
+                0.5,
+            ),
+            fx_conversion_bps=(
+                float(COST_MODEL_ASSUMPTIONS["fx_conversion_bps_base_currency"])
+                if same_currency
+                else float(COST_MODEL_ASSUMPTIONS["fx_conversion_bps_cross_currency"])
+            ),
+            option_contract_cost=float(COST_MODEL_ASSUMPTIONS["option_contract_cost"]),
+            minimum_ticket_cost=float(COST_MODEL_ASSUMPTIONS["minimum_ticket_cost"]),
+            is_option=position.asset_class in {"OPT", "FOP"},
+        )
+    )
+
 
 def _instrument_key(position: Position) -> InstrumentKey:
     return (
@@ -369,9 +435,15 @@ def generate_portfolio_optimization(
     elif getattr(profile, "tax_residency", None) == "Canada":
         jurisdiction = "CA"
 
+    tax_evidence_persistence_failed = False
     try:
         from datetime import date as date_cls
 
+        from app.db.tax_lot_snapshot_repo import replace_tax_lot_snapshots
+        from app.db.tax_transition_inputs_repo import (
+            get_latest_tax_transition_inputs,
+            upsert_tax_transition_inputs,
+        )
         from app.services.portfolio.tax_lots import build_tax_lot_attribution
         from app.services.portfolio.transaction_store import get_transactions
         from app.services.portfolio_construction.tax_transition import (
@@ -382,12 +454,6 @@ def generate_portfolio_optimization(
             symbol_sell_tax_rate_and_capacity,
         )
         from app.services.tax.canadian_acb import superficial_loss_blocked_symbols
-
-        from app.db.tax_lot_snapshot_repo import replace_tax_lot_snapshots
-        from app.db.tax_transition_inputs_repo import (
-            get_latest_tax_transition_inputs,
-            upsert_tax_transition_inputs,
-        )
 
         transactions = get_transactions(summary.account_id)
         tax_report = build_tax_lot_attribution(
@@ -434,8 +500,8 @@ def generate_portfolio_optimization(
                 constraints={"methodology_status": str(tax_report.methodology_status or "available")},
             )
         except Exception:
-            # Persistence is best-effort; optimizer continues with live ledger lots.
-            pass
+            # Persistence failed; continue with live ledger lots but disclose incomplete audit trail.
+            tax_evidence_persistence_failed = True
         marks = {
             position.symbol.upper(): float(position.market_price)
             for position in optimizable_positions
@@ -476,6 +542,9 @@ def generate_portfolio_optimization(
                 "blocked",
             )
             blocked_detail.append({"lot_id": lot_id, "reason": reason})
+        exclusions = list(transition_result.exclusions)
+        if tax_evidence_persistence_failed:
+            exclusions.append("tax_evidence_persistence_failed")
         tax_transition_summary = TaxTransitionSummary(
             jurisdiction=jurisdiction,
             methodology_status=methodology_status,
@@ -483,7 +552,7 @@ def generate_portfolio_optimization(
             blocked_lots=blocked_detail,
             estimated_tax=round(transition_result.estimated_tax, 2),
             after_tax_feasible=transition_result.after_tax_feasible,
-            exclusions=list(transition_result.exclusions),
+            exclusions=exclusions,
         )
         for instrument in covariance_symbols:
             position = next(item for item in optimizable_positions if _instrument_key(item) == instrument)
@@ -498,24 +567,12 @@ def generate_portfolio_optimization(
             )
             sell_tax_rates.append(rate)
             sellable_fraction_by_symbol[position.symbol.upper()] = sellable_fraction
-            from app.services.portfolio_construction.transaction_cost_model import (
-                TransactionCostInputs,
-                estimate_transaction_cost,
-            )
-
             liquidity = liquidity_inputs_by_instrument[instrument]
-            cost_estimate = estimate_transaction_cost(
-                TransactionCostInputs(
-                    instrument_key=_instrument_label(instrument),
-                    trade_value=max(market_value, 1.0),
-                    bid_ask_spread_bps=float(liquidity.bid_ask_spread_bps),
-                    commission_bps=1.0,
-                    market_impact_bps=max(float(liquidity.bid_ask_spread_bps) * 0.25, 0.5),
-                    fx_conversion_bps=0.0 if position.currency.upper() == summary.base_currency.upper() else 5.0,
-                    option_contract_cost=0.0,
-                    minimum_ticket_cost=1.0,
-                    is_option=position.asset_class in {"OPT", "FOP"},
-                )
+            cost_estimate = _estimate_position_transaction_cost(
+                instrument=instrument,
+                position=position,
+                liquidity=liquidity,
+                base_currency=summary.base_currency,
             )
             transaction_cost_rates.append(cost_estimate.total_expected / max(market_value, 1e-6))
         # Reduce sell capacity for blocked lots.
@@ -583,6 +640,7 @@ def generate_portfolio_optimization(
                     f"objective={objective}",
                     "tax_transition_status=withheld_lot_inputs_unavailable",
                     "implementation_ready=false",
+                    *_cost_assumption_disclosures(),
                 ],
                 methodology=(
                     "Tax-aware optimization withheld: lot-level tax inputs unavailable. "
@@ -595,24 +653,12 @@ def generate_portfolio_optimization(
             position = next(item for item in optimizable_positions if _instrument_key(item) == instrument)
             market_value = max(abs(float(position.market_value)), 1e-6)
             sell_tax_rates.append(0.0)
-            from app.services.portfolio_construction.transaction_cost_model import (
-                TransactionCostInputs,
-                estimate_transaction_cost,
-            )
-
             liquidity = liquidity_inputs_by_instrument[instrument]
-            cost_estimate = estimate_transaction_cost(
-                TransactionCostInputs(
-                    instrument_key=_instrument_label(instrument),
-                    trade_value=max(market_value, 1.0),
-                    bid_ask_spread_bps=float(liquidity.bid_ask_spread_bps),
-                    commission_bps=1.0,
-                    market_impact_bps=max(float(liquidity.bid_ask_spread_bps) * 0.25, 0.5),
-                    fx_conversion_bps=0.0 if position.currency.upper() == summary.base_currency.upper() else 5.0,
-                    option_contract_cost=0.0,
-                    minimum_ticket_cost=1.0,
-                    is_option=position.asset_class in {"OPT", "FOP"},
-                )
+            cost_estimate = _estimate_position_transaction_cost(
+                instrument=instrument,
+                position=position,
+                liquidity=liquidity,
+                base_currency=summary.base_currency,
             )
             transaction_cost_rates.append(cost_estimate.total_expected / max(market_value, 1e-6))
         tax_transition_summary = TaxTransitionSummary(
@@ -901,8 +947,12 @@ def generate_portfolio_optimization(
             tax_transition_summary.exclusions or []
         ):
             constraints.append("tax_sell_selection=symbol_aggregated_fallback")
+        if "tax_evidence_persistence_failed" in (tax_transition_summary.exclusions or []):
+            constraints.append("tax_evidence_persistence_failed=true")
     if drift.get("rebalance_triggered"):
         constraints.append("policy_drift_triggered=true")
+    constraints.extend(_cost_assumption_disclosures())
+    constraints.append("implementation_ready=false")
 
     return PortfolioOptimizationProposal(
         objective=objective,

@@ -128,7 +128,8 @@ def _daily_returns_from_history(
     history: list[PortfolioPnLSnapshot],
     period_start: date,
     period_end: date,
-) -> dict[date, float]:
+) -> tuple[dict[date, float], set[date]]:
+    """Return daily returns and the set of days that used non-authoritative NAV fallback."""
     ordered = sorted(
         (
             item
@@ -138,6 +139,7 @@ def _daily_returns_from_history(
         key=lambda item: (item.date, item.timestamp),
     )
     returns: dict[date, float] = {}
+    nav_fallback_days: set[date] = set()
     for previous, current in zip(ordered, ordered[1:], strict=False):
         day = date.fromisoformat(current.date)
         if current.investment_return_percent is not None:
@@ -145,7 +147,25 @@ def _daily_returns_from_history(
             continue
         if previous.net_liquidation > 0:
             returns[day] = (current.net_liquidation - previous.net_liquidation) / previous.net_liquidation
-    return returns
+            nav_fallback_days.add(day)
+    return returns, nav_fallback_days
+
+
+def _record_exit_evidence_missing(
+    findings: list[dict[str, object]] | None,
+    *,
+    instrument_key: str,
+    day: date,
+) -> None:
+    if findings is None:
+        return
+    findings.append(
+        {
+            "code": "exit_execution_evidence_missing",
+            "instrument_key": instrument_key,
+            "date": day.isoformat(),
+        }
+    )
 
 
 def _instrument_key(symbol: str, con_id: int | None) -> str:
@@ -388,6 +408,7 @@ def build_daily_security_inputs_from_history(
     period_end: date,
     positions: list[Position],
     transactions: list[Transaction] | None = None,
+    quality_findings: list[dict[str, object]] | None = None,
 ) -> list[DailySecurityInput]:
     """Derive beginning-weight security returns from consecutive PnL snapshots.
 
@@ -443,6 +464,11 @@ def build_daily_security_inputs_from_history(
                     transactions=transactions,
                 )
                 if price_return is None:
+                    _record_exit_evidence_missing(
+                        quality_findings,
+                        instrument_key=key,
+                        day=current_date,
+                    )
                     continue
             inputs.append(
                 DailySecurityInput(
@@ -471,6 +497,7 @@ def build_daily_security_inputs_from_daily_positions(
     period_end: date,
     positions: list[Position],
     transactions: list[Transaction] | None = None,
+    quality_findings: list[dict[str, object]] | None = None,
 ) -> list[DailySecurityInput]:
     from app.db.daily_position_repo import read_daily_positions
 
@@ -538,6 +565,11 @@ def build_daily_security_inputs_from_daily_positions(
                     transactions=transactions,
                 )
                 if price_return is None:
+                    _record_exit_evidence_missing(
+                        quality_findings,
+                        instrument_key=key,
+                        day=current_date,
+                    )
                     continue
             sector = str(prior.get("sector") or _sector_for_symbol(str(prior.get("symbol", "")), positions))
             inputs.append(
@@ -596,6 +628,7 @@ def build_daily_attribution_contributions(
     Returns (contributions, status, data_quality extras including cash residual).
     """
     quality: dict[str, object] = {}
+    findings: list[dict[str, object]] = []
     benchmark_sector_weights = benchmark_sector_weights_as_of(
         period_start,
         allow_mock=allow_mock,
@@ -622,6 +655,7 @@ def build_daily_attribution_contributions(
             period_end=period_end,
             positions=positions,
             transactions=ledger_txns or None,
+            quality_findings=findings,
         )
     if not resolved_inputs and history:
         if ledger_txns or account_id:
@@ -638,6 +672,7 @@ def build_daily_attribution_contributions(
                 period_end=period_end,
                 positions=positions,
                 transactions=ledger_txns or None,
+                quality_findings=findings,
             )
         else:
             resolved_inputs = build_daily_security_inputs_from_history(
@@ -645,7 +680,13 @@ def build_daily_attribution_contributions(
                 period_start=period_start,
                 period_end=period_end,
                 positions=positions,
+                quality_findings=findings,
             )
+
+    if findings:
+        quality["data_quality_findings"] = findings
+        if any(item.get("code") == "exit_execution_evidence_missing" for item in findings):
+            quality["exit_execution_evidence_missing"] = True
 
     if resolved_inputs and ledger_txns and not any(row.legs_from_ledger for row in resolved_inputs):
         resolved_inputs, resolved_cash = enrich_security_inputs_with_ledger_legs(
@@ -687,6 +728,7 @@ def build_daily_attribution_contributions(
         benchmark_sector_weights=benchmark_sector_weights,
         allow_mock=allow_mock,
         history=history,
+        quality=quality,
     )
     return contributions, DAILY_ATTRIBUTION_STATUS, quality
 
@@ -710,7 +752,7 @@ def _build_holdings_based_contributions(
         if period_start <= row.date <= period_end:
             by_day.setdefault(row.date, []).append(row)
 
-    nav_returns = _daily_returns_from_history(history or [], period_start, period_end)
+    nav_returns, nav_fallback_days = _daily_returns_from_history(history or [], period_start, period_end)
     sectors = sorted(set(portfolio_sector_weights) | set(benchmark_sector_weights))
     contributions: list[DailyContribution] = []
     cash_totals: list[float] = []
@@ -721,19 +763,25 @@ def _build_holdings_based_contributions(
         if not day_rows:
             continue
         price_daily = sum(row.beginning_weight * row.price_return for row in day_rows)
-        if any(row.legs_from_ledger for row in day_rows):
-            # Non-price fields are already portfolio contributions (dollars / NAV).
-            income_daily = sum(row.income_return for row in day_rows)
-            fx_daily = sum(row.fx_return for row in day_rows)
-            fee_daily = sum(row.fee_return for row in day_rows)
-            tax_daily = sum(row.tax_return for row in day_rows)
-            corp_daily = sum(row.corp_action_return for row in day_rows)
-        else:
-            income_daily = sum(row.beginning_weight * row.income_return for row in day_rows)
-            fx_daily = sum(row.beginning_weight * row.fx_return for row in day_rows)
-            fee_daily = sum(row.beginning_weight * row.fee_return for row in day_rows)
-            tax_daily = sum(row.beginning_weight * row.tax_return for row in day_rows)
-            corp_daily = sum(row.beginning_weight * row.corp_action_return for row in day_rows)
+        # Evaluate ledger vs weight-scaled legs row-by-row so mixed days do not mis-scale.
+        income_daily = 0.0
+        fx_daily = 0.0
+        fee_daily = 0.0
+        tax_daily = 0.0
+        corp_daily = 0.0
+        for row in day_rows:
+            if row.legs_from_ledger:
+                income_daily += row.income_return
+                fx_daily += row.fx_return
+                fee_daily += row.fee_return
+                tax_daily += row.tax_return
+                corp_daily += row.corp_action_return
+            else:
+                income_daily += row.beginning_weight * row.income_return
+                fx_daily += row.beginning_weight * row.fx_return
+                fee_daily += row.beginning_weight * row.fee_return
+                tax_daily += row.beginning_weight * row.tax_return
+                corp_daily += row.beginning_weight * row.corp_action_return
 
         cash_legs = (cash_sleeve_returns or {}).get(day, {})
         cash_income = float(cash_legs.get("income", 0.0))
@@ -822,6 +870,21 @@ def _build_holdings_based_contributions(
             and bool(nav_residuals)
         )
         quality["contribution_identity_ok"] = identity_ok
+        if nav_fallback_days:
+            quality["investment_return_non_authoritative"] = True
+            quality["investment_return_degraded_days"] = sorted(
+                day.isoformat() for day in nav_fallback_days
+            )
+            quality["investment_return_source"] = "nav_change_fallback"
+            findings = list(quality.get("data_quality_findings") or [])
+            findings.append(
+                {
+                    "code": "investment_return_nav_fallback",
+                    "status": "non_authoritative",
+                    "days": quality["investment_return_degraded_days"],
+                }
+            )
+            quality["data_quality_findings"] = findings
     return contributions
 
 
@@ -834,9 +897,27 @@ def _build_static_weight_contributions(
     benchmark_sector_weights: dict[str, float],
     allow_mock: bool,
     history: list[PortfolioPnLSnapshot] | None,
+    quality: dict[str, object] | None = None,
 ) -> list[DailyContribution]:
     _ = positions
-    portfolio_returns = _daily_returns_from_history(history or [], period_start, period_end)
+    portfolio_returns, nav_fallback_days = _daily_returns_from_history(
+        history or [], period_start, period_end
+    )
+    if quality is not None and nav_fallback_days:
+        quality["investment_return_non_authoritative"] = True
+        quality["investment_return_degraded_days"] = sorted(
+            day.isoformat() for day in nav_fallback_days
+        )
+        quality["investment_return_source"] = "nav_change_fallback"
+        findings = list(quality.get("data_quality_findings") or [])
+        findings.append(
+            {
+                "code": "investment_return_nav_fallback",
+                "status": "non_authoritative",
+                "days": quality["investment_return_degraded_days"],
+            }
+        )
+        quality["data_quality_findings"] = findings
     sectors = sorted(set(portfolio_sector_weights) | set(benchmark_sector_weights))
     total_portfolio_weight = sum(portfolio_sector_weights.values()) or 1.0
     contributions: list[DailyContribution] = []

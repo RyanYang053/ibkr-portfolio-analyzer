@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from app.services.decision_center.holding_context import build_holding_context
 from app.services.decision_center.holding_decision import DECISION_ACTIONS, evaluate_holding_decision
-from app.services.decision_center.thesis_service import get_thesis, put_thesis
+from app.services.decision_center.thesis_service import put_thesis
 
 
 def test_ordered_gates_data_insufficient_without_inputs():

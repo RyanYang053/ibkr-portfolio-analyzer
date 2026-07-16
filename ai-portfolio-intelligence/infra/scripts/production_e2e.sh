@@ -24,10 +24,16 @@ trap cleanup EXIT
 cd "${API_DIR}"
 alembic upgrade head
 
-curl -fsS -X POST "${API_BASE}/auth/bootstrap" \
+bootstrap_response="$(curl -sS -w '\n%{http_code}' -X POST "${API_BASE}/auth/bootstrap" \
   -H 'Content-Type: application/json' \
-  -d "{\"bootstrap_token\":\"${BOOTSTRAP_TOKEN}\",\"email\":\"${E2E_EMAIL}\",\"password\":\"${E2E_PASSWORD}\",\"name\":\"Production E2E\"}" \
-  | grep -q '"access_token"'
+  -d "{\"bootstrap_token\":\"${BOOTSTRAP_TOKEN}\",\"email\":\"${E2E_EMAIL}\",\"password\":\"${E2E_PASSWORD}\",\"name\":\"Production E2E\"}" || true)"
+bootstrap_body="$(printf '%s' "${bootstrap_response}" | sed '$d')"
+bootstrap_code="$(printf '%s' "${bootstrap_response}" | tail -n1)"
+if [[ "${bootstrap_code}" != "200" ]]; then
+  echo "Bootstrap failed with HTTP ${bootstrap_code}: ${bootstrap_body}" >&2
+  exit 1
+fi
+printf '%s' "${bootstrap_body}" | grep -q '"access_token"'
 
 TOKEN="$(curl -fsS -X POST "${API_BASE}/auth/login" \
   -H 'Content-Type: application/json' \

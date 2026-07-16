@@ -22,8 +22,19 @@ def test_login_form_submits_and_reaches_portfolio():
 
         page = browser.new_page()
         try:
-            page.goto(f"{base_url}/login", wait_until="domcontentloaded", timeout=30_000)
-            page.locator("#login-email").fill(email)
+            page.goto(f"{base_url}/login", wait_until="networkidle", timeout=60_000)
+            email_input = page.locator("#login-email")
+            email_input.wait_for(state="visible", timeout=30_000)
+            # Wait for client hydration so the controlled input is editable.
+            page.wait_for_function(
+                """() => {
+                  const el = document.querySelector('#login-email');
+                  return !!(el && !el.disabled && !el.readOnly);
+                }""",
+                timeout=30_000,
+            )
+            email_input.click()
+            email_input.fill(email)
             page.locator("#login-password").fill(password)
             page.get_by_role("button", name="Sign in").click()
             page.wait_for_url("**/portfolio**", timeout=30_000)

@@ -4,10 +4,9 @@ from datetime import date
 
 from app.schemas.domain import Transaction
 from app.services.attribution.daily_series import (
-    DailySecurityInput,
-    PARTIAL_LEDGER_ATTRIBUTION_STATUS,
     TOTAL_RETURN_DAILY_ATTRIBUTION_STATUS,
     WITHHELD_ATTRIBUTION_STATUS,
+    DailySecurityInput,
     allocate_ledger_legs_for_day,
     build_daily_attribution_contributions,
     build_daily_security_inputs_from_history,
@@ -207,15 +206,103 @@ def test_exit_without_execution_evidence_is_withheld():
             positions=[],
         ),
     ]
+    findings: list[dict[str, object]] = []
     rows = build_daily_security_inputs_from_history(
         history,
         period_start=date(2025, 1, 2),
         period_end=date(2025, 1, 3),
         positions=[],
         transactions=[],
+        quality_findings=findings,
     )
     assert rows == []
+    assert findings
+    assert findings[0]["code"] == "exit_execution_evidence_missing"
+    assert findings[0]["instrument_key"] == "EXIT:9"
+    assert findings[0]["date"] == "2025-01-03"
 
+
+def test_mixed_ledger_day_evaluated_row_by_row():
+    inputs = [
+        DailySecurityInput(
+            date=date(2025, 1, 3),
+            instrument_key="LEDGER:1",
+            sector="Technology",
+            beginning_weight=0.5,
+            total_return=0.02,
+            income_return=0.01,  # already portfolio contribution
+            legs_from_ledger=True,
+        ),
+        DailySecurityInput(
+            date=date(2025, 1, 3),
+            instrument_key="PRICE:2",
+            sector="Technology",
+            beginning_weight=0.5,
+            total_return=0.04,
+            income_return=0.10,  # instrument return; must be weight-scaled
+            legs_from_ledger=False,
+        ),
+    ]
+    contributions, _status, _quality = build_daily_attribution_contributions(
+        positions=[],
+        period_start=date(2025, 1, 2),
+        period_end=date(2025, 1, 6),
+        portfolio_sector_weights={"Technology": 1.0},
+        allow_mock=True,
+        security_inputs=inputs,
+        cash_sleeve_returns={},
+        history=[],
+    )
+    day = next(c for c in contributions if c.contribution_date == date(2025, 1, 3))
+    # 0.01 ledger contribution + 0.5 * 0.10 weight-scaled = 0.06
+    assert abs(day.income_contribution - 0.06) < 1e-9
+    # Day-level any(legs_from_ledger) would have incorrectly summed 0.01 + 0.10 = 0.11
+    assert abs(day.income_contribution - 0.11) > 1e-9
+
+
+def test_nav_fallback_marked_non_authoritative():
+    from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
+
+    history = [
+        PortfolioPnLSnapshot(
+            date="2025-01-02",
+            timestamp="2025-01-02T16:00:00+00:00",
+            net_liquidation=100.0,
+            cash=100.0,
+            buying_power=0.0,
+            margin_requirement=0.0,
+            daily_pnl=0.0,
+            daily_pnl_percent=0.0,
+            positions=[],
+            investment_return_percent=None,
+        ),
+        PortfolioPnLSnapshot(
+            date="2025-01-03",
+            timestamp="2025-01-03T16:00:00+00:00",
+            net_liquidation=101.0,
+            cash=101.0,
+            buying_power=0.0,
+            margin_requirement=0.0,
+            daily_pnl=1.0,
+            daily_pnl_percent=1.0,
+            positions=[],
+            investment_return_percent=None,
+        ),
+    ]
+    _contributions, _status, quality = build_daily_attribution_contributions(
+        positions=[],
+        period_start=date(2025, 1, 2),
+        period_end=date(2025, 1, 3),
+        portfolio_sector_weights={"Technology": 1.0},
+        allow_mock=True,
+        security_inputs=[],
+        history=history,
+    )
+    assert quality.get("investment_return_non_authoritative") is True
+    assert quality.get("investment_return_source") == "nav_change_fallback"
+    assert "2025-01-03" in (quality.get("investment_return_degraded_days") or [])
+    findings = quality.get("data_quality_findings") or []
+    assert any(item.get("code") == "investment_return_nav_fallback" for item in findings)
 
 def test_exit_uses_execution_price_not_minus_one():
     from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot, PositionPnL

@@ -66,8 +66,9 @@ def upsert_tax_transition_inputs(
 
     if settings.persistence_backend == "postgres":
         require_postgres_persistence("tax transition inputs write", table_available=_table_available())
-        from app.db.session import SessionLocal
         import json
+
+        from app.db.session import SessionLocal
 
         with SessionLocal() as session:
             session.execute(

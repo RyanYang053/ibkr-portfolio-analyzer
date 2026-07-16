@@ -380,10 +380,8 @@ def _option_stress_loss(
         contract = require_contract(position.con_id)
         spot = underlying_spot if underlying_spot and underlying_spot > 0 else None
         if spot is None:
-            resolved, source = _resolve_underlying_spot(position, positions)
+            resolved, _source = _resolve_underlying_spot(position, positions)
             spot = resolved
-            if resolved:
-                underlying_spot_source = source
 
         resolved_iv = implied_volatility if implied_volatility > 0 else None
         resolved_rf = risk_free_rate if risk_free_rate > 0 else None

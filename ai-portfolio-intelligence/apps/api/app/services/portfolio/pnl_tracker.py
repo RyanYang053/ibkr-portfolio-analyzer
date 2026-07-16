@@ -300,7 +300,6 @@ def record_pnl_snapshot(
     from app.core.config import settings
     from app.db.legacy_bridge import write_json_state
 
-    snapshot_payload = snapshot.model_dump()
     if settings.persistence_backend != "postgres" or is_demo:
         write_json_state("pnl_history", store_key, [item.model_dump() for item in history])
         if not is_demo:

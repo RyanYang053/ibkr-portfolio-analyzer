@@ -236,8 +236,8 @@ def test_daily_attribution_series_builds_linked_contributions():
 
 def test_holdings_based_daily_attribution_from_security_inputs():
     from app.services.attribution.daily_series import (
-        DailySecurityInput,
         HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+        DailySecurityInput,
         build_daily_attribution_contributions,
     )
 
