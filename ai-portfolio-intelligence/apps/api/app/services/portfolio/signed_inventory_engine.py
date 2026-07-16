@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Callable
 
 from app.schemas.domain import Transaction
+from app.services.portfolio.corporate_actions import parse_corporate_action
 
 
 def _decimal(value: object, default: Decimal | None = None) -> Decimal:
@@ -17,6 +18,32 @@ def _decimal(value: object, default: Decimal | None = None) -> Decimal:
     if not parsed.is_finite():
         return default if default is not None else Decimal("0")
     return parsed
+
+
+def cumulative_split_ratio(
+    transactions: list[Transaction],
+    *,
+    period_start: date,
+    period_end: date,
+) -> Decimal:
+    """Product of explicit split ratios in (period_start, period_end]."""
+    ratio = Decimal("1")
+    for txn in sorted(
+        (
+            item
+            for item in transactions
+            if item.action == "corporate_action" and period_start < item.trade_date <= period_end
+        ),
+        key=lambda item: (item.event_timestamp, item.source_row_id or "", item.transaction_id or ""),
+    ):
+        action = parse_corporate_action(txn)
+        if action is None or action.action_type != "split":
+            continue
+        split_ratio = Decimal(str(action.ratio))
+        if split_ratio <= 0:
+            continue
+        ratio *= split_ratio
+    return ratio
 
 
 def _resolve_fx(
@@ -60,17 +87,53 @@ def compute_signed_inventory_trade_timing(
     total = Decimal("0")
     exclusions: list[str] = []
     complete = True
+    # Normalize opening marks onto the closing share basis as splits are applied.
+    mark_open_price = open_price
 
     instrument_txns = sorted(
         [
             txn
             for txn in transactions
-            if txn.action in {"buy", "sell"} and period_start < txn.trade_date <= period_end
+            if txn.action in {"buy", "sell", "corporate_action"}
+            and period_start < txn.trade_date <= period_end
         ],
         key=lambda item: (item.event_timestamp, item.source_row_id or "", item.transaction_id or ""),
     )
 
     for txn in instrument_txns:
+        if txn.action == "corporate_action":
+            action = parse_corporate_action(txn)
+
+            if action is None:
+                exclusions.append(
+                    f"unsupported_corporate_action:{txn.symbol}:"
+                    f"{txn.transaction_id or txn.source_row_id or 'unknown'}"
+                )
+                complete = False
+                continue
+
+            if action.action_type == "split":
+                ratio = Decimal(str(action.ratio))
+                if ratio <= 0:
+                    exclusions.append(
+                        f"unsupported_corporate_action:{txn.symbol}:"
+                        f"{txn.transaction_id or txn.source_row_id or 'unknown'}"
+                    )
+                    complete = False
+                    continue
+                inventory *= ratio
+                mark_open_price = mark_open_price / ratio
+                exclusions.append(
+                    f"corporate_action_price_normalized:{txn.symbol}:ratio={ratio}"
+                )
+                continue
+
+            exclusions.append(
+                f"unsupported_corporate_action_type:{txn.symbol}:{action.action_type}"
+            )
+            complete = False
+            continue
+
         trade_qty = _decimal(abs(txn.quantity))
         if trade_qty <= 0:
             continue
@@ -98,11 +161,11 @@ def compute_signed_inventory_trade_timing(
 
             cover_qty = min(trade_qty, abs(inventory))
             if cover_qty > 0:
-                if open_price <= 0:
+                if mark_open_price <= 0:
                     exclusions.append(f"opening_mark_missing:{txn.symbol}")
                     complete = False
                 else:
-                    total += cover_qty * multiplier * (open_price * open_fx - trade_price * trade_fx)
+                    total += cover_qty * multiplier * (mark_open_price * open_fx - trade_price * trade_fx)
                 inventory += cover_qty
 
             open_long_qty = trade_qty - cover_qty
@@ -126,11 +189,11 @@ def compute_signed_inventory_trade_timing(
 
         close_qty = min(trade_qty, inventory)
         if close_qty > 0:
-            if open_price <= 0:
+            if mark_open_price <= 0:
                 exclusions.append(f"opening_mark_missing:{txn.symbol}")
                 complete = False
             else:
-                total += close_qty * multiplier * (trade_price * trade_fx - open_price * open_fx)
+                total += close_qty * multiplier * (trade_price * trade_fx - mark_open_price * open_fx)
             inventory -= close_qty
 
         open_short_qty = trade_qty - close_qty

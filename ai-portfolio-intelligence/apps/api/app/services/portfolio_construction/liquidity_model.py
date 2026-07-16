@@ -12,6 +12,7 @@ class LiquidityInputs:
     participation_rate: float
     max_exit_days: float
     minimum_trade_value: float
+    spread_source: str = "quoted_bid_ask"
 
 
 def maximum_trade_value(inputs: LiquidityInputs) -> float:
@@ -43,3 +44,18 @@ def liquidity_capacity_weight(
     if max_trade <= 0:
         return None
     return current_weight + (max_trade / total_portfolio_value)
+
+
+def liquidity_trade_capacity_weight(
+    inputs: LiquidityInputs,
+    *,
+    total_portfolio_value: float,
+) -> float | None:
+    if total_portfolio_value <= 0:
+        return None
+
+    maximum_value = maximum_trade_value(inputs)
+    if maximum_value <= 0:
+        return None
+
+    return maximum_value / total_portfolio_value

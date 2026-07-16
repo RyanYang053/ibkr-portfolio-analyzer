@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Optional
 
+from app.core.config import settings
 from app.schemas.domain import AccountSummary, PerformanceAttribution, Position, utc_now
 from app.services.portfolio.ledger_coverage import ledger_covers_period, load_ledger_coverage
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
@@ -50,6 +51,7 @@ def _production_brinson_ready(
     interaction: float | None,
     total_active: float | None,
     daily_contributions: list | None = None,
+    daily_attribution_status: str | None = None,
 ) -> bool:
     if not ledger_brinson_ready or not by_sector:
         return False
@@ -59,11 +61,24 @@ def _production_brinson_ready(
         return False
     if not _attribution_effects_reconcile(allocation, selection, interaction, total_active):
         return False
-    if daily_contributions:
+    from app.services.attribution.daily_series import (
+        DAILY_ATTRIBUTION_STATUS,
+        HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+    )
+
+    if daily_attribution_status == DAILY_ATTRIBUTION_STATUS:
+        # Static-weight daily attribution is experimental and must not approve methodology.
+        return False
+    if daily_contributions and daily_attribution_status == HOLDINGS_DAILY_ATTRIBUTION_STATUS:
         from app.services.attribution.linking import active_return_reconciles
 
-        ok, _gap = active_return_reconciles(daily_contributions, tolerance=0.05)
+        ok, _gap = active_return_reconciles(
+            daily_contributions,
+            tolerance=settings.attribution_reconciliation_tolerance,
+        )
         return ok
+    if daily_contributions and daily_attribution_status is None:
+        return False
     return True
 
 
@@ -416,20 +431,30 @@ def calculate_performance_attribution(
         from app.services.attribution.benchmark_weights import benchmark_weights_source
 
         daily_contributions = []
+        daily_attribution_status = None
+        from app.services.attribution.daily_series import (
+            DAILY_ATTRIBUTION_STATUS,
+            HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+            build_daily_attribution_contributions,
+        )
+
         if ledger_brinson_ready and portfolio_sector_weights and period_start and period_end:
-            from app.services.attribution.daily_series import build_daily_attribution_contributions
             from app.services.attribution.linking import geometric_link_attribution_effects
 
-            daily_contributions = build_daily_attribution_contributions(
+            daily_contributions, daily_attribution_status = build_daily_attribution_contributions(
                 positions=positions,
                 period_start=period_start,
                 period_end=period_end,
                 portfolio_sector_weights=portfolio_sector_weights,
                 allow_mock=allow_mock,
                 history=history,
+                account_id=account_id,
             )
             if daily_contributions:
-                linked = geometric_link_attribution_effects(daily_contributions, tolerance=0.05)
+                linked = geometric_link_attribution_effects(
+                    daily_contributions,
+                    tolerance=settings.attribution_reconciliation_tolerance,
+                )
                 attribution_linking_gap = round(linked.reconciliation_gap, 6)
                 if linked.within_tolerance:
                     attribution_linking_status = "reconciled"
@@ -441,6 +466,7 @@ def calculate_performance_attribution(
                     }
                 else:
                     attribution_linking_status = "gap_exceeds_tolerance"
+                brinson_status = daily_attribution_status or DAILY_ATTRIBUTION_STATUS
 
         benchmark_source = (
             benchmark_weights_source(period_start, allow_mock=allow_mock)
@@ -458,6 +484,7 @@ def calculate_performance_attribution(
             interaction=_inter,
             total_active=_active,
             daily_contributions=daily_contributions or None,
+            daily_attribution_status=daily_attribution_status,
         ):
             if linked_effects:
                 allocation_effect = linked_effects["allocation_effect"]
@@ -470,14 +497,22 @@ def calculate_performance_attribution(
                 interaction_effect = _inter
                 total_active_return = _active
             brinson_by_sector = _by_sector
-            brinson_status = "ledger_backed"
+            brinson_status = (
+                daily_attribution_status
+                if daily_attribution_status == HOLDINGS_DAILY_ATTRIBUTION_STATUS
+                else "ledger_backed"
+            )
         elif _by_sector and allow_mock:
             allocation_effect = _alloc
             selection_effect = _sel
             interaction_effect = _inter
             total_active_return = _active
             brinson_by_sector = _by_sector
-            brinson_status = "experimental_modeled"
+            if brinson_status not in {
+                DAILY_ATTRIBUTION_STATUS,
+                HOLDINGS_DAILY_ATTRIBUTION_STATUS,
+            }:
+                brinson_status = "experimental_modeled"
 
     if ledger_brinson_ready and period_start and period_end and account_id:
         from app.services.analytics.calculation_run import create_calculation_run

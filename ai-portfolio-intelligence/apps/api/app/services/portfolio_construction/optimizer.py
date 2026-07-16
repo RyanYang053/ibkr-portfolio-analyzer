@@ -157,8 +157,6 @@ def _per_asset_full_caps(
     *,
     policy: InvestmentPolicyStatement,
     etf_instruments: set[InstrumentKey],
-    total_value: float,
-    liquidity_caps_by_instrument: dict[InstrumentKey, float | None],
 ) -> np.ndarray:
     caps: list[float] = []
     for instrument in instruments:
@@ -166,9 +164,6 @@ def _per_asset_full_caps(
             portfolio_cap = 1.0
         else:
             portfolio_cap = policy.max_single_stock_weight / 100.0
-        liquidity_cap = liquidity_caps_by_instrument.get(instrument)
-        if liquidity_cap is not None:
-            portfolio_cap = min(portfolio_cap, liquidity_cap)
         caps.append(portfolio_cap)
     return np.array(caps, dtype=float)
 
@@ -286,10 +281,11 @@ def generate_portfolio_optimization(
     sector_labels = [sectors.get(instrument, "Unknown") for instrument in covariance_symbols]
     sector_cap = policy.max_sector_weight / 100.0
 
-    from app.services.portfolio_construction.liquidity_model import liquidity_capacity_weight
+    from app.services.portfolio_construction.liquidity_model import liquidity_trade_capacity_weight
     from app.services.portfolio_construction.liquidity_observations import resolve_liquidity_inputs
 
-    liquidity_caps_by_instrument: dict[InstrumentKey, float | None] = {}
+    max_buy_weight_changes: list[float] = []
+    max_sell_weight_changes: list[float] = []
     liquidity_inputs_by_instrument: dict[InstrumentKey, Any] = {}
     for instrument in covariance_symbols:
         position = next(item for item in optimizable_positions if _instrument_key(item) == instrument)
@@ -301,6 +297,8 @@ def generate_portfolio_optimization(
                 "high": item.get("high"),
                 "low": item.get("low"),
                 "volume": item.get("volume"),
+                "bid": item.get("bid"),
+                "ask": item.get("ask"),
             }
             for item in history_by_instrument.get(instrument, [])
             if item.get("close") is not None and float(item["close"]) > 0
@@ -316,6 +314,8 @@ def generate_portfolio_optimization(
                         "high": row.get("high"),
                         "low": row.get("low"),
                         "volume": row.get("volume") or history_by_date[chart_date].get("volume"),
+                        "bid": row.get("bid") or history_by_date[chart_date].get("bid"),
+                        "ask": row.get("ask") or history_by_date[chart_date].get("ask"),
                     }
                 )
             else:
@@ -326,6 +326,8 @@ def generate_portfolio_optimization(
                         "high": row.get("high"),
                         "low": row.get("low"),
                         "volume": row.get("volume"),
+                        "bid": row.get("bid"),
+                        "ask": row.get("ask"),
                     }
                 )
         liquidity_inputs = resolve_liquidity_inputs(
@@ -335,18 +337,19 @@ def generate_portfolio_optimization(
             participation_rate=settings.optimization_participation_rate,
             max_exit_days=settings.optimization_max_exit_days,
             minimum_trade_value=MINIMUM_TRADE_VALUE,
+            allow_high_low_proxy=allow_mock,
         )
         if liquidity_inputs is None:
             raise ValueError(f"Liquidity observations unavailable for {_instrument_label(instrument)}")
-        current_weight = converted_values.get(instrument, 0.0) / total_value
-        capacity = liquidity_capacity_weight(
+        capacity_weight = liquidity_trade_capacity_weight(
             liquidity_inputs,
             total_portfolio_value=total_value,
-            current_weight=current_weight,
         )
-        if capacity is None:
-            raise ValueError(f"Liquidity inputs unavailable for {_instrument_label(instrument)}")
-        liquidity_caps_by_instrument[instrument] = capacity
+        if capacity_weight is None:
+            raise ValueError(f"Liquidity capacity unavailable for {_instrument_label(instrument)}")
+        current_weight = converted_values.get(instrument, 0.0) / total_value
+        max_buy_weight_changes.append(capacity_weight)
+        max_sell_weight_changes.append(min(current_weight, capacity_weight))
         liquidity_inputs_by_instrument[instrument] = liquidity_inputs
 
     sell_tax_rates = []
@@ -363,8 +366,6 @@ def generate_portfolio_optimization(
         covariance_symbols,
         policy=policy,
         etf_instruments=etf_instruments,
-        total_value=total_value,
-        liquidity_caps_by_instrument=liquidity_caps_by_instrument,
     )
     turnover_budget = settings.optimization_turnover_budget
     if profile.account_type == "Taxable":
@@ -376,7 +377,8 @@ def generate_portfolio_optimization(
         target_budget=target_budget,
         current_full_weights=current_full_weights,
         turnover_budget=turnover_budget,
-        liquidity_caps=per_asset_caps,
+        max_buy_weight_changes=np.array(max_buy_weight_changes, dtype=float),
+        max_sell_weight_changes=np.array(max_sell_weight_changes, dtype=float),
         max_weights=per_asset_caps,
         minimum_weights=None,
         sector_labels=sector_labels,
@@ -419,6 +421,8 @@ def generate_portfolio_optimization(
             target_budget=target_budget,
             current_full_weights=[float(value) for value in current_full_weights],
             turnover_budget=turnover_budget,
+            max_buy_weight_changes=max_buy_weight_changes,
+            max_sell_weight_changes=max_sell_weight_changes,
             max_weights=per_asset_caps,
             sector_labels=sector_labels,
             sector_cap=sector_cap,
@@ -444,6 +448,8 @@ def generate_portfolio_optimization(
             target_budget=target_budget,
             current_full_weights=[float(value) for value in current_full_weights],
             turnover_budget=turnover_budget,
+            max_buy_weight_changes=max_buy_weight_changes,
+            max_sell_weight_changes=max_sell_weight_changes,
             max_weights=per_asset_caps,
             sector_labels=sector_labels,
             sector_cap=sector_cap,

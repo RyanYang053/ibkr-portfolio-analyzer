@@ -212,12 +212,25 @@ def build_tax_lot_attribution(
                     "rules. FIFO tax-lot output is withheld for Canadian residency."
                 ),
             )
+        from app.db.tax_affiliated_repo import list_affiliated_account_ids
+        from app.services.portfolio.transaction_store import get_transactions
+
+        affiliated_ids = list_affiliated_account_ids(account_id, as_of=period_end or date.today())
+        affiliated_txns: list[Transaction] = []
+        for affiliated_id in affiliated_ids:
+            try:
+                affiliated_txns.extend(get_transactions(affiliated_id))
+            except Exception:
+                continue
+
         ca_report = build_canadian_acb_report(
             account_id,
             transactions,
             period_start=period_start,
             period_end=period_end,
             fx_resolver=fx_resolver,
+            affiliated_accounts=affiliated_ids or None,
+            affiliated_transactions=affiliated_txns or None,
         )
         return TaxLotAttributionReport(
             account_id=account_id,

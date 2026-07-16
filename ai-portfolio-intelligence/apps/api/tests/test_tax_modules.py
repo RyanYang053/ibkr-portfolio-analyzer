@@ -143,6 +143,54 @@ def test_canadian_superficial_loss_adds_to_acb_on_repurchase():
     assert report.open_lots[0].cost_basis_per_share > 92.0
 
 
+def test_canadian_superficial_loss_denied_on_affiliated_repurchase():
+    primary = [
+        _txn(
+            account_id="MOCK-001",
+            symbol="RY",
+            trade_date=date(2024, 1, 1),
+            action="buy",
+            quantity=100,
+            price=100,
+            commission=0,
+            currency="CAD",
+        ),
+        _txn(
+            account_id="MOCK-001",
+            symbol="RY",
+            trade_date=date(2024, 6, 1),
+            action="sell",
+            quantity=100,
+            price=90,
+            commission=0,
+            currency="CAD",
+        ),
+    ]
+    affiliated = [
+        _txn(
+            account_id="MOCK-002",
+            symbol="RY",
+            trade_date=date(2024, 6, 10),
+            action="buy",
+            quantity=100,
+            price=91,
+            commission=0,
+            currency="CAD",
+        )
+    ]
+    report = build_canadian_acb_report(
+        "MOCK-001",
+        primary,
+        affiliated_accounts=["MOCK-002"],
+        affiliated_transactions=affiliated,
+    )
+    assert report.methodology_status == "affiliated_accounts_applied"
+    assert report.data_quality["superficial_loss_adjustments"] == "1"
+    assert "RY" in superficial_loss_blocked_symbols(report)
+    # Loss denied: realized gain should be brought back toward zero from -1000.
+    assert report.realized_lots[0].tax_realized_gain_loss == 0.0
+
+
 def test_canadian_return_of_capital_reduces_acb():
     transactions = [
         _txn(

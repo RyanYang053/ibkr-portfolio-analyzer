@@ -166,11 +166,6 @@ def calculate_pnl_decomposition(
     closing_snapshot_complete = False
     transaction_ledger_complete = covers_period
     derivative_effect_complete = True
-    corporate_action_events = [txn for txn in interval_txns if txn.action == "corporate_action"]
-    corporate_actions_complete = len(corporate_action_events) == 0 or all(
-        txn.source_row_id or txn.transaction_id for txn in corporate_action_events
-    )
-
     closing_positions: list = []
     if covers_period:
         from app.db.portfolio_snapshot_repo import (
@@ -214,6 +209,13 @@ def calculate_pnl_decomposition(
                 tax_realized_gain_total = round(float(period_effects.tax_realized_gain), 2)
             if period_effects.trade_timing_effect is not None:
                 trade_timing_effect_total = round(float(period_effects.trade_timing_effect), 2)
+
+    unsupported_corporate_actions = [
+        exclusion
+        for exclusion in period_exclusions
+        if exclusion.startswith("unsupported_corporate_action")
+    ]
+    corporate_actions_complete = not unsupported_corporate_actions
 
     position_rows = [
         PositionPnLDecomposition(
@@ -298,7 +300,7 @@ def calculate_pnl_decomposition(
             trade_timing_effect_total is not None,
             derivative_effect_complete,
             corporate_actions_complete,
-            not any(item.startswith("position_universe_change:") for item in exclusions),
+            not any(item.startswith("position_universe_change_unreconciled:") for item in exclusions),
         ]
     )
 
@@ -316,8 +318,8 @@ def calculate_pnl_decomposition(
         reconciliation_status = "withheld_missing_closing_snapshot"
     elif any("market_price_missing" in item for item in exclusions):
         reconciliation_status = "withheld_missing_valuation"
-    elif any(item.startswith("position_universe_change:") for item in exclusions):
-        reconciliation_status = "withheld_position_universe_change"
+    elif any(item.startswith("position_universe_change_unreconciled:") for item in exclusions):
+        reconciliation_status = "withheld_unreconciled_position_universe_change"
     elif trade_timing_effect_total is None:
         reconciliation_status = "withheld_missing_trade_timing"
     elif has_option_positions and not derivative_effect_complete:

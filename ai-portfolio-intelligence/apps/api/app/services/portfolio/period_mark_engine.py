@@ -168,7 +168,7 @@ def compute_period_mark_effects(
         [
             txn
             for txn in transactions
-            if txn.action in {"buy", "sell"}
+            if txn.action in {"buy", "sell", "corporate_action"}
             and period_start < txn.trade_date <= period_end
             and (
                 str(txn.con_id or "") == str(opening.get("con_id") if opening else closing.get("con_id") or "")

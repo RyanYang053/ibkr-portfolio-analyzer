@@ -117,7 +117,6 @@ def compute_period_effects(
             continue
 
         if opening is None or closing is None:
-            exclusions.append(f"position_universe_change:{instrument_key}")
             mark_result = compute_period_mark_effects(
                 instrument_key,
                 opening,
@@ -133,8 +132,13 @@ def compute_period_effects(
             cross_total += mark_result.cross_effect
             timing_total += mark_result.trade_timing_effect
             exclusions.extend(mark_result.exclusions)
-            if not mark_result.complete:
+
+            if mark_result.complete:
+                exclusions.append(f"position_universe_change_reconciled:{instrument_key}")
+            else:
+                exclusions.append(f"position_universe_change_unreconciled:{instrument_key}")
                 complete = False
+
             continue
 
         currency = str(opening.get("currency") or closing.get("currency") or base_currency)
@@ -159,42 +163,66 @@ def compute_period_effects(
             continue
 
         multiplier = _decimal(opening.get("multiplier")) or Decimal("1")
-        matched_qty = _matched_signed_quantity(opening_qty, closing_qty)
-        if matched_qty != 0:
-            price_delta = close_price - open_price
-            fx_delta = close_fx - open_fx
-            price_total += matched_qty * multiplier * price_delta * open_fx
-            fx_total += matched_qty * multiplier * open_price * fx_delta
-            cross_total += matched_qty * multiplier * price_delta * fx_delta
-
         instrument_txns = [
             txn
             for txn in transactions
-            if txn.action in {"buy", "sell"}
+            if txn.action in {"buy", "sell", "corporate_action"}
             and period_start < txn.trade_date <= period_end
             and (
                 str(txn.con_id or "") == str(opening.get("con_id") or closing.get("con_id") or "")
                 or txn.symbol.upper() == str(opening.get("symbol", closing.get("symbol", ""))).upper()
             )
         ]
-        from app.services.portfolio.signed_inventory_engine import compute_signed_inventory_trade_timing
+        from app.services.portfolio.signed_inventory_engine import (
+            compute_signed_inventory_trade_timing,
+            cumulative_split_ratio,
+        )
 
-        timing, _, timing_exclusions, timing_complete = compute_signed_inventory_trade_timing(
-            opening_qty,
+        split_ratio = cumulative_split_ratio(
             instrument_txns,
-            open_price=open_price,
-            close_price=close_price,
-            open_fx=open_fx,
-            close_fx=close_fx,
-            multiplier=multiplier,
             period_start=period_start,
             period_end=period_end,
-            currency=currency,
-            base_currency=base_currency,
-            fx_resolver=fx_resolver,
+        )
+        opening_qty_for_marks = opening_qty * split_ratio
+        open_price_for_marks = open_price / split_ratio if split_ratio != 0 else open_price
+        matched_qty = _matched_signed_quantity(opening_qty_for_marks, closing_qty)
+        if matched_qty != 0:
+            price_delta = close_price - open_price_for_marks
+            fx_delta = close_fx - open_fx
+            price_total += matched_qty * multiplier * price_delta * open_fx
+            fx_total += matched_qty * multiplier * open_price_for_marks * fx_delta
+            cross_total += matched_qty * multiplier * price_delta * fx_delta
+
+        QUANTITY_BRIDGE_TOLERANCE = Decimal("0.0001")
+
+        timing, calculated_closing_qty, timing_exclusions, timing_complete = (
+            compute_signed_inventory_trade_timing(
+                opening_qty,
+                instrument_txns,
+                open_price=open_price,
+                close_price=close_price,
+                open_fx=open_fx,
+                close_fx=close_fx,
+                multiplier=multiplier,
+                period_start=period_start,
+                period_end=period_end,
+                currency=currency,
+                base_currency=base_currency,
+                fx_resolver=fx_resolver,
+            )
         )
         timing_total += timing
         exclusions.extend(timing_exclusions)
+
+        quantity_bridge = calculated_closing_qty - closing_qty
+        if abs(quantity_bridge) > QUANTITY_BRIDGE_TOLERANCE:
+            exclusions.append(
+                f"quantity_bridge_mismatch:{instrument_key}:"
+                f"calculated={calculated_closing_qty}:"
+                f"reported={closing_qty}"
+            )
+            complete = False
+
         if not timing_complete:
             complete = False
 

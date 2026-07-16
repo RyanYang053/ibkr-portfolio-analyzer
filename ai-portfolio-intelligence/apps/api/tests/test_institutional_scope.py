@@ -46,7 +46,8 @@ def test_cvar_optimizer_returns_normalized_weights():
         target_budget=1.0,
         current_full_weights=[1 / 3, 1 / 3, 1 / 3],
         turnover_budget=0.5,
-        liquidity_caps=[0.5, 0.5, 0.5],
+        max_buy_weight_changes=None,
+        max_sell_weight_changes=None,
     )
     if metadata.get("status") == "cvxpy_unavailable":
         pytest.skip("cvxpy unavailable")

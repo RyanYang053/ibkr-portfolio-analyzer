@@ -15,7 +15,8 @@ class OptimizationConstraints:
     target_budget: float
     current_full_weights: np.ndarray
     turnover_budget: float | None
-    liquidity_caps: np.ndarray | None
+    max_buy_weight_changes: np.ndarray | None
+    max_sell_weight_changes: np.ndarray | None
     max_weights: np.ndarray | None
     minimum_weights: np.ndarray | None
     sector_labels: list[str]
@@ -38,8 +39,11 @@ def build_cvxpy_constraints(weights, constraints: OptimizationConstraints) -> li
         built.append(weights >= constraints.minimum_weights)
     if constraints.turnover_budget is not None:
         built.append(cp.norm1(weights - constraints.current_full_weights) <= constraints.turnover_budget)
-    if constraints.liquidity_caps is not None:
-        built.append(weights <= constraints.liquidity_caps)
+    weight_change = weights - constraints.current_full_weights
+    if constraints.max_buy_weight_changes is not None:
+        built.append(weight_change <= constraints.max_buy_weight_changes)
+    if constraints.max_sell_weight_changes is not None:
+        built.append(-weight_change <= constraints.max_sell_weight_changes)
     if constraints.max_weights is not None:
         built.append(weights <= constraints.max_weights)
     if constraints.sector_labels and constraints.sector_cap is not None:
@@ -81,11 +85,7 @@ def verify_optimization_constraints(
         target_budget=constraints.target_budget,
         current_full_weights=[float(value) for value in constraints.current_full_weights],
         turnover_budget=constraints.turnover_budget,
-        liquidity_caps=(
-            [float(value) for value in constraints.liquidity_caps]
-            if constraints.liquidity_caps is not None
-            else None
-        ),
+        liquidity_caps=None,
         max_weight=None,
         minimum_weights=(
             [float(value) for value in constraints.minimum_weights]
@@ -104,7 +104,28 @@ def verify_optimization_constraints(
             result["slack"][slack_key] = round(cap - weight, 6)
             if weight > cap + tolerance:
                 result["violations"].append(slack_key)
-        result["feasible"] = not result["violations"]
+    current = constraints.current_full_weights
+    target = np.asarray(weights, dtype=float)
+    changes = target - current
+
+    if constraints.max_buy_weight_changes is not None:
+        for index, change in enumerate(changes):
+            limit = float(constraints.max_buy_weight_changes[index])
+            slack_key = f"liquidity_buy_{index}"
+            result["slack"][slack_key] = round(limit - max(float(change), 0.0), 6)
+            if float(change) > limit + tolerance:
+                result["violations"].append(slack_key)
+
+    if constraints.max_sell_weight_changes is not None:
+        for index, change in enumerate(changes):
+            limit = float(constraints.max_sell_weight_changes[index])
+            sell_change = max(-float(change), 0.0)
+            slack_key = f"liquidity_sell_{index}"
+            result["slack"][slack_key] = round(limit - sell_change, 6)
+            if sell_change > limit + tolerance:
+                result["violations"].append(slack_key)
+
+    result["feasible"] = not result["violations"]
     return result
 
 
@@ -310,7 +331,8 @@ def solve_cvar_weights(
     target_budget: float = 1.0,
     current_full_weights: list[float] | None = None,
     turnover_budget: float | None = None,
-    liquidity_caps: list[float] | None = None,
+    max_buy_weight_changes: list[float] | None = None,
+    max_sell_weight_changes: list[float] | None = None,
     max_weights: np.ndarray | None = None,
     minimum_weights: np.ndarray | None = None,
     sector_labels: list[str] | None = None,
@@ -340,7 +362,12 @@ def solve_cvar_weights(
         target_budget=target_budget,
         current_full_weights=np.array(current_full_weights if current_full_weights is not None else [0.0] * assets),
         turnover_budget=turnover_budget,
-        liquidity_caps=np.array(liquidity_caps) if liquidity_caps is not None else None,
+        max_buy_weight_changes=(
+            np.array(max_buy_weight_changes, dtype=float) if max_buy_weight_changes is not None else None
+        ),
+        max_sell_weight_changes=(
+            np.array(max_sell_weight_changes, dtype=float) if max_sell_weight_changes is not None else None
+        ),
         max_weights=max_weights,
         minimum_weights=minimum_weights,
         sector_labels=sector_labels or [],
@@ -381,7 +408,8 @@ def solve_mean_variance_with_constraints(
     target_budget: float = 1.0,
     current_full_weights: list[float] | None = None,
     turnover_budget: float | None = None,
-    liquidity_caps: list[float] | None = None,
+    max_buy_weight_changes: list[float] | None = None,
+    max_sell_weight_changes: list[float] | None = None,
     max_weight: float | None = None,
     max_weights: np.ndarray | None = None,
     minimum_weights: np.ndarray | None = None,
@@ -409,7 +437,12 @@ def solve_mean_variance_with_constraints(
         target_budget=target_budget,
         current_full_weights=np.array(current_full_weights if current_full_weights is not None else [0.0] * size),
         turnover_budget=turnover_budget,
-        liquidity_caps=np.array(liquidity_caps) if liquidity_caps is not None else None,
+        max_buy_weight_changes=(
+            np.array(max_buy_weight_changes, dtype=float) if max_buy_weight_changes is not None else None
+        ),
+        max_sell_weight_changes=(
+            np.array(max_sell_weight_changes, dtype=float) if max_sell_weight_changes is not None else None
+        ),
         max_weights=resolved_max_weights,
         minimum_weights=minimum_weights,
         sector_labels=sector_labels or [],

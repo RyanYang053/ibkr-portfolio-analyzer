@@ -30,7 +30,32 @@ def _history_dollar_volumes(history: list[dict[str, Any]]) -> list[float]:
     return volumes
 
 
-def _spread_bps_from_history(history: list[dict[str, Any]]) -> float | None:
+def _quoted_spread_bps(history: list[dict[str, Any]]) -> float | None:
+    spreads: list[float] = []
+
+    for row in history[-20:]:
+        bid = row.get("bid")
+        ask = row.get("ask")
+
+        if bid is None or ask is None:
+            continue
+
+        bid_value = float(bid)
+        ask_value = float(ask)
+
+        if bid_value <= 0 or ask_value <= bid_value:
+            continue
+
+        midpoint = (bid_value + ask_value) / 2.0
+        spreads.append((ask_value - bid_value) / midpoint * 10_000.0)
+
+    if len(spreads) < 5:
+        return None
+
+    return float(statistics.median(spreads))
+
+
+def _high_low_proxy_spread_bps(history: list[dict[str, Any]]) -> float | None:
     spreads: list[float] = []
     for row in history[-20:]:
         high = row.get("high")
@@ -55,12 +80,17 @@ def resolve_liquidity_inputs(
     participation_rate: float,
     max_exit_days: float,
     minimum_trade_value: float,
+    allow_high_low_proxy: bool = False,
 ) -> LiquidityInputs | None:
     dollar_volumes = _history_dollar_volumes(history)
     if len(dollar_volumes) < 10:
         return None
 
-    spread_bps = _spread_bps_from_history(history)
+    spread_bps = _quoted_spread_bps(history)
+    spread_source = "quoted_bid_ask"
+    if spread_bps is None and allow_high_low_proxy:
+        spread_bps = _high_low_proxy_spread_bps(history)
+        spread_source = "daily_high_low_proxy"
     if spread_bps is None:
         return None
 
@@ -82,4 +112,5 @@ def resolve_liquidity_inputs(
         participation_rate=participation_rate,
         max_exit_days=max_exit_days,
         minimum_trade_value=minimum_trade_value,
+        spread_source=spread_source,
     )

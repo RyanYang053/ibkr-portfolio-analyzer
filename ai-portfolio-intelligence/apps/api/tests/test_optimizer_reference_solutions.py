@@ -31,7 +31,8 @@ def test_cvar_small_problem_matches_known_feasible_region():
         target_budget=1.0,
         current_full_weights=[0.5, 0.5],
         turnover_budget=1.0,
-        liquidity_caps=[0.6, 0.6],
+        max_buy_weight_changes=None,
+        max_sell_weight_changes=None,
     )
     if metadata.get("status") == "cvxpy_unavailable":
         pytest.skip("cvxpy unavailable")

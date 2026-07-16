@@ -141,7 +141,12 @@ def test_ttm_derives_quarters_from_ytd_facts():
         edgar_provider._rows_as_of(edgar_provider._point_in_time_values(payload, "Revenues"), date(2024, 6, 1)),
         2023,
     )
-    assert quarters == {"Q1": 25.0, "Q2": 30.0, "Q3": 25.0, "Q4": 20.0}
+    assert {fp: row["value"] for fp, row in quarters.items()} == {
+        "Q1": 25.0,
+        "Q2": 30.0,
+        "Q3": 25.0,
+        "Q4": 20.0,
+    }
 
 
 def test_ttm_returns_none_when_no_single_unit_has_complete_history():

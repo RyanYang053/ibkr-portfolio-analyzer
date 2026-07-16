@@ -229,66 +229,104 @@ def arithmetic_reconciliation_within_tolerance(
     return abs(derived - reported) / abs(reported) <= tolerance
 
 
-def _standalone_quarters_for_fy(rows: list[dict[str, Any]], fy: int) -> dict[str, float] | None:
-    fy_rows = [row for row in rows if row.get("fy") == fy]
-    if not fy_rows:
-        return None
+def _standalone_quarters_for_fy(
+    rows: list[dict[str, Any]],
+    fy: int,
+) -> dict[str, dict[str, Any]]:
+    fy_rows = [
+        row for row in rows
+        if row.get("fy") == fy
+    ]
 
-    quarters: dict[str, float] = {}
+    quarters: dict[str, dict[str, Any]] = {}
+
     for row in fy_rows:
         fp = str(row.get("fp", "")).upper()
-        kind = _duration_kind(row)
-        if fp in {"Q1", "Q2", "Q3", "Q4"} and kind == "quarterly":
-            quarters[fp] = float(row["value"])
-
-    q1_row = next(
-        (row for row in fy_rows if str(row.get("fp", "")).upper() == "Q1" and _duration_kind(row) == "quarterly"),
-        None,
-    )
-    h1_row = next(
-        (row for row in fy_rows if str(row.get("fp", "")).upper() == "Q2" and _duration_kind(row) == "ytd_h1"),
-        None,
-    )
-    nine_row = next(
-        (row for row in fy_rows if str(row.get("fp", "")).upper() == "Q3" and _duration_kind(row) == "ytd_9m"),
-        None,
-    )
-    fy_row = next(
-        (row for row in fy_rows if str(row.get("fp", "")).upper() == "FY" and _duration_kind(row) == "annual"),
-        None,
-    )
-
-    if q1_row and h1_row and "Q2" not in quarters:
-        derived_q2 = float(h1_row["value"]) - float(q1_row["value"])
-        if not arithmetic_reconciliation_within_tolerance(
-            float(q1_row["value"]) + derived_q2,
-            float(h1_row["value"]),
+        if (
+            fp in {"Q1", "Q2", "Q3", "Q4"}
+            and _duration_kind(row) == "quarterly"
         ):
-            return None
-        quarters["Q2"] = derived_q2
-    if h1_row and nine_row and "Q3" not in quarters:
-        derived_q3 = float(nine_row["value"]) - float(h1_row["value"])
-        if not arithmetic_reconciliation_within_tolerance(
-            float(h1_row["value"]) + derived_q3,
-            float(nine_row["value"]),
-        ):
-            return None
-        quarters["Q3"] = derived_q3
-    if fy_row and nine_row and "Q4" not in quarters:
-        derived_q4 = float(fy_row["value"]) - float(nine_row["value"])
-        if not arithmetic_reconciliation_within_tolerance(
-            float(nine_row["value"]) + derived_q4,
-            float(fy_row["value"]),
-        ):
-            return None
-        quarters["Q4"] = derived_q4
+            quarters[fp] = dict(row)
 
-    if len(quarters) != 4:
-        return None
-    if fy_row is not None:
-        quarter_sum = sum(quarters.values())
-        if not arithmetic_reconciliation_within_tolerance(quarter_sum, float(fy_row["value"])):
-            return None
+    q1 = quarters.get("Q1")
+    h1 = next(
+        (
+            row for row in fy_rows
+            if str(row.get("fp", "")).upper() == "Q2"
+            and _duration_kind(row) == "ytd_h1"
+        ),
+        None,
+    )
+    nine_month = next(
+        (
+            row for row in fy_rows
+            if str(row.get("fp", "")).upper() == "Q3"
+            and _duration_kind(row) == "ytd_9m"
+        ),
+        None,
+    )
+    annual = next(
+        (
+            row for row in fy_rows
+            if str(row.get("fp", "")).upper() == "FY"
+            and _duration_kind(row) == "annual"
+        ),
+        None,
+    )
+
+    if q1 and h1 and "Q2" not in quarters:
+        q2_value = (
+            float(h1["value"]) - float(q1["value"])
+        )
+        if arithmetic_reconciliation_within_tolerance(
+            float(q1["value"]) + q2_value,
+            float(h1["value"]),
+        ):
+            quarters["Q2"] = _derived_quarter_row(
+                template=h1,
+                value=q2_value,
+                fy=fy,
+                fp="Q2",
+                end_row=h1,
+                start_row=q1,
+            )
+
+    if h1 and nine_month and "Q3" not in quarters:
+        q3_value = (
+            float(nine_month["value"])
+            - float(h1["value"])
+        )
+        if arithmetic_reconciliation_within_tolerance(
+            float(h1["value"]) + q3_value,
+            float(nine_month["value"]),
+        ):
+            quarters["Q3"] = _derived_quarter_row(
+                template=nine_month,
+                value=q3_value,
+                fy=fy,
+                fp="Q3",
+                end_row=nine_month,
+                start_row=h1,
+            )
+
+    if annual and nine_month and "Q4" not in quarters:
+        q4_value = (
+            float(annual["value"])
+            - float(nine_month["value"])
+        )
+        if arithmetic_reconciliation_within_tolerance(
+            float(nine_month["value"]) + q4_value,
+            float(annual["value"]),
+        ):
+            quarters["Q4"] = _derived_quarter_row(
+                template=annual,
+                value=q4_value,
+                fy=fy,
+                fp="Q4",
+                end_row=annual,
+                start_row=nine_month,
+            )
+
     return quarters
 
 
@@ -301,11 +339,31 @@ def _derived_quarter_row(
     end_row: dict[str, Any] | None,
     start_row: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    previous_end = (
+        _parse_iso_date(start_row.get("end"))
+        if start_row
+        else None
+    )
+
+    derived_start = (
+        previous_end + timedelta(days=1)
+        if previous_end
+        else _parse_iso_date(
+            end_row.get("start")
+            if end_row
+            else None
+        )
+    )
+
     return {
         "concept": template.get("concept"),
         "unit": template.get("unit"),
         "value": value,
-        "start": start_row.get("start") if start_row else end_row.get("start") if end_row else None,
+        "start": (
+            derived_start.isoformat()
+            if derived_start
+            else None
+        ),
         "end": end_row.get("end") if end_row else None,
         "filed": end_row.get("filed") if end_row else None,
         "accn": end_row.get("accn") if end_row else None,
@@ -313,8 +371,26 @@ def _derived_quarter_row(
         "fp": fp,
         "derivation": "derived_quarter",
         "derivation_inputs": {
-            "start_row_end": start_row.get("end") if start_row else None,
-            "end_row_end": end_row.get("end") if end_row else None,
+            "prior_period_accession": (
+                start_row.get("accn")
+                if start_row
+                else None
+            ),
+            "cumulative_period_accession": (
+                end_row.get("accn")
+                if end_row
+                else None
+            ),
+            "prior_period_end": (
+                start_row.get("end")
+                if start_row
+                else None
+            ),
+            "cumulative_period_end": (
+                end_row.get("end")
+                if end_row
+                else None
+            ),
         },
     }
 
@@ -324,47 +400,10 @@ def derive_standalone_quarters(rows: list[dict[str, Any]]) -> list[dict[str, Any
     fiscal_years = sorted({int(row["fy"]) for row in rows if row.get("fy") is not None}, reverse=True)
     for fy in fiscal_years:
         quarters = _standalone_quarters_for_fy(rows, fy)
-        if quarters is None:
-            fy_rows = [row for row in rows if row.get("fy") == fy]
-            for row in fy_rows:
-                fp = str(row.get("fp", "")).upper()
-                if fp in {"Q1", "Q2", "Q3", "Q4"} and _duration_kind(row) == "quarterly":
-                    standalone.append({**row})
+        if not quarters:
             continue
-        for fp, value in quarters.items():
-            source = next(
-                (
-                    row
-                    for row in rows
-                    if row.get("fy") == fy and str(row.get("fp", "")).upper() == fp and _duration_kind(row) == "quarterly"
-                ),
-                None,
-            )
-            if source is not None:
-                standalone.append({**source, "value": value})
-                continue
-            fy_rows = [row for row in rows if row.get("fy") == fy]
-            q1_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "Q1"), None)
-            h1_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "Q2" and _duration_kind(row) == "ytd_h1"), None)
-            nine_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "Q3" and _duration_kind(row) == "ytd_9m"), None)
-            fy_row = next((row for row in fy_rows if str(row.get("fp", "")).upper() == "FY"), None)
-            if fp == "Q2" and h1_row is not None:
-                standalone.append(_derived_quarter_row(template=rows[0], value=value, fy=fy, fp=fp, end_row=h1_row, start_row=q1_row))
-            elif fp == "Q3" and nine_row is not None:
-                standalone.append(_derived_quarter_row(template=rows[0], value=value, fy=fy, fp=fp, end_row=nine_row, start_row=h1_row))
-            elif fp == "Q4" and fy_row is not None:
-                standalone.append(_derived_quarter_row(template=rows[0], value=value, fy=fy, fp=fp, end_row=fy_row, start_row=nine_row))
-            else:
-                standalone.append(
-                    {
-                        "concept": rows[0].get("concept"),
-                        "unit": rows[0].get("unit"),
-                        "value": value,
-                        "fy": fy,
-                        "fp": fp,
-                        "derivation": "derived_quarter",
-                    }
-                )
+        for fp, row in quarters.items():
+            standalone.append({**row, "fp": fp})
     standalone.sort(key=lambda row: _parse_iso_date(row.get("end")) or date.min)
     return standalone
 

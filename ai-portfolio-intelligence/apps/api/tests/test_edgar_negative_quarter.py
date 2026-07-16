@@ -47,6 +47,6 @@ def test_negative_quarter_values_are_allowed():
         },
     ]
     quarters = edgar_provider._standalone_quarters_for_fy(rows, 2023)
-    assert quarters is not None
-    assert quarters["Q1"] == -10.0
-    assert sum(quarters.values()) == 50.0
+    assert quarters
+    assert quarters["Q1"]["value"] == -10.0
+    assert sum(row["value"] for row in quarters.values()) == 50.0
