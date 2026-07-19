@@ -1,3 +1,4 @@
+import fs from "fs";
 import type { NextConfig } from "next";
 import path from "path";
 
@@ -24,13 +25,48 @@ const securityHeaders = [
   },
 ];
 
+/**
+ * Docker builds this app in isolation (/app) → trace from __dirname so
+ * standalone emits /app/server.js.
+ *
+ * npm workspaces hoist next to the monorepo root. Tracing only from apps/web
+ * silently drops those files, so standalone lacks node_modules and runtime
+ * resolves an incomplete apps/web/node_modules/next (missing ./cpu-profile).
+ */
+function resolveOutputFileTracingRoot(): string {
+  const appRoot = __dirname;
+  const workspaceRoot = path.join(appRoot, "../..");
+  const workspacePackagePath = path.join(workspaceRoot, "package.json");
+  try {
+    if (!fs.existsSync(workspacePackagePath)) {
+      return appRoot;
+    }
+    const pkg = JSON.parse(fs.readFileSync(workspacePackagePath, "utf8")) as {
+      workspaces?: string[] | { packages?: string[] };
+    };
+    const workspaces = Array.isArray(pkg.workspaces)
+      ? pkg.workspaces
+      : (pkg.workspaces?.packages ?? []);
+    if (workspaces.some((entry) => entry === "apps/web" || entry.endsWith("/web"))) {
+      return workspaceRoot;
+    }
+  } catch {
+    // Isolated install (Docker) or unreadable parent package.json.
+  }
+  return appRoot;
+}
+
 const nextConfig: NextConfig = {
   output: "standalone",
-  // Pin tracing to this app so standalone emits server.js at
-  // .next/standalone/server.js (not nested under apps/web or /app).
-  // Explicit root also prevents Next from picking a parent lockfile
-  // (e.g. ~/package-lock.json) as the tracing root.
-  outputFileTracingRoot: path.join(__dirname),
+  outputFileTracingRoot: resolveOutputFileTracingRoot(),
+  // Belt-and-suspenders: start-server.js requires ./cpu-profile which NFT
+  // sometimes omits from standalone traces.
+  outputFileTracingIncludes: {
+    "/*": [
+      "./node_modules/next/dist/server/lib/cpu-profile.js",
+      "../../node_modules/next/dist/server/lib/cpu-profile.js",
+    ],
+  },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

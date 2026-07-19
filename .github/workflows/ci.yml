@@ -210,6 +210,26 @@ jobs:
         run: |
           npm ci
           npm run web:build
+          # Incomplete NFT dumps under apps/web/node_modules (no package.json) can
+          # shadow the hoisted Next install and break standalone startup.
+          for pkg in next styled-jsx; do
+            if [[ -d "apps/web/node_modules/${pkg}" && ! -f "apps/web/node_modules/${pkg}/package.json" ]]; then
+              rm -rf "apps/web/node_modules/${pkg}"
+            fi
+          done
+          STANDALONE_SERVER="$(find apps/web/.next/standalone -name server.js -type f | head -n 1)"
+          STANDALONE_ROOT="$(dirname "${STANDALONE_SERVER}")"
+          if [[ ! -f "${STANDALONE_ROOT}/node_modules/next/dist/server/lib/cpu-profile.js" ]]; then
+            # Walk up from server.js: apps/web → standalone root (monorepo layout).
+            if [[ -f "${STANDALONE_ROOT}/../../node_modules/next/dist/server/lib/cpu-profile.js" ]]; then
+              :
+            else
+              echo "Standalone is missing next/dist/server/lib/cpu-profile.js"
+              find apps/web/.next/standalone -maxdepth 5 -type d -name node_modules | head -n 20 || true
+              find apps/web/.next/standalone -name 'cpu-profile.js' | head -n 20 || true
+              exit 1
+            fi
+          fi
       - name: Start API and bootstrap user
         working-directory: ai-portfolio-intelligence/apps/api
         run: |
