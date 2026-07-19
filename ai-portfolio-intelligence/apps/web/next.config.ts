@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -15,7 +16,9 @@ const securityHeaders = [
       "form-action 'self'",
       "img-src 'self' data: https:",
       "style-src 'self' 'unsafe-inline'",
-      "script-src 'self'",
+      // Next.js App Router emits inline RSC flight <script> tags. Blocking them
+      // with script-src 'self' alone leaves a blank document (Playwright E2E).
+      "script-src 'self' 'unsafe-inline'",
       "connect-src 'self'",
     ].join("; "),
   },
@@ -23,6 +26,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Monorepo: avoid Next inferring a parent lockfile (e.g. ~/package-lock.json)
+  // as the tracing root, which breaks standalone output layout.
+  outputFileTracingRoot: path.join(__dirname, "../.."),
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

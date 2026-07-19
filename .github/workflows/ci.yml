@@ -247,12 +247,29 @@ jobs:
             HOSTNAME=127.0.0.1 PORT=3000 node server.js
           ) &
           for attempt in $(seq 1 60); do
-            LOGIN_HTML="$(curl -fsS http://127.0.0.1:3000/login 2>/dev/null || true)"
+            LOGIN_HTML="$(curl -fsS -D /tmp/login-headers.txt http://127.0.0.1:3000/login 2>/dev/null || true)"
             if [[ "${LOGIN_HTML}" == *'id="login-email"'* ]] || [[ "${LOGIN_HTML}" == *"id='login-email'"* ]]; then
+              CSS_PATH="$(printf '%s' "${LOGIN_HTML}" | sed -n 's/.*href="\(\/_next\/static\/css\/[^"]*\)".*/\1/p' | head -n 1)"
+              if [[ -n "${CSS_PATH}" ]]; then
+                CSS_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3000${CSS_PATH}" 2>/dev/null || echo 000)"
+                if [[ "${CSS_STATUS}" != "200" ]]; then
+                  if [[ "${attempt}" -eq 60 ]]; then
+                    echo "Login static CSS missing: ${CSS_PATH} status=${CSS_STATUS}"
+                    exit 1
+                  fi
+                  sleep 1
+                  continue
+                fi
+              fi
+              if ! grep -qi "content-security-policy:.*script-src[^;]*'unsafe-inline'" /tmp/login-headers.txt; then
+                echo "CSP must allow script-src 'unsafe-inline' for Next.js RSC flight scripts"
+                cat /tmp/login-headers.txt || true
+                exit 1
+              fi
               break
             fi
             if [[ "${attempt}" -eq 60 ]]; then
-              curl -s http://127.0.0.1:3000/login | head -c 500 || true
+              curl -s -D - http://127.0.0.1:3000/login | head -c 1200 || true
               echo "Web login page did not render the sign-in form"
               exit 1
             fi

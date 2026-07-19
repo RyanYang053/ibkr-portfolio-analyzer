@@ -23,9 +23,11 @@ def test_login_form_submits_and_reaches_portfolio():
         page = browser.new_page()
         try:
             page.goto(f"{base_url}/login", wait_until="domcontentloaded", timeout=60_000)
-            page.get_by_role("heading", name="Sign in").wait_for(state="visible", timeout=30_000)
+            # Prefer the form field over heading text: SSR may stream heading first,
+            # but hydration must make the controlled inputs editable.
             email_input = page.locator("#login-email")
-            email_input.wait_for(state="visible", timeout=30_000)
+            email_input.wait_for(state="visible", timeout=45_000)
+            page.get_by_role("heading", name="Sign in").wait_for(state="visible", timeout=15_000)
             # Wait for client hydration so the controlled input is editable.
             page.wait_for_function(
                 """() => {

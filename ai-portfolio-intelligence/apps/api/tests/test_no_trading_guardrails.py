@@ -44,8 +44,30 @@ def test_broker_adapter_exposes_only_readonly_methods():
     }.issubset(adapter_methods)
 
 
+def _collect_registered_paths(routes) -> set[str]:
+    """Collect path strings from FastAPI/Starlette routes, including nested routers.
+
+    FastAPI 0.139+ / Starlette 1.3 may expose ``_IncludedRouter`` entries in
+    ``app.routes`` that do not have a ``.path`` attribute.
+    """
+    paths: set[str] = set()
+    for route in routes:
+        path = getattr(route, "path", None)
+        if isinstance(path, str):
+            paths.add(path)
+        nested = getattr(route, "routes", None)
+        if nested is not None:
+            paths |= _collect_registered_paths(nested)
+        original = getattr(route, "original_router", None)
+        if original is not None:
+            paths |= _collect_registered_paths(getattr(original, "routes", []) or [])
+    return paths
+
+
 def test_fastapi_app_does_not_register_forbidden_trading_routes():
-    registered_routes = {route.path for route in app.routes}
+    registered_routes = _collect_registered_paths(app.routes)
+    # OpenAPI paths cover include_in_schema routes as a second honesty check.
+    registered_routes |= set(app.openapi().get("paths", {}))
 
     assert FORBIDDEN_ROUTES.isdisjoint(registered_routes)
 
