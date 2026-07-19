@@ -22,7 +22,8 @@ def test_login_form_submits_and_reaches_portfolio():
 
         page = browser.new_page()
         try:
-            page.goto(f"{base_url}/login", wait_until="networkidle", timeout=60_000)
+            page.goto(f"{base_url}/login", wait_until="domcontentloaded", timeout=60_000)
+            page.get_by_role("heading", name="Sign in").wait_for(state="visible", timeout=30_000)
             email_input = page.locator("#login-email")
             email_input.wait_for(state="visible", timeout=30_000)
             # Wait for client hydration so the controlled input is editable.
@@ -40,7 +41,12 @@ def test_login_form_submits_and_reaches_portfolio():
             page.wait_for_url("**/portfolio**", timeout=30_000)
             assert page.get_by_role("heading", name="Sign in").count() == 0
         except Exception as exc:
-            pytest.fail(f"Login form E2E failed: {exc}")
+            snippet = ""
+            try:
+                snippet = page.content()[:2000]
+            except Exception:
+                pass
+            pytest.fail(f"Login form E2E failed: {exc}\npage_url={page.url}\nhtml_snippet={snippet}")
         finally:
             browser.close()
 

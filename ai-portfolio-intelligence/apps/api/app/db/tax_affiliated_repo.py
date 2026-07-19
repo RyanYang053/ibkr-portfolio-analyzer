@@ -121,7 +121,7 @@ def list_affiliated_account_ids(
         return [str(row.account_id) for row in rows]
 
     index = _read_index()
-    household_ids = {
+    household_id_set: set[str] = {
         str(item.get("household_id"))
         for item in index.values()
         if isinstance(item, dict)
@@ -133,7 +133,7 @@ def list_affiliated_account_ids(
             str(item["account_id"])
             for item in index.values()
             if isinstance(item, dict)
-            and str(item.get("household_id")) in household_ids
+            and str(item.get("household_id")) in household_id_set
             and item.get("account_id") != account_id
             and date.fromisoformat(str(item.get("effective_date", "1900-01-01"))) <= as_of
         }

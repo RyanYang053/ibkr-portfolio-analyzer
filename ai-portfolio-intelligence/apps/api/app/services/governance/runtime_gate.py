@@ -26,6 +26,14 @@ def gate_production_output(
             "methodology_id": methodology_id,
             "reason": str(exc),
         }
+    except Exception as exc:
+        # Fail closed without turning methodology gating into an API 500.
+        return {
+            "allowed": False,
+            "approval_status": experimental_label,
+            "methodology_id": methodology_id,
+            "reason": f"methodology gate unavailable: {exc}",
+        }
     return {
         "allowed": True,
         "approval_status": record.status,

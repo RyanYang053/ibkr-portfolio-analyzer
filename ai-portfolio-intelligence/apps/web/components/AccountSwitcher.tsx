@@ -1,22 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { getAccounts } from "@/lib/api";
 import { CreditCard, RefreshCw } from "lucide-react";
+
+function readActiveAccountId(): string {
+  if (typeof window === "undefined") {
+    return "all";
+  }
+  return new URLSearchParams(window.location.search).get("account_id") || "all";
+}
 
 export function AccountSwitcher() {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  
-  // Use "all" as the default view
-  const activeAccountId = searchParams.get("account_id") || "all";
-  
+
+  const [activeAccountId, setActiveAccountId] = useState("all");
   const [accounts, setAccounts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    setActiveAccountId(readActiveAccountId());
     setIsLoading(true);
     getAccounts()
       .then((data) => {
@@ -24,15 +29,12 @@ export function AccountSwitcher() {
       })
       .catch(() => {})
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [pathname]);
 
   function handleSelect(val: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (val === "all") {
-      params.set("account_id", "all");
-    } else {
-      params.set("account_id", val);
-    }
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    params.set("account_id", val === "all" ? "all" : val);
+    setActiveAccountId(val === "all" ? "all" : val);
     router.push(`${pathname}?${params.toString()}`);
   }
 

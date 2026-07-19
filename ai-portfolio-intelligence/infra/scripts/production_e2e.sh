@@ -21,27 +21,37 @@ cleanup() {
 }
 trap cleanup EXIT
 
+curl_json() {
+  local method="$1"
+  local url="$2"
+  shift 2
+  local response http_code body
+  response="$(curl -sS -w '\n%{http_code}' -X "${method}" "${url}" "$@" || true)"
+  http_code="$(printf '%s' "${response}" | tail -n1)"
+  body="$(printf '%s' "${response}" | sed '$d')"
+  if [[ "${http_code}" != "200" ]]; then
+    echo "Request failed: ${method} ${url} -> HTTP ${http_code}" >&2
+    echo "Response body: ${body}" >&2
+    exit 1
+  fi
+  printf '%s' "${body}"
+}
+
 cd "${API_DIR}"
 alembic upgrade head
 
-bootstrap_response="$(curl -sS -w '\n%{http_code}' -X POST "${API_BASE}/auth/bootstrap" \
+bootstrap_body="$(curl_json POST "${API_BASE}/auth/bootstrap" \
   -H 'Content-Type: application/json' \
-  -d "{\"bootstrap_token\":\"${BOOTSTRAP_TOKEN}\",\"email\":\"${E2E_EMAIL}\",\"password\":\"${E2E_PASSWORD}\",\"name\":\"Production E2E\"}" || true)"
-bootstrap_body="$(printf '%s' "${bootstrap_response}" | sed '$d')"
-bootstrap_code="$(printf '%s' "${bootstrap_response}" | tail -n1)"
-if [[ "${bootstrap_code}" != "200" ]]; then
-  echo "Bootstrap failed with HTTP ${bootstrap_code}: ${bootstrap_body}" >&2
-  exit 1
-fi
+  -d "{\"bootstrap_token\":\"${BOOTSTRAP_TOKEN}\",\"email\":\"${E2E_EMAIL}\",\"password\":\"${E2E_PASSWORD}\",\"name\":\"Production E2E\"}")"
 printf '%s' "${bootstrap_body}" | grep -q '"access_token"'
 
-TOKEN="$(curl -fsS -X POST "${API_BASE}/auth/login" \
+TOKEN="$(curl_json POST "${API_BASE}/auth/login" \
   -H 'Content-Type: application/json' \
   -d "{\"email\":\"${E2E_EMAIL}\",\"password\":\"${E2E_PASSWORD}\"}" | python -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
 
-curl -fsS "${API_BASE}/auth/me" -H "Authorization: Bearer ${TOKEN}" | grep -q '"email"'
-curl -fsS "${API_BASE}/health/ready" | grep -q '"status"'
-curl -fsS "${API_BASE}/portfolio/summary?account_id=MOCK-001" -H "Authorization: Bearer ${TOKEN}" | grep -q '"net_liquidation"'
+curl_json GET "${API_BASE}/auth/me" -H "Authorization: Bearer ${TOKEN}" | grep -q '"email"'
+curl_json GET "${API_BASE}/health/ready" | grep -q '"status"'
+curl_json GET "${API_BASE}/portfolio/summary?account_id=MOCK-001" -H "Authorization: Bearer ${TOKEN}" | grep -q '"net_liquidation"'
 
 UNAUTHORIZED_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${API_BASE}/portfolio/summary?account_id=U1234567" -H "Authorization: Bearer ${TOKEN}")"
 if [[ "${UNAUTHORIZED_STATUS}" != "403" ]]; then
@@ -49,19 +59,19 @@ if [[ "${UNAUTHORIZED_STATUS}" != "403" ]]; then
   exit 1
 fi
 
-curl -fsS -X POST "${API_BASE}/auth/logout" -H "Authorization: Bearer ${TOKEN}" | grep -q '"status"'
+curl_json POST "${API_BASE}/auth/logout" -H "Authorization: Bearer ${TOKEN}" | grep -q '"status"'
 REVOKED_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${API_BASE}/auth/me" -H "Authorization: Bearer ${TOKEN}")"
 if [[ "${REVOKED_STATUS}" != "401" ]]; then
   echo "Expected revoked token to return 401, got ${REVOKED_STATUS}"
   exit 1
 fi
 
-TOKEN="$(curl -fsS -X POST "${API_BASE}/auth/login" \
+TOKEN="$(curl_json POST "${API_BASE}/auth/login" \
   -H 'Content-Type: application/json' \
   -d "{\"email\":\"${E2E_EMAIL}\",\"password\":\"${E2E_PASSWORD}\"}" | python -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
 
-curl -fsS "${API_BASE}/portfolio/pnl-history?account_id=MOCK-001" -H "Authorization: Bearer ${TOKEN}" | grep -q '"net_liquidation"'
-curl -fsS "${API_BASE}/portfolio/attribution?account_id=MOCK-001" -H "Authorization: Bearer ${TOKEN}" | grep -q '"methodology"'
+curl_json GET "${API_BASE}/portfolio/pnl-history?account_id=MOCK-001" -H "Authorization: Bearer ${TOKEN}" | grep -q '"net_liquidation"'
+curl_json GET "${API_BASE}/portfolio/attribution?account_id=MOCK-001" -H "Authorization: Bearer ${TOKEN}" | grep -q '"methodology"'
 
 AUDIT_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${API_BASE}/admin/audit-logs" -H "Authorization: Bearer ${TOKEN}")"
 if [[ "${AUDIT_STATUS}" != "200" && "${AUDIT_STATUS}" != "403" ]]; then

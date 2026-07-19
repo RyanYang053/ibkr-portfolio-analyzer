@@ -246,7 +246,7 @@ def put_thesis(
     prior = index.get(key) if isinstance(index.get(key), dict) else {}
     versions = list(prior.get("versions") or []) if isinstance(prior, dict) else []
     versions.append(version_row)
-    stored = dict(payload)
+    stored: dict[str, Any] = dict(payload)
     stored["versions"] = versions
     index[key] = stored
     _write_index(index)

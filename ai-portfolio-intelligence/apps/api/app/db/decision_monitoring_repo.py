@@ -137,6 +137,7 @@ def create_rule(
         return rule
 
     index = _read_index()
-    index[rule["rule_id"]] = rule
+    rule_id = str(rule["rule_id"])
+    index[rule_id] = rule
     _write_index(index)
     return rule

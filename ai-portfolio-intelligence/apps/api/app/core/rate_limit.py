@@ -207,10 +207,16 @@ def check_login_allowed(request: Request, email: str) -> None:
     if _postgres_rate_limit_required():
         if not _table_available():
             raise HTTPException(status_code=503, detail="Login rate limiting unavailable")
-        _postgres_check_allowed(keys)
+        try:
+            _postgres_check_allowed(keys)
+        except SQLAlchemyError as exc:
+            raise HTTPException(status_code=503, detail="Login rate limiting unavailable") from exc
         return
     if _table_available():
-        _postgres_check_allowed(keys)
+        try:
+            _postgres_check_allowed(keys)
+        except SQLAlchemyError as exc:
+            raise HTTPException(status_code=503, detail="Login rate limiting unavailable") from exc
         return
     _json_check_allowed(keys)
 
@@ -220,10 +226,16 @@ def record_login_failure(request: Request, email: str) -> None:
     if _postgres_rate_limit_required():
         if not _table_available():
             raise HTTPException(status_code=503, detail="Login rate limiting unavailable")
-        _postgres_record_failure(keys)
+        try:
+            _postgres_record_failure(keys)
+        except SQLAlchemyError as exc:
+            raise HTTPException(status_code=503, detail="Login rate limiting unavailable") from exc
         return
     if _table_available():
-        _postgres_record_failure(keys)
+        try:
+            _postgres_record_failure(keys)
+        except SQLAlchemyError as exc:
+            raise HTTPException(status_code=503, detail="Login rate limiting unavailable") from exc
         return
     _json_record_failure(keys)
 
@@ -235,9 +247,15 @@ def clear_login_failures(request: Request, email: str) -> None:
     if _postgres_rate_limit_required():
         if not _table_available():
             raise HTTPException(status_code=503, detail="Login rate limiting unavailable")
-        _postgres_clear_failures(keys_to_clear)
+        try:
+            _postgres_clear_failures(keys_to_clear)
+        except SQLAlchemyError as exc:
+            raise HTTPException(status_code=503, detail="Login rate limiting unavailable") from exc
         return
     if _table_available():
-        _postgres_clear_failures(keys_to_clear)
+        try:
+            _postgres_clear_failures(keys_to_clear)
+        except SQLAlchemyError as exc:
+            raise HTTPException(status_code=503, detail="Login rate limiting unavailable") from exc
         return
     _json_clear_failures(keys_to_clear)

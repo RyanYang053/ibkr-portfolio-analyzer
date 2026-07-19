@@ -125,10 +125,19 @@ def _sector_benchmark_return(sector: str, allow_mock: bool, period_start: date, 
         return None
 
 
-def _portfolio_sector_weights(positions: list[Position], base_currency: str, fx_resolver) -> dict[str, float]:
+def _portfolio_sector_weights(positions: list[Position], base_currency: str, fx_resolver=None) -> dict[str, float]:
+    from app.services.broker.ibkr_readonly import get_exchange_rate
+
+    resolve = fx_resolver or get_exchange_rate
     grouped: dict[str, float] = defaultdict(float)
     for position in positions:
-        rate = fx_resolver(position.currency, base_currency)
+        try:
+            rate = resolve(position.currency, base_currency)
+        except TypeError:
+            # Dated resolvers require trade_date; current weights use spot FX.
+            rate = get_exchange_rate(position.currency, base_currency)
+        except ValueError:
+            rate = get_exchange_rate(position.currency, base_currency)
         grouped[position.sector or "Unknown"] += abs(position.market_value * rate)
     total = sum(grouped.values())
     if total <= 0:
@@ -331,7 +340,9 @@ def calculate_performance_attribution(
     unrealized_val = 0.0
 
     for pos in positions:
-        rate = fx_resolver(pos.currency, base_currency)
+        # Current mark-to-market conversion uses spot FX. Dated FX is reserved for
+        # ledger/tax-lot paths that supply an explicit trade_date.
+        rate = get_exchange_rate(pos.currency, base_currency)
         pnl = pos.unrealized_pnl * rate
         key = _position_pnl_key(pos)
         security_selection_pnl[key] = round(

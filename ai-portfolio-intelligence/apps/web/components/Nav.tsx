@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Activity, Bell, ClipboardList, LayoutDashboard, Scale, Settings, ShieldCheck, Star, Search } from "lucide-react";
@@ -36,9 +36,7 @@ export function Nav() {
         <h1 className="text-xl font-semibold leading-tight">AI Portfolio Intelligence</h1>
       </div>
 
-      <Suspense fallback={null}>
-        <AccountSwitcher />
-      </Suspense>
+      <AccountSwitcher />
 
       <form onSubmit={handleSearch} className="mb-4 relative">
         <input
@@ -69,4 +67,3 @@ export function Nav() {
     </aside>
   );
 }
-

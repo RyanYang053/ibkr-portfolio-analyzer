@@ -198,7 +198,8 @@ def bootstrap_owner_transactionally(email: str, password_hash: str, name: str) -
                 ),
                 {"user_id": user_row["id"], "created_at": now},
             )
-            return _row_to_user(dict(user_row))
+            created = _row_to_user(dict(user_row))
+        return created
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
