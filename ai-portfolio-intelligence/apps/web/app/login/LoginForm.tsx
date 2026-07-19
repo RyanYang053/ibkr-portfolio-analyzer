@@ -6,9 +6,14 @@ import { login } from "@/lib/auth";
 
 function readNextPath(): string {
   if (typeof window === "undefined") {
-    return "/";
+    return "/portfolio";
   }
-  return new URLSearchParams(window.location.search).get("next") || "/";
+  const next = new URLSearchParams(window.location.search).get("next");
+  // Only allow same-origin relative paths; default to portfolio after sign-in.
+  if (next && next.startsWith("/") && !next.startsWith("//")) {
+    return next;
+  }
+  return "/portfolio";
 }
 
 export default function LoginForm() {

@@ -26,9 +26,11 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  // Monorepo: avoid Next inferring a parent lockfile (e.g. ~/package-lock.json)
-  // as the tracing root, which breaks standalone output layout.
-  outputFileTracingRoot: path.join(__dirname, "../.."),
+  // Pin tracing to this app so standalone emits server.js at
+  // .next/standalone/server.js (not nested under apps/web or /app).
+  // Explicit root also prevents Next from picking a parent lockfile
+  // (e.g. ~/package-lock.json) as the tracing root.
+  outputFileTracingRoot: path.join(__dirname),
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

@@ -18,6 +18,8 @@ RUN addgroup -g 10001 -S nodejs && adduser -S -u 10001 -G nodejs nextjs
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
+# Fail the image build early if standalone layout is wrong (nested monorepo path, etc.).
+RUN test -f /app/server.js
 RUN chown -R nextjs:nodejs /app
 USER nextjs
 EXPOSE 3000

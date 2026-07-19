@@ -237,7 +237,12 @@ jobs:
           DISABLE_AUTH_MIDDLEWARE: "false"
           BACKEND_URL: http://127.0.0.1:8000
         run: |
-          STANDALONE_SERVER="$(find apps/web/.next/standalone -path '*/apps/web/server.js' | head -n 1)"
+          STANDALONE_SERVER="$(find apps/web/.next/standalone -name server.js -type f | head -n 1)"
+          if [[ -z "${STANDALONE_SERVER}" ]]; then
+            echo "Next.js standalone server.js not found under apps/web/.next/standalone"
+            find apps/web/.next/standalone -maxdepth 4 -type f -name 'server.js' -o -name 'package.json' | head -n 50 || true
+            exit 1
+          fi
           STANDALONE_ROOT="$(dirname "${STANDALONE_SERVER}")"
           mkdir -p "${STANDALONE_ROOT}/.next"
           cp -r apps/web/.next/static "${STANDALONE_ROOT}/.next/static"
