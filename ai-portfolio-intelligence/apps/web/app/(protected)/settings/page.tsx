@@ -2,6 +2,7 @@
 
 import { Disclaimer } from "@/components/Disclaimer";
 import { AIConfigForm } from "@/components/AIConfigForm";
+import { FlexTokenForm } from "@/components/FlexTokenForm";
 import { IBKRConfigForm } from "@/components/IBKRConfigForm";
 import { ScheduleConfigForm } from "@/components/ScheduleConfigForm";
 import { InvestorProfileForm } from "@/components/InvestorProfileForm";
@@ -9,6 +10,8 @@ import { TargetPolicyForm } from "@/components/TargetPolicyForm";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { getAIStatus, getBrokerStatus, getScheduleSettings } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+
+const DESKTOP_MODE = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local";
 
 export default function SettingsPage() {
   const { data, error, loading } = useClientResource(
@@ -66,6 +69,7 @@ export default function SettingsPage() {
               defaultClientId={brokerStatus.client_id}
               defaultAccountId={brokerStatus.account_id}
             />
+            {DESKTOP_MODE ? <FlexTokenForm /> : null}
           </div>
           <div className="rounded-md border border-line bg-white p-4">
             <h3 className="text-lg font-semibold">AI Provider</h3>

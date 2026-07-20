@@ -120,16 +120,20 @@ def export_desktop_archive() -> Path:
     return export_path
 
 
-def bootstrap_desktop_persistence() -> dict[str, str]:
+def bootstrap_desktop_persistence() -> dict[str, object]:
     """Prepare local personal storage. JSON state is the supported desktop path today."""
     root = portfolio_data_root()
     backup = backup_desktop_data(reason="bootstrap")
+    from app.db.state_migration import migrate_legacy_state_layout
+
+    migration = migrate_legacy_state_layout(root / "state")
     marker = root / "desktop-bootstrap.json"
-    payload = {
+    payload: dict[str, object] = {
         "bootstrapped_at": datetime.now(timezone.utc).isoformat(),
         "persistence_backend": settings.persistence_backend,
         "backup": str(backup) if backup else "",
         "data_root": str(root),
+        "state_migration": migration,
     }
     marker.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return payload

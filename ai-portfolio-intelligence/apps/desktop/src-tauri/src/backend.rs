@@ -46,7 +46,10 @@ impl BackendProcess {
             .spawn()
             .map_err(|err| format!("sidecar spawn failed: {err}"))?;
 
-        wait_for_health(runtime, Duration::from_secs(60))?;
+        if let Err(error) = wait_for_health(runtime, Duration::from_secs(60)) {
+            let _ = child.kill();
+            return Err(error);
+        }
 
         Ok(Self {
             child: Mutex::new(Some(child)),

@@ -68,7 +68,11 @@ class FlexParseResult:
 
 def configured_flex_token() -> str | None:
     if is_desktop_local():
-        return get_secret_store().get("ibkr_flex_token")
+        try:
+            return get_secret_store().get("ibkr_flex_token")
+        except RuntimeError:
+            # Keychain unavailable: treat as unconfigured rather than crash status checks.
+            return None
     return settings.ibkr_flex_token
 
 

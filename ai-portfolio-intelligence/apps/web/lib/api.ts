@@ -220,6 +220,26 @@ export async function getBrokerStatus(): Promise<BrokerStatus> {
   return requireJson<BrokerStatus>("/broker/status");
 }
 
+export async function getFlexTokenStatus(): Promise<{ configured: boolean }> {
+  return requireJson<{ configured: boolean }>("/desktop/secrets/flex-token");
+}
+
+export async function saveFlexToken(token: string): Promise<{ configured: boolean }> {
+  return requireJson<{ configured: boolean }>("/desktop/secrets/flex-token", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function deleteFlexToken(): Promise<{ configured: boolean }> {
+  return requireJson<{ configured: boolean }>("/desktop/secrets/flex-token", {
+    method: "DELETE",
+  });
+}
+
 export async function configureBrokerReadonly(payload: { mode: string; host: string; port: number; client_id: number; account_id?: string }): Promise<BrokerStatus> {
   return requireJson<BrokerStatus>("/broker/configure-readonly", {
     method: "POST",

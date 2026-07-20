@@ -76,12 +76,13 @@ Docker Compose remains for CI:
 cd infra && docker compose up --build
 ```
 
-Full desktop installer (requires Rust toolchain + PyInstaller):
+Full **macOS** installer helper (requires Rust toolchain + PyInstaller):
 
 ```bash
-# One-shot: sidecar + static web + Tauri installers
-python3 scripts/build-desktop-installer.py
+# macOS one-shot: sidecar + static web + .app/.dmg
+python3 scripts/build-macos-installer.py
 
+# Cross-platform packaging is handled by GitHub Actions (Desktop workflow).
 # Or step by step:
 python3 scripts/build-backend-sidecar.py
 python3 scripts/prepare-tauri-binaries.py
@@ -91,7 +92,7 @@ cd apps/desktop && npm install && npx tauri build
 
 Artifacts land under `apps/desktop/src-tauri/target/release/bundle/` (and target-triple paths in CI).
 
-Note: Tauri’s built-in DMG step can fail when the repo path contains spaces; `build-desktop-installer.py` can create a DMG with `hdiutil` as a fallback.
+Note: Tauri’s built-in DMG step can fail when the repo path contains spaces; `build-macos-installer.py` can create a DMG with `hdiutil` as a fallback.
 
 ## Product claims
 

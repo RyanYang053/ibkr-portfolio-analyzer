@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
-    "prepare:web": "python3 ../../scripts/prepare-tauri-binaries.py"
+    "prepare:web": "python ../../scripts/prepare-tauri-binaries.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",

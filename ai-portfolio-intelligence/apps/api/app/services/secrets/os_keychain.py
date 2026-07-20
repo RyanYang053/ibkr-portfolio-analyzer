@@ -54,8 +54,12 @@ class KeyringSecretBackend:
 
 def default_secret_backend(*, allow_memory_fallback: bool = False) -> SecretBackend:
     try:
-        import keyring  # noqa: F401
+        import keyring
 
+        backend = keyring.get_keyring()
+        priority = getattr(backend, "priority", 0)
+        if priority is not None and float(priority) <= 0:
+            raise RuntimeError("No usable OS keychain backend is configured")
         return KeyringSecretBackend()
     except Exception as exc:
         if not allow_memory_fallback:

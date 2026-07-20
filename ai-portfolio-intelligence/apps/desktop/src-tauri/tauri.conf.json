@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../../web/out",
     "devUrl": null,
-    "beforeBuildCommand": "python3 ../../scripts/prepare-tauri-binaries.py --skip-web-build"
+    "beforeBuildCommand": "python ../../scripts/prepare-tauri-binaries.py --skip-web-build"
   },
   "app": {
     "windows": [],

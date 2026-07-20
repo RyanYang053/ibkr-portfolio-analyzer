@@ -20,11 +20,21 @@ class FlexTokenInput(BaseModel):
     token: str = Field(min_length=20, max_length=500)
 
 
+def _require_store():
+    try:
+        return get_secret_store()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="OS keychain is unavailable on this machine",
+        ) from exc
+
+
 @router.get("/flex-token")
 def flex_token_status() -> dict:
     if not is_desktop_local():
         raise HTTPException(status_code=404, detail="Not available")
-    configured = bool(get_secret_store().get("ibkr_flex_token"))
+    configured = bool(_require_store().get("ibkr_flex_token"))
     return {"configured": configured}
 
 
@@ -32,7 +42,7 @@ def flex_token_status() -> dict:
 def save_flex_token(payload: FlexTokenInput) -> dict:
     if not is_desktop_local():
         raise HTTPException(status_code=404, detail="Not available")
-    get_secret_store().set("ibkr_flex_token", payload.token)
+    _require_store().set("ibkr_flex_token", payload.token)
     return {"configured": True}
 
 
@@ -40,5 +50,5 @@ def save_flex_token(payload: FlexTokenInput) -> dict:
 def delete_flex_token() -> dict:
     if not is_desktop_local():
         raise HTTPException(status_code=404, detail="Not available")
-    get_secret_store().delete("ibkr_flex_token")
+    _require_store().delete("ibkr_flex_token")
     return {"configured": False}

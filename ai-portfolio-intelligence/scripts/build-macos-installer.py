@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the desktop installer: API sidecar, Next static export, and Tauri bundle."""
+"""Build the macOS desktop installer: API sidecar, Next static export, and .app/.dmg."""
 
 from __future__ import annotations
 

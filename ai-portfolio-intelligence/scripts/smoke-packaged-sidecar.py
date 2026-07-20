@@ -42,11 +42,13 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def http(url: str, *, token: str | None = None, method: str = "GET") -> tuple[int, str]:
+def http(url: str, *, token: str | None = None, method: str = "GET", body: bytes | None = None) -> tuple[int, str]:
     headers = {}
     if token:
         headers["X-Local-Session"] = token
-    request = urllib.request.Request(url, method=method, headers=headers)
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=8) as response:
             return response.status, response.read().decode("utf-8", errors="replace")
@@ -82,11 +84,19 @@ def main() -> int:
         }
     )
 
-    proc = subprocess.Popen([str(sidecar)], env=env)
+    log_path = data_dir / "logs" / "sidecar.log"
+    proc = subprocess.Popen(
+        [str(sidecar)],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     base = f"http://{host}:{port}"
+    # Windows first-launch of a large onefile binary can be slow under AV scanning.
+    attempts = 360 if platform.system() == "Windows" else 180
     try:
         healthy = False
-        for _ in range(120):
+        for _ in range(attempts):
             try:
                 status, _ = http(f"{base}/health")
                 if status == 200:
@@ -95,10 +105,16 @@ def main() -> int:
             except Exception:
                 pass
             if proc.poll() is not None:
-                raise SystemExit(f"Sidecar exited early with code {proc.returncode}")
+                detail = ""
+                if log_path.exists():
+                    detail = log_path.read_text(encoding="utf-8", errors="replace")
+                raise SystemExit(
+                    f"Sidecar exited early with code {proc.returncode}\n{detail}"
+                )
             time.sleep(0.5)
         if not healthy:
-            raise SystemExit("Packaged sidecar never became healthy")
+            detail = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
+            raise SystemExit(f"Packaged sidecar never became healthy\n{detail}")
 
         denied, _ = http(f"{base}/desktop/status")
         if denied != 401:
@@ -127,13 +143,50 @@ def main() -> int:
         if export_status != 200 or "export_path" not in export_body:
             raise SystemExit(f"export failed: {export_status} {export_body}")
 
+        require_keychain = platform.system() in {"Darwin", "Windows"}
+        status_code, status_body = http(f"{base}/desktop/secrets/flex-token", token=token)
+        if require_keychain and status_code != 200:
+            raise SystemExit(f"keychain status failed: {status_code} {status_body}")
+        if status_code == 200:
+            probe = "smoke-flex-token-" + token_urlsafe(16)
+            put_status, put_body = http(
+                f"{base}/desktop/secrets/flex-token",
+                token=token,
+                method="PUT",
+                body=json.dumps({"token": probe}).encode("utf-8"),
+            )
+            if require_keychain and put_status != 200:
+                raise SystemExit(f"keychain put failed: {put_status} {put_body}")
+            if put_status == 200:
+                if probe in put_body:
+                    raise SystemExit("Flex token value leaked in PUT response")
+                got_status, got_body = http(f"{base}/desktop/secrets/flex-token", token=token)
+                if got_status != 200:
+                    raise SystemExit(f"keychain get status unexpected: {got_status} {got_body}")
+                got_payload = json.loads(got_body)
+                if got_payload.get("configured") is not True:
+                    raise SystemExit(f"keychain get expected configured=true: {got_body}")
+                if probe in got_body:
+                    raise SystemExit("Flex token value leaked in GET response")
+                del_status, del_body = http(
+                    f"{base}/desktop/secrets/flex-token",
+                    token=token,
+                    method="DELETE",
+                )
+                if del_status != 200:
+                    raise SystemExit(f"keychain delete failed: {del_status} {del_body}")
+                if probe in del_body:
+                    raise SystemExit("Flex token value leaked in DELETE response")
+        elif require_keychain:
+            raise SystemExit(f"keychain required on {platform.system()} but status={status_code}")
+
         print("PACKAGED_SIDECAR_SMOKE_OK")
         print(f"sidecar={sidecar}")
         print(f"port={port}")
         return 0
     finally:
         if proc.poll() is None:
-            proc.send_signal(signal.SIGTERM)
+            proc.terminate()
             try:
                 proc.wait(timeout=8)
             except subprocess.TimeoutExpired:

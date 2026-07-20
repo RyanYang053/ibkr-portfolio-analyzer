@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export → restore → hash validation smoke for desktop JSON state."""
+"""Export → restore → repository read smoke for desktop JSON state."""
 
 from __future__ import annotations
 
@@ -55,6 +55,63 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def seed_application_state(data_dir: Path) -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "DEPLOYMENT_MODE": "desktop_local",
+            "PERSISTENCE_BACKEND": "json",
+            "PORTFOLIO_DATA_DIR": str(data_dir),
+            "PYTHONPATH": str(API_ROOT),
+        }
+    )
+    script = r"""
+from app.db.state_store import JsonStateStore
+store = JsonStateStore()
+store.write_json("holding_theses", "U0001:AAPL", {"summary": "Quality compounder"})
+store.write_json("watchlist", "local-owner", {"symbols": ["AAPL"]})
+store.write_json("broker", "runtime_config", {"mode": "mock_ibkr_readonly", "host": "127.0.0.1"})
+store.write_json("investor_profile", "local-owner", {"risk_tolerance": "moderate"})
+print("SEEDED")
+"""
+    subprocess.check_call(
+        [python_executable(), "-c", script],
+        cwd=API_ROOT,
+        env=env,
+    )
+
+
+def read_application_state(data_dir: Path) -> dict:
+    env = os.environ.copy()
+    env.update(
+        {
+            "DEPLOYMENT_MODE": "desktop_local",
+            "PERSISTENCE_BACKEND": "json",
+            "PORTFOLIO_DATA_DIR": str(data_dir),
+            "PYTHONPATH": str(API_ROOT),
+        }
+    )
+    script = r"""
+import json
+from app.db.state_store import JsonStateStore
+store = JsonStateStore()
+payload = {
+    "thesis": store.read_json("holding_theses", "U0001:AAPL"),
+    "watchlist": store.read_json("watchlist", "local-owner"),
+    "broker": store.read_json("broker", "runtime_config"),
+    "profile": store.read_json("investor_profile", "local-owner"),
+}
+print(json.dumps(payload))
+"""
+    raw = subprocess.check_output(
+        [python_executable(), "-c", script],
+        cwd=API_ROOT,
+        env=env,
+        text=True,
+    ).strip()
+    return json.loads(raw.splitlines()[-1])
 
 
 def start_api(data_dir: Path, token: str, port: int) -> tuple[subprocess.Popen[str], Path]:
@@ -158,19 +215,10 @@ def main() -> int:
     proc = None
 
     try:
-        state_sample = source_dir / "state" / "demo"
-        state_sample.mkdir(parents=True)
-        (state_sample / "portfolio.json").write_text(
-            json.dumps({"account_id": "U0001", "positions": [{"symbol": "AAPL", "qty": 10}]}),
-            encoding="utf-8",
-        )
-        (state_sample / "thesis.json").write_text(
-            json.dumps({"summary": "Quality compounder"}),
-            encoding="utf-8",
-        )
-        imports = source_dir / "imports"
-        imports.mkdir(parents=True)
-        (imports / "flex-sample.csv").write_text("symbol,qty\nAAPL,10\n", encoding="utf-8")
+        seed_application_state(source_dir)
+        before = read_application_state(source_dir)
+        if before["thesis"]["summary"] != "Quality compounder":
+            raise SystemExit("Seeded thesis missing via JsonStateStore")
 
         proc, log_path = start_api(source_dir, token, port)
         base = f"http://127.0.0.1:{port}"
@@ -194,6 +242,10 @@ def main() -> int:
             if src.exists():
                 shutil.copytree(src, restored_dir / folder, dirs_exist_ok=True)
 
+        after = read_application_state(restored_dir)
+        if after != before:
+            raise SystemExit(f"Restored repository state mismatch: {after} != {before}")
+
         restored_port = free_port()
         restored_token = token_urlsafe(32)
         proc, log_path = start_api(restored_dir, restored_token, restored_port)
@@ -203,13 +255,6 @@ def main() -> int:
         status_code, status_body = http_json(f"{restored_base}/desktop/status", token=restored_token)
         if status_code != 200 or "desktop_local" not in status_body:
             raise SystemExit(f"restored desktop/status failed: {status_code} {status_body}")
-
-        portfolio = restored_dir / "state" / "demo" / "portfolio.json"
-        thesis = restored_dir / "state" / "demo" / "thesis.json"
-        if not portfolio.is_file() or "AAPL" not in portfolio.read_text(encoding="utf-8"):
-            raise SystemExit("Restored portfolio data missing or incomplete")
-        if not thesis.is_file() or "Quality compounder" not in thesis.read_text(encoding="utf-8"):
-            raise SystemExit("Restored thesis data missing or incomplete")
 
         print("DESKTOP_RESTORE_SMOKE_OK")
         print(f"files_validated={len(manifest['files'])}")
