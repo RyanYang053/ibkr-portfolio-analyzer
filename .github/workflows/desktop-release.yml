@@ -140,7 +140,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            xvfb
 
       - name: Install API dependencies
         run: |
@@ -166,12 +167,96 @@ jobs:
         working-directory: ai-portfolio-intelligence/apps/desktop/src-tauri
         run: cargo check --locked
 
+      - name: Import Apple signing certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "APPLE_CERTIFICATE not configured; building unsigned macOS artifacts."
+            exit 0
+          fi
+          KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD:-portfolio-analyzer-ci}"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "${RUNNER_TEMP}/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "${RUNNER_TEMP}/build.keychain"
+          security default-keychain -s "${RUNNER_TEMP}/build.keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "${RUNNER_TEMP}/build.keychain"
+          security set-keychain-settings -t 3600 -u "${RUNNER_TEMP}/build.keychain"
+          security import "${RUNNER_TEMP}/certificate.p12" \
+            -k "${RUNNER_TEMP}/build.keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "${RUNNER_TEMP}/build.keychain"
+
+      - name: Import Windows code-signing certificate
+        if: runner.os == 'Windows'
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrEmpty($env:WINDOWS_CERTIFICATE)) {
+            Write-Host "WINDOWS_CERTIFICATE not configured; building unsigned Windows artifacts."
+            exit 0
+          }
+          $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\certificate.pfx", $bytes)
+          echo "WINDOWS_CERTIFICATE_PATH=$env:RUNNER_TEMP\certificate.pfx" >> $env:GITHUB_ENV
+
       - name: Build platform installer
         working-directory: ai-portfolio-intelligence/apps/desktop
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: >
           npm run build --
           --target ${{ matrix.target }}
           --bundles ${{ matrix.bundles }}
+
+      - name: Require signing on tagged releases
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ] && [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "Tagged desktop releases require APPLE_CERTIFICATE for signing/notarization."
+            exit 1
+          fi
+          if [ "${{ runner.os }}" = "Windows" ] && [ -z "$WINDOWS_CERTIFICATE" ]; then
+            echo "Tagged desktop releases require WINDOWS_CERTIFICATE for code signing."
+            exit 1
+          fi
+          echo "Signing gate passed for ${{ runner.os }}."
+
+      - name: Tauri application launch smoke
+        env:
+          DISPLAY: ":99"
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
+            sleep 1
+            python scripts/smoke-tauri-app-launch.py --target ${{ matrix.target }}
+          else
+            python scripts/smoke-tauri-app-launch.py --target ${{ matrix.target }}
+          fi
 
       - name: Upload exact-SHA installers
         uses: actions/upload-artifact@v4
@@ -200,7 +285,6 @@ jobs:
           merge-multiple: false
 
       - name: Collect installer files
-        id: collect
         run: |
           mkdir -p dist
           find release-artifacts -type f \( \
@@ -211,21 +295,29 @@ jobs:
             -name '*.deb' -o \
             -name '*.app.tar.gz' \
           \) -exec cp {} dist/ \;
+          (
+            cd dist
+            shasum -a 256 * > SHA256SUMS.txt
+          )
           ls -la dist
-          test "$(find dist -type f | wc -l)" -gt 0
+          test "$(find dist -type f ! -name SHA256SUMS.txt | wc -l)" -gt 0
 
-      - name: Create draft prerelease
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Portfolio Analyzer ${{ github.ref_name }}
-          draft: true
-          prerelease: true
+          draft: false
+          prerelease: false
           files: dist/*
+          fail_on_unmatched_files: true
           body: |
-            Draft unsigned installers for `${{ github.sha }}`.
+            Exact-SHA installers for `${{ github.sha }}`.
 
-            Do not promote beyond prerelease until signing/notarization and
-            packaged launch smoke are verified for this exact SHA.
+            Includes DMG / NSIS / AppImage / DEB artifacts, SHA256SUMS, packaged
+            sidecar smoke, and Tauri application launch smoke from CI.
+
+            macOS and Windows artifacts are signed when repository signing secrets
+            are configured. Linux artifacts include SHA256SUMS for integrity checks.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

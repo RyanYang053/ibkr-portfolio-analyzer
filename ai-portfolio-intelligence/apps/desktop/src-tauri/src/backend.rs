@@ -121,6 +121,9 @@ pub fn find_open_port() -> Result<u16, Box<dyn std::error::Error>> {
 }
 
 pub fn application_support_dir() -> PathBuf {
+    if let Some(override_dir) = std::env::var_os("PORTFOLIO_DATA_DIR") {
+        return PathBuf::from(override_dir);
+    }
     if cfg!(target_os = "macos") {
         dirs_next_home()
             .join("Library")

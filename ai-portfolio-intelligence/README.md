@@ -45,9 +45,9 @@ Data directory (macOS):
 | Local-first architecture | GO in principle |
 | Personal local API smoke | GO after local verification |
 | Full Next.js panels in Tauri | Built; needs exact-SHA CI |
-| Platform installers (DMG/NSIS/AppImage) | Wired in workflow; unsigned |
-| Signed / notarized installers | Blocked on signing certificates |
-| Easy install for other users | **NO-GO** until signed releases + exact-SHA evidence |
+| Platform installers (DMG/NSIS/AppImage) | Built in Desktop CI with launch smoke |
+| Signed / notarized installers | Requires GitHub secrets (see below) |
+| Easy install for other users | Tag `desktop-v*` after secrets are set |
 | Docker / Postgres | CI and developer use only |
 
 ## Architecture
@@ -69,6 +69,24 @@ development     → engineering (Docker/Postgres allowed)
 ```
 
 ## Developer notes
+
+### Signed releases for other users
+
+Add these GitHub Actions secrets, then tag `desktop-v0.1.0`:
+
+```text
+APPLE_CERTIFICATE
+APPLE_CERTIFICATE_PASSWORD
+APPLE_SIGNING_IDENTITY
+APPLE_ID
+APPLE_PASSWORD
+APPLE_TEAM_ID
+KEYCHAIN_PASSWORD
+WINDOWS_CERTIFICATE
+WINDOWS_CERTIFICATE_PASSWORD
+```
+
+Without those secrets, main-branch CI still builds unsigned installers and runs launch smoke. Tagged releases refuse to publish unsigned macOS/Windows artifacts.
 
 Docker Compose remains for CI:
 
