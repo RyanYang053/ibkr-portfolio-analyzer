@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default desktop capabilities for Portfolio Analyzer","local":true,"windows":["main"],"permissions":["core:default","shell:allow-open",{"identifier":"shell:allow-spawn","allow":[{"args":true,"name":"portfolio-api","sidecar":true}]},{"identifier":"shell:allow-execute","allow":[{"args":true,"name":"portfolio-api","sidecar":true}]}]}}

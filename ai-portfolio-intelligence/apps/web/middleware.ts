@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout", "/onboarding"];
+
+const desktopLocal =
+  process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local" ||
+  process.env.DISABLE_AUTH_MIDDLEWARE === "true";
 
 export function middleware(request: NextRequest) {
-  if (process.env.DISABLE_AUTH_MIDDLEWARE === "true") {
+  // Desktop static builds rename this file away; keep a hard bypass for local bring-up.
+  if (desktopLocal) {
     return NextResponse.next();
   }
 

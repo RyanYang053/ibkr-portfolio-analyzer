@@ -45,7 +45,7 @@ export function DecisionMatrix({
                     Open drawer
                   </button>
                   {" · "}
-                  <Link className="text-accent hover:underline" href={`/holdings/${row.symbol}`}>
+                  <Link className="text-accent hover:underline" href={`/holdings/detail?symbol=${encodeURIComponent(String(row.symbol || ""))}`}>
                     Holding page
                   </Link>
                 </td>

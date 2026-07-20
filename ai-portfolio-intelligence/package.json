@@ -3,13 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/web"
+    "apps/web",
+    "apps/desktop"
   ],
   "scripts": {
     "web:dev": "npm --workspace apps/web run dev",
     "web:build": "npm --workspace apps/web run build",
     "web:lint": "npm --workspace apps/web run lint",
     "web:typecheck": "npm --workspace apps/web run typecheck",
+    "desktop:prepare": "python3 scripts/prepare-tauri-binaries.py",
+    "desktop:build": "npm --workspace apps/desktop run build",
     "api:test": "cd apps/api && ../../.venv/bin/python -m pytest tests",
     "api:openapi": "cd apps/api && python scripts/export_openapi.py",
     "api:openapi:check": "cd apps/api && python scripts/check_openapi_schema.py"

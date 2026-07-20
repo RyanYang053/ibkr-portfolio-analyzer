@@ -25,7 +25,7 @@ export function Nav() {
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
-    router.push(`/holdings/${query.trim().toUpperCase()}`);
+    router.push(`/holdings/detail?symbol=${encodeURIComponent(query.trim().toUpperCase())}`);
     setQuery("");
   }
 

@@ -159,7 +159,7 @@ export function ProfessionalRiskDashboard({
       <section className="rounded-md border border-line bg-white p-6">
         <h3 className="mb-4 text-lg font-semibold inline-flex items-center gap-2">
           <ShieldAlert size={18} className="text-accent" />
-          Risk-Adjusted Performance Indicators (Institutional Metrics)
+          Risk-Adjusted Performance Indicators
         </h3>
         {advancedRisk.data_quality?.historical_metrics !== "sufficient" && (
           <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">

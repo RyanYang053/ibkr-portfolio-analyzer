@@ -15,14 +15,27 @@ import type {
 
 const BACKEND_URL = process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const CLIENT_API_BASE = "/api/backend";
+const DESKTOP_MODE = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local";
 
 async function resolveApiBase(): Promise<string> {
-  return typeof window === "undefined" ? BACKEND_URL : CLIENT_API_BASE;
+  if (typeof window !== "undefined") {
+    const { isDesktopRuntimeAvailable, getDesktopRuntime } = await import("./desktop-api");
+    if (isDesktopRuntimeAvailable()) {
+      return getDesktopRuntime().apiBaseUrl;
+    }
+    if (DESKTOP_MODE) {
+      // Static desktop build before runtime injection should fail closed.
+      return "";
+    }
+    return CLIENT_API_BASE;
+  }
+  return BACKEND_URL;
 }
 
 async function buildRequestHeaders(initHeaders?: HeadersInit): Promise<Headers> {
   const headers = new Headers(initHeaders);
-  if (typeof window === "undefined") {
+  // Desktop static export is client-only; never pull next/headers into that graph.
+  if (typeof window === "undefined" && !DESKTOP_MODE) {
     const { cookies } = await import("next/headers");
     const cookieStore = await cookies();
     const token = cookieStore.get("access_token")?.value;
@@ -33,7 +46,11 @@ async function buildRequestHeaders(initHeaders?: HeadersInit): Promise<Headers> 
     if (csrfToken) {
       headers.set("X-CSRF-Token", csrfToken);
     }
-  } else {
+  } else if (typeof window !== "undefined") {
+    const { isDesktopRuntimeAvailable, getDesktopRuntime } = await import("./desktop-api");
+    if (isDesktopRuntimeAvailable()) {
+      headers.set("X-Local-Session", getDesktopRuntime().sessionToken);
+    }
     const csrfToken = document.cookie
       .split(";")
       .map((part) => part.trim())
@@ -47,7 +64,16 @@ async function buildRequestHeaders(initHeaders?: HeadersInit): Promise<Headers> 
 }
 
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (typeof window !== "undefined") {
+    const { isDesktopRuntimeAvailable, desktopFetch } = await import("./desktop-api");
+    if (isDesktopRuntimeAvailable()) {
+      return desktopFetch(path, { ...init, cache: "no-store" });
+    }
+  }
   const base = await resolveApiBase();
+  if (!base) {
+    throw new ApiError(503, { detail: "Desktop API runtime is not ready" });
+  }
   const headers = await buildRequestHeaders(init?.headers);
   return fetch(`${base}${path}`, { ...init, headers, cache: "no-store" });
 }

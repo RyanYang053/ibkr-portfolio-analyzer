@@ -1,65 +1,67 @@
+"use client";
+
 import Link from "next/link";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowUpRight } from "lucide-react";
-import { AllocationBars } from "@/components/AllocationBars";
+
 import { Disclaimer } from "@/components/Disclaimer";
 import { HoldingsTable } from "@/components/HoldingsTable";
+import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { StatCard } from "@/components/StatCard";
-import { getPortfolioSummary, getRecommendations, getPnlHistory, getScheduleSettings, ApiError, formatApiError } from "@/lib/api";
+import {
+  getPnlHistory,
+  getPortfolioSummary,
+  getRecommendations,
+  getScheduleSettings,
+} from "@/lib/api";
 import { RiskGauge } from "@/components/RiskGauge";
 import { DonutChart } from "@/components/DonutChart";
 import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { AIPnlChart } from "@/components/AIPnlChart";
 import { DailyActionsPanel } from "@/components/DailyActionsPanel";
+import { useClientResource } from "@/lib/use-client-resource";
 
-export const dynamic = "force-dynamic";
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const accountId = searchParams.get("account_id") || undefined;
 
-interface PageProps {
-  searchParams: Promise<{ account_id?: string }>;
-}
+  const { data, error, loading } = useClientResource(
+    () =>
+      Promise.all([
+        getPortfolioSummary(accountId),
+        getRecommendations(accountId),
+        getPnlHistory(accountId),
+        getScheduleSettings(),
+      ]),
+    [accountId],
+  );
 
-export default async function DashboardPage(props: PageProps) {
-  const searchParams = await props.searchParams;
-  const accountId = searchParams.account_id || undefined;
-
-  let data;
-  let recommendationResponse: Awaited<ReturnType<typeof getRecommendations>> | null = null;
-  let pnlHistory: Awaited<ReturnType<typeof getPnlHistory>> = [];
-  let scheduleData: Awaited<ReturnType<typeof getScheduleSettings>> = {
-    settings: { enabled: false, morning_time: "09:30", midday_time: "12:30", night_time: "20:00" },
-    runs: [],
-  };
-  let loadError: string | null = null;
-
-  try {
-    [data, recommendationResponse, pnlHistory, scheduleData] = await Promise.all([
-      getPortfolioSummary(accountId),
-      getRecommendations(accountId),
-      getPnlHistory(accountId),
-      getScheduleSettings(),
-    ]);
-  } catch (error) {
-    loadError = formatApiError(error);
-    if (error instanceof ApiError && error.status === 404) {
-      loadError = "Portfolio data is unavailable. Connect IBKR read-only or enable demo mode.";
-    }
+  if (loading) {
+    return <PageLoading />;
   }
 
-  if (!data) {
+  let loadError = error;
+  const [summaryData, recommendationResponse, pnlHistory, scheduleData] = data ?? [null, null, [], { runs: [] }];
+
+  if (!summaryData && !loadError) {
+    loadError = "Portfolio data is unavailable.";
+  }
+
+  if (!summaryData) {
     return (
       <div className="grid gap-6">
         <Disclaimer />
-        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
-          {loadError ?? "Portfolio data is unavailable."}
-        </div>
+        <PageErrorBanner message={loadError ?? "Portfolio data is unavailable."} />
       </div>
     );
   }
 
   const topIdeas = (recommendationResponse?.recommendations ?? []).slice(0, 4);
-
-  const sparklineValues = pnlHistory && pnlHistory.length >= 2
-    ? pnlHistory.map((h: any) => h.net_liquidation)
-    : [data.summary.net_liquidation, data.summary.net_liquidation];
+  const sparklineValues =
+    pnlHistory && pnlHistory.length >= 2
+      ? pnlHistory.map((entry: { net_liquidation: number }) => entry.net_liquidation)
+      : [summaryData.summary.net_liquidation, summaryData.summary.net_liquidation];
 
   return (
     <div className="grid gap-6">
@@ -74,10 +76,8 @@ export default async function DashboardPage(props: PageProps) {
       </div>
 
       <Disclaimer />
-      {loadError ? (
-        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">{loadError}</div>
-      ) : null}
-      {data.positions.length === 0 ? (
+      {loadError ? <PageErrorBanner message={loadError} /> : null}
+      {summaryData.positions.length === 0 ? (
         <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
           IBKR read-only connector is not configured. Mock portfolio data is disabled, so no holdings are shown.
         </div>
@@ -87,19 +87,18 @@ export default async function DashboardPage(props: PageProps) {
         <div className="rounded-md border border-line bg-white p-4 flex flex-col justify-between min-h-[145px]">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Portfolio Value</div>
-            <div className="mt-1 text-2xl font-bold">${data.summary.net_liquidation.toLocaleString()}</div>
-            <div className="text-xs text-zinc-400 mt-0.5">{data.summary.base_currency}</div>
+            <div className="mt-1 text-2xl font-bold">${summaryData.summary.net_liquidation.toLocaleString()}</div>
+            <div className="text-xs text-zinc-400 mt-0.5">{summaryData.summary.base_currency}</div>
           </div>
           <div className="mt-2">
             <PerformanceSparkline values={sparklineValues} />
           </div>
         </div>
-        <StatCard label="Cash" value={`$${data.summary.cash.toLocaleString()}`} detail={`${data.risk.cash_percent.toFixed(2)}% cash`} />
-        <StatCard label="Unrealized P&L" value={`$${data.summary.total_unrealized_pnl.toLocaleString()}`} tone="good" />
-        <RiskGauge score={data.risk.risk_score} label="Portfolio Risk Score" />
+        <StatCard label="Cash" value={`$${summaryData.summary.cash.toLocaleString()}`} detail={`${summaryData.risk.cash_percent.toFixed(2)}% cash`} />
+        <StatCard label="Unrealized P&L" value={`$${summaryData.summary.total_unrealized_pnl.toLocaleString()}`} tone="good" />
+        <RiskGauge score={summaryData.risk.risk_score} label="Portfolio Risk Score" />
       </section>
 
-      {/* PnL Performance Chart & Daily Tactical Actions */}
       <section className="grid gap-4 xl:grid-cols-2">
         <AIPnlChart history={pnlHistory} />
         <DailyActionsPanel initialRuns={scheduleData.runs ?? []} />
@@ -111,11 +110,11 @@ export default async function DashboardPage(props: PageProps) {
             <h3 className="text-lg font-semibold">Largest Positions</h3>
             <Link className="text-sm text-accent hover:underline" href="/portfolio">Full portfolio</Link>
           </div>
-          <HoldingsTable positions={data.positions} />
+          <HoldingsTable positions={summaryData.positions} />
         </div>
         <div className="rounded-md border border-line bg-white p-4">
           <h3 className="mb-4 text-lg font-semibold">Sector Exposure</h3>
-          <DonutChart data={data.risk.sector_exposure} title="Sectors" />
+          <DonutChart data={summaryData.risk.sector_exposure} title="Sectors" />
         </div>
       </section>
 
@@ -125,7 +124,7 @@ export default async function DashboardPage(props: PageProps) {
             <AlertTriangle size={18} aria-hidden /> Major Risk Alerts
           </h3>
           <div className="grid gap-2">
-            {data.risk.alerts.map((alert) => (
+            {summaryData.risk.alerts.map((alert) => (
               <div key={alert.alert_type} className="rounded-md border border-line bg-panel p-3 text-sm">
                 <div className="font-medium capitalize">{alert.severity} severity</div>
                 <p className="text-zinc-700">{alert.message}</p>
@@ -137,7 +136,7 @@ export default async function DashboardPage(props: PageProps) {
           <h3 className="mb-3 text-lg font-semibold">Decision-Support Suggestions</h3>
           <div className="grid gap-2">
             {topIdeas.map((item) => (
-              <Link key={item.symbol} className="rounded-md border border-line p-3 hover:bg-panel" href={`/holdings/${item.symbol}`}>
+              <Link key={item.symbol} className="rounded-md border border-line p-3 hover:bg-panel" href={`/holdings/detail?symbol=${encodeURIComponent(item.symbol)}`}>
                 <div className="flex justify-between text-sm">
                   <span className="font-semibold">{item.symbol}</span>
                   <span>{item.action}</span>
@@ -149,5 +148,13 @@ export default async function DashboardPage(props: PageProps) {
         </div>
       </section>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<PageLoading />}>
+      <DashboardContent />
+    </Suspense>
   );
 }

@@ -1,37 +1,59 @@
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+"use client";
 
-const BACKEND_URL = process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 
-export default async function ProtectedLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  if (process.env.DISABLE_AUTH_MIDDLEWARE === "true") {
-    return <>{children}</>;
+import { DesktopRuntimeGate } from "@/components/DesktopRuntimeGate";
+
+const desktopLocal =
+  process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local" ||
+  process.env.NEXT_PUBLIC_DISABLE_AUTH === "true";
+
+function HostedAuthGuard({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/api/backend/auth/me", { cache: "no-store" });
+        if (cancelled) {
+          return;
+        }
+        if (response.status === 401 || response.status === 403) {
+          router.replace("/login");
+          return;
+        }
+        if (!response.ok) {
+          router.replace("/service-unavailable");
+          return;
+        }
+        setReady(true);
+      } catch {
+        if (!cancelled) {
+          router.replace("/service-unavailable");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  if (!ready) {
+    return (
+      <main className="mx-auto max-w-md px-6 py-16 text-sm text-zinc-600">
+        Checking session…
+      </main>
+    );
   }
-
-  const cookieStore = await cookies();
-  const token = cookieStore.get("access_token")?.value;
-  if (!token) {
-    redirect("/login");
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(`${BACKEND_URL}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-  } catch {
-    redirect("/service-unavailable");
-  }
-
-  if (response.status === 401 || response.status === 403) {
-    cookieStore.delete("access_token");
-    cookieStore.delete("csrf_token");
-    redirect("/login");
-  }
-  if (!response.ok) {
-    redirect("/service-unavailable");
-  }
-
   return <>{children}</>;
+}
+
+export default function ProtectedLayout({ children }: Readonly<{ children: ReactNode }>) {
+  if (desktopLocal) {
+    return <DesktopRuntimeGate>{children}</DesktopRuntimeGate>;
+  }
+  return <HostedAuthGuard>{children}</HostedAuthGuard>;
 }

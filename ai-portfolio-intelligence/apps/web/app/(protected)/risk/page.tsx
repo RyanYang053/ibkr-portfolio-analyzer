@@ -1,35 +1,30 @@
-import { AllocationBars } from "@/components/AllocationBars";
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+
 import { Disclaimer } from "@/components/Disclaimer";
-import { StatCard } from "@/components/StatCard";
-import { getRisk, ApiError, formatApiError } from "@/lib/api";
-import { RiskGauge } from "@/components/RiskGauge";
 import { DonutChart } from "@/components/DonutChart";
+import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { RiskGauge } from "@/components/RiskGauge";
+import { StatCard } from "@/components/StatCard";
+import { getRisk } from "@/lib/api";
+import { useClientResource } from "@/lib/use-client-resource";
 
-export const dynamic = "force-dynamic";
+function RiskContent() {
+  const searchParams = useSearchParams();
+  const accountId = searchParams.get("account_id") || undefined;
+  const { data: risk, error, loading } = useClientResource(() => getRisk(accountId), [accountId]);
 
-interface PageProps {
-  searchParams: Promise<{ account_id?: string }>;
-}
-
-export default async function RiskPage(props: PageProps) {
-  const searchParams = await props.searchParams;
-  const accountId = searchParams.account_id || undefined;
-
-  let risk;
-  let loadError: string | null = null;
-  try {
-    risk = await getRisk(accountId);
-  } catch (error) {
-    loadError = formatApiError(error);
+  if (loading) {
+    return <PageLoading />;
   }
 
   if (!risk) {
     return (
       <div className="grid gap-6">
         <Disclaimer />
-        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
-          {loadError ?? "Risk analytics are unavailable."}
-        </div>
+        <PageErrorBanner message={error ?? "Risk analytics are unavailable."} />
       </div>
     );
   }
@@ -41,6 +36,7 @@ export default async function RiskPage(props: PageProps) {
         <h2 className="text-3xl font-semibold">Risk Center</h2>
       </div>
       <Disclaimer />
+      {error ? <PageErrorBanner message={error} /> : null}
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_1fr_1fr]">
         <RiskGauge score={risk.risk_score} label="Portfolio Risk Score" />
         <StatCard label="Top 5 Concentration" value={`${risk.top_5_concentration.toFixed(2)}%`} />
@@ -66,5 +62,13 @@ export default async function RiskPage(props: PageProps) {
         </div>
       </section>
     </div>
+  );
+}
+
+export default function RiskPage() {
+  return (
+    <Suspense fallback={<PageLoading />}>
+      <RiskContent />
+    </Suspense>
   );
 }

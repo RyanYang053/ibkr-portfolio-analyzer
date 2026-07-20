@@ -7,23 +7,22 @@ function positionRowKey(position: Position): string {
 
 function positionHref(position: Position): string {
   const params = new URLSearchParams();
+  const isDerivative =
+    position.asset_class === "OPT" ||
+    position.asset_class === "FOP" ||
+    position.asset_class === "FUT" ||
+    (position.multiplier ?? 1) !== 1;
+  params.set(
+    "symbol",
+    isDerivative && position.local_symbol ? position.local_symbol : position.symbol,
+  );
   if (position.account_id && position.account_id !== "all") {
     params.set("account_id", position.account_id);
   }
   if (position.con_id != null) {
     params.set("con_id", String(position.con_id));
   }
-  const query = params.toString();
-  const suffix = query ? `?${query}` : "";
-  const isDerivative =
-    position.asset_class === "OPT" ||
-    position.asset_class === "FOP" ||
-    position.asset_class === "FUT" ||
-    (position.multiplier ?? 1) !== 1;
-  if (isDerivative && position.local_symbol) {
-    return `/holdings/${encodeURIComponent(position.local_symbol)}${suffix}`;
-  }
-  return `/holdings/${position.symbol}${suffix}`;
+  return `/holdings/detail?${params.toString()}`;
 }
 
 function formatMoney(value: number, currency: string): string {

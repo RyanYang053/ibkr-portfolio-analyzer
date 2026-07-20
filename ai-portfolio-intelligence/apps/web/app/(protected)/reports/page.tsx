@@ -1,20 +1,40 @@
+"use client";
+
 import { Disclaimer } from "@/components/Disclaimer";
-import { getReports, getPnlHistory, getScheduleSettings } from "@/lib/api";
 import { AIPortfolioRefreshPanel } from "@/components/AIPortfolioRefreshPanel";
 import { AIPnlChart } from "@/components/AIPnlChart";
 import { DailyActionsPanel } from "@/components/DailyActionsPanel";
+import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { getPnlHistory, getReports, getScheduleSettings } from "@/lib/api";
+import { useClientResource } from "@/lib/use-client-resource";
 
-export const dynamic = "force-dynamic";
+type ReportRow = {
+  report_type: string;
+  title: string;
+  report_markdown: string;
+  confidence: string;
+  disclaimer: string;
+  report_json: unknown;
+};
 
-export default async function ReportsPage() {
-  const [reports, pnlHistory, scheduleData] = await Promise.all([
-    getReports() as Promise<Array<{ report_type: string; title: string; report_markdown: string; confidence: string; disclaimer: string; report_json: any }>>,
-    getPnlHistory(),
-    getScheduleSettings(),
-  ]);
+export default function ReportsPage() {
+  const { data, error, loading } = useClientResource(
+    () =>
+      Promise.all([
+        getReports() as Promise<ReportRow[]>,
+        getPnlHistory(),
+        getScheduleSettings(),
+      ]),
+    [],
+  );
 
-  const aiPortfolioReport = reports.find((r) => r.report_type === "ai_portfolio");
-  const otherReports = reports.filter((r) => r.report_type !== "ai_portfolio");
+  if (loading) {
+    return <PageLoading />;
+  }
+
+  const [reports, pnlHistory, scheduleData] = data ?? [[], [], { runs: [] }];
+  const aiPortfolioReport = reports.find((report) => report.report_type === "ai_portfolio");
+  const otherReports = reports.filter((report) => report.report_type !== "ai_portfolio");
   const initialReport = aiPortfolioReport ? aiPortfolioReport.report_json : null;
 
   return (
@@ -24,8 +44,8 @@ export default async function ReportsPage() {
         <h2 className="text-3xl font-semibold">Reports</h2>
       </div>
       <Disclaimer />
+      {error ? <PageErrorBanner message={error} /> : null}
 
-      {/* Performance Chart & Daily Tactical Actions */}
       <section className="grid gap-4 xl:grid-cols-2">
         <AIPnlChart history={pnlHistory} />
         <DailyActionsPanel initialRuns={scheduleData.runs ?? []} />

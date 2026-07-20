@@ -1,42 +1,92 @@
+"use client";
+
+import Link from "next/link";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+
 import { Disclaimer } from "@/components/Disclaimer";
 import { StatCard } from "@/components/StatCard";
 import { AIRefreshPanel } from "@/components/AIRefreshPanel";
-import { getAIStatus, getHoldingAnalysis, getTechnicals, getNews, getFundamentals, getWatchlist, getOptionsStrategy } from "@/lib/api";
-import { PerformanceSparkline } from "@/components/PerformanceSparkline";
+import {
+  getAIStatus,
+  getFundamentals,
+  getHoldingAnalysis,
+  getNews,
+  getTechnicals,
+  getWatchlist,
+} from "@/lib/api";
 import { HoldingInteractiveChart } from "@/components/HoldingInteractiveChart";
 import { WatchlistToggle } from "@/components/WatchlistToggle";
 import { TagChatButton } from "@/components/TagChatButton";
 import { OptionsStrategyDashboard } from "@/components/OptionsStrategyDashboard";
-import Link from "next/link";
+import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { useClientResource } from "@/lib/use-client-resource";
 
-export const dynamic = "force-dynamic";
+function formatPercent(value: number | null | undefined) {
+  return value === null || value === undefined ? "Unavailable" : `${(value * 100).toFixed(1)}%`;
+}
 
-export default async function HoldingDetailPage({ 
-  params,
-  searchParams,
-}: { 
-  params: Promise<{ symbol: string }>;
-  searchParams: Promise<{ tab?: string; account_id?: string; con_id?: string }>;
-}) {
-  const { symbol } = await params;
-  const { tab = "research", account_id: accountId, con_id: conIdRaw } = await searchParams;
+function formatLargeCurrency(value: number | null | undefined) {
+  if (value === null || value === undefined) return "Unavailable";
+  return value >= 1e9 ? `$${(value / 1e9).toFixed(1)}B` : `$${(value / 1e6).toFixed(1)}M`;
+}
+
+function HoldingDetailContent() {
+  const searchParams = useSearchParams();
+  const symbol = (searchParams.get("symbol") || "AAPL").toUpperCase();
+  const tab = searchParams.get("tab") || "research";
+  const accountId = searchParams.get("account_id") || undefined;
+  const conIdRaw = searchParams.get("con_id");
   const conId = conIdRaw ? Number(conIdRaw) : undefined;
-  
-  const [data, aiStatus, technicals, news, fundamentals, watchlist] = await Promise.all([
-    getHoldingAnalysis(symbol.toUpperCase(), accountId, conId),
-    getAIStatus(),
-    getTechnicals(symbol.toUpperCase()),
-    getNews(symbol.toUpperCase()),
-    getFundamentals(symbol.toUpperCase()),
-    getWatchlist(),
-  ]);
-  const position = data.position;
-  const recommendation = data.recommendation;
 
-  const watchItem = (watchlist as any[]).find(
-    (item) => item.symbol.toUpperCase() === symbol.toUpperCase()
+  const { data, error, loading } = useClientResource(
+    () =>
+      Promise.all([
+        getHoldingAnalysis(symbol, accountId, conId),
+        getAIStatus(),
+        getTechnicals(symbol),
+        getNews(symbol),
+        getFundamentals(symbol),
+        getWatchlist(),
+      ]),
+    [symbol, accountId, conId],
   );
-  const initialWatchlistItem = watchItem ? { id: watchItem.id, reason: watchItem.reason } : null;
+
+  if (loading) {
+    return <PageLoading />;
+  }
+
+  if (!data) {
+    return (
+      <div className="grid gap-6">
+        <Disclaimer />
+        <PageErrorBanner message={error ?? "Holding data is unavailable."} />
+      </div>
+    );
+  }
+
+  const [analysis, aiStatus, technicals, news, fundamentals, watchlist] = data;
+  const position = analysis.position;
+  const recommendation = analysis.recommendation;
+  const watchItem = (watchlist as Array<{ symbol: string; id: number | string; reason: string }>).find(
+    (item) => item.symbol.toUpperCase() === symbol,
+  );
+  const initialWatchlistItem = watchItem
+    ? { id: Number(watchItem.id), reason: watchItem.reason }
+    : null;
+
+  const researchHref = (() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "research");
+    params.set("symbol", symbol);
+    return `?${params.toString()}`;
+  })();
+  const optionsHref = (() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "options");
+    params.set("symbol", symbol);
+    return `?${params.toString()}`;
+  })();
 
   return (
     <div className="grid gap-6">
@@ -51,10 +101,9 @@ export default async function HoldingDetailPage({
         </div>
       </div>
 
-      {/* Tabs navigation */}
       <div className="border-b border-line flex items-center gap-6 text-sm">
         <Link
-          href={`?tab=research`}
+          href={researchHref}
           className={`pb-2.5 border-b-2 font-semibold transition-all -mb-px ${
             tab === "research"
               ? "border-accent text-accent"
@@ -64,7 +113,7 @@ export default async function HoldingDetailPage({
           Research Overview
         </Link>
         <Link
-          href={`?tab=options`}
+          href={optionsHref}
           className={`pb-2.5 border-b-2 font-semibold transition-all -mb-px ${
             tab === "options"
               ? "border-accent text-accent"
@@ -76,19 +125,27 @@ export default async function HoldingDetailPage({
       </div>
 
       {tab === "options" ? (
-        <OptionsStrategyDashboard symbol={position.symbol} accountId={accountId} conId={conId ?? position.con_id ?? null} />
+        <OptionsStrategyDashboard
+          symbol={position.symbol}
+          accountId={accountId}
+          conId={conId ?? position.con_id ?? null}
+        />
       ) : (
         <>
           <Disclaimer />
+          {error ? <PageErrorBanner message={error} /> : null}
           <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Current Price" value={`$${position.market_price.toLocaleString()}`} />
             <StatCard label="Market Value" value={`$${position.market_value.toLocaleString()}`} />
             <StatCard label="Portfolio Weight" value={`${position.portfolio_weight.toFixed(2)}%`} />
-            <StatCard label="Final Score" value={data.score.final_score === null ? "Unavailable" : data.score.final_score.toFixed(1)} detail={data.score.interpretation} />
+            <StatCard
+              label="Final Score"
+              value={analysis.score.final_score === null ? "Unavailable" : analysis.score.final_score.toFixed(1)}
+              detail={analysis.score.interpretation}
+            />
           </section>
           <section className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
             <div className="grid gap-4">
-              {/* Decision-Support View */}
               <div className="rounded-md border border-line bg-white p-4">
                 <h3 className="text-lg font-semibold">Decision-Support View</h3>
                 <div className="mt-3 rounded-md bg-panel p-3">
@@ -97,31 +154,52 @@ export default async function HoldingDetailPage({
                 </div>
                 <div className="mt-4 grid gap-3 text-sm text-zinc-700">
                   <p>{recommendation.explanation}</p>
-                  <p><strong>Add zone:</strong> {recommendation.add_zone ?? "Unavailable until research inputs are verified."}</p>
-                  <p><strong>Hold zone:</strong> {recommendation.hold_zone ?? "Unavailable until research inputs are verified."}</p>
-                  <p><strong>Trim review zone:</strong> {recommendation.trim_review_zone ?? "Unavailable until research inputs are verified."}</p>
-                  <p><strong>Exit review trigger:</strong> {recommendation.exit_review_trigger ?? "Unavailable until research inputs are verified."}</p>
+                  <p>
+                    <strong>Add zone:</strong>{" "}
+                    {recommendation.add_zone ?? "Unavailable until research inputs are verified."}
+                  </p>
+                  <p>
+                    <strong>Hold zone:</strong>{" "}
+                    {recommendation.hold_zone ?? "Unavailable until research inputs are verified."}
+                  </p>
+                  <p>
+                    <strong>Trim review zone:</strong>{" "}
+                    {recommendation.trim_review_zone ?? "Unavailable until research inputs are verified."}
+                  </p>
+                  <p>
+                    <strong>Exit review trigger:</strong>{" "}
+                    {recommendation.exit_review_trigger ?? "Unavailable until research inputs are verified."}
+                  </p>
                 </div>
               </div>
 
-              {/* Technical Trend Card */}
               <div className="rounded-md border border-line bg-white p-4">
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="text-lg font-semibold">Technical Trend</h3>
-                    <p className="text-xs text-zinc-500 font-medium capitalize mt-0.5">Classification: {technicals.trend_classification ?? "Unavailable"}</p>
+                    <p className="text-xs text-zinc-500 font-medium capitalize mt-0.5">
+                      Classification: {technicals.trend_classification ?? "Unavailable"}
+                    </p>
                   </div>
                   <div className="text-right">
-                    <span className="text-sm font-bold text-zinc-800">RSI (14): {technicals.rsi_14 === null || technicals.rsi_14 === undefined ? "Unavailable" : technicals.rsi_14.toFixed(1)}</span>
+                    <span className="text-sm font-bold text-zinc-800">
+                      RSI (14):{" "}
+                      {technicals.rsi_14 === null || technicals.rsi_14 === undefined
+                        ? "Unavailable"
+                        : technicals.rsi_14.toFixed(1)}
+                    </span>
                     <p className="text-[10px] text-zinc-500 uppercase tracking-wide mt-0.5">
-                      52W Drawdown: {technicals.drawdown_from_52w_high === null || technicals.drawdown_from_52w_high === undefined ? "Unavailable" : `${technicals.drawdown_from_52w_high.toFixed(1)}%`}
+                      52W Drawdown:{" "}
+                      {technicals.drawdown_from_52w_high === null ||
+                      technicals.drawdown_from_52w_high === undefined
+                        ? "Unavailable"
+                        : `${technicals.drawdown_from_52w_high.toFixed(1)}%`}
                     </p>
                   </div>
                 </div>
                 <HoldingInteractiveChart symbol={position.symbol} />
               </div>
 
-              {/* Recent News & Catalysts */}
               <div className="rounded-md border border-line bg-white p-4">
                 <h3 className="text-lg font-semibold mb-3">Recent News & Catalysts</h3>
                 {news && news.length > 0 ? (
@@ -152,11 +230,10 @@ export default async function HoldingDetailPage({
             </div>
 
             <div className="grid gap-4 self-start">
-              {/* Sub-Scores */}
               <div className="rounded-md border border-line bg-white p-4">
                 <h3 className="text-lg font-semibold">Sub-Scores</h3>
                 <div className="mt-4 grid gap-3">
-                  {Object.entries(data.score.sub_scores).map(([label, value]) => (
+                  {Object.entries(analysis.score.sub_scores).map(([label, value]) => (
                     <div key={label}>
                       <div className="mb-1 flex justify-between text-sm">
                         <span className="capitalize">{label.replaceAll("_", " ")}</span>
@@ -170,7 +247,6 @@ export default async function HoldingDetailPage({
                 </div>
               </div>
 
-              {/* Key Fundamentals & Valuation */}
               <div className="rounded-md border border-line bg-white p-4">
                 <h3 className="text-lg font-semibold mb-3">Key Fundamentals & Valuation</h3>
                 <div className="grid grid-cols-2 gap-4 text-sm">
@@ -188,21 +264,15 @@ export default async function HoldingDetailPage({
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Free Cash Flow</span>
-                    <span className="font-semibold text-base">
-                      {formatLargeCurrency(fundamentals.free_cash_flow)}
-                    </span>
+                    <span className="font-semibold text-base">{formatLargeCurrency(fundamentals.free_cash_flow)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Cash & Equivalents</span>
-                    <span className="font-semibold text-base">
-                      {formatLargeCurrency(fundamentals.cash)}
-                    </span>
+                    <span className="font-semibold text-base">{formatLargeCurrency(fundamentals.cash)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Total Debt</span>
-                    <span className="font-semibold text-base">
-                      {formatLargeCurrency(fundamentals.total_debt)}
-                    </span>
+                    <span className="font-semibold text-base">{formatLargeCurrency(fundamentals.total_debt)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Forward P/E</span>
@@ -225,11 +295,12 @@ export default async function HoldingDetailPage({
                 </div>
               </div>
 
-              {/* Evidence and Data Freshness */}
               <div className="rounded-md border border-line bg-white p-4">
                 <h3 className="text-lg font-semibold">Evidence and Data Freshness</h3>
                 <ul className="mt-3 list-disc pl-5 grid gap-1.5 text-sm text-zinc-700">
-                  {recommendation.evidence.map((item) => <li key={item}>{item}</li>)}
+                  {recommendation.evidence.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
                 </ul>
                 <p className="mt-4 text-xs font-medium text-warning bg-amber-50 border border-amber-200 rounded-md p-3">
                   {recommendation.human_review_reminder}
@@ -238,20 +309,22 @@ export default async function HoldingDetailPage({
             </div>
           </section>
 
-          <AIRefreshPanel key={position.symbol} symbol={position.symbol} initialProvider={aiStatus.mode === "live_gemini" ? `gemini:${aiStatus.model}` : "deterministic_fallback"} initialReport={data.last_ai_report} />
+          <AIRefreshPanel
+            key={position.symbol}
+            symbol={position.symbol}
+            initialProvider={aiStatus.mode === "live_gemini" ? `gemini:${aiStatus.model}` : "deterministic_fallback"}
+            initialReport={analysis.last_ai_report}
+          />
         </>
       )}
     </div>
   );
 }
 
-function formatPercent(value: number | null | undefined) {
-  return value === null || value === undefined ? "Unavailable" : `${(value * 100).toFixed(1)}%`;
-}
-
-function formatLargeCurrency(value: number | null | undefined) {
-  if (value === null || value === undefined) return "Unavailable";
-  return value >= 1e9
-    ? `$${(value / 1e9).toFixed(1)}B`
-    : `$${(value / 1e6).toFixed(1)}M`;
+export default function HoldingDetailPage() {
+  return (
+    <Suspense fallback={<PageLoading />}>
+      <HoldingDetailContent />
+    </Suspense>
+  );
 }

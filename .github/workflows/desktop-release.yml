@@ -1,0 +1,93 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            sidecar: portfolio-api-macos-arm64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            sidecar: portfolio-api-macos-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            sidecar: portfolio-api-windows-x64
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            sidecar: portfolio-api-linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ai-portfolio-intelligence/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Linux WebKit deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Install API dependencies
+        run: |
+          python -m pip install -r apps/api/requirements.txt
+          python -m pip install pyinstaller keyring
+
+      - name: Backend unit smoke (desktop local modules)
+        working-directory: ai-portfolio-intelligence/apps/api
+        run: python -m pytest tests/test_desktop_local_runtime.py tests/test_local_session_middleware.py tests/test_secret_store.py -q
+
+      - name: Build FastAPI sidecar
+        run: python scripts/build-backend-sidecar.py
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Prepare static frontend + sidecar binaries
+        run: python scripts/prepare-tauri-binaries.py --sidecar-dir apps/api/dist
+        env:
+          NEXT_PUBLIC_DEPLOYMENT_MODE: desktop_local
+
+      - name: Build Tauri installer
+        working-directory: ai-portfolio-intelligence/apps/desktop
+        run: npm install && npx tauri build --target ${{ matrix.target }}
+        env:
+          NEXT_PUBLIC_DEPLOYMENT_MODE: desktop_local
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-analyzer-${{ matrix.sidecar }}-${{ github.sha }}
+          path: |
+            ai-portfolio-intelligence/apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**
+            ai-portfolio-intelligence/apps/api/dist/**

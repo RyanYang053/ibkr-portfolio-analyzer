@@ -1,0 +1,21 @@
+{
+  "name": "@portfolio-intelligence/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-first Portfolio Analyzer desktop shell (Tauri 2)",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "prepare:web": "python3 ../../scripts/prepare-tauri-binaries.py"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-shell": "^2.2.1",
+    "@tauri-apps/plugin-updater": "^2.7.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0",
+    "typescript": "^5.8.2"
+  }
+}

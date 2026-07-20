@@ -1,25 +1,28 @@
-import { AllocationBars } from "@/components/AllocationBars";
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+
 import { Disclaimer } from "@/components/Disclaimer";
 import { HoldingsTable } from "@/components/HoldingsTable";
+import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { StatCard } from "@/components/StatCard";
 import {
-  getPortfolioSummary,
-  getPositions,
-  getAdvancedRiskMetrics,
-  getPerformanceAttribution,
-  getRebalanceProposal,
-  getOptimizationProposal,
   ApiError,
   formatApiError,
+  getAdvancedRiskMetrics,
+  getOptimizationProposal,
+  getPerformanceAttribution,
+  getPortfolioSummary,
+  getPositions,
+  getRebalanceProposal,
 } from "@/lib/api";
-import type { PortfolioRisk, Position, RebalanceProposal, PortfolioOptimizationProposal } from "@/lib/types";
+import type { PortfolioOptimizationProposal, PortfolioRisk, Position, RebalanceProposal } from "@/lib/types";
 import { DonutChart } from "@/components/DonutChart";
 import { ProfessionalRiskDashboard } from "@/components/ProfessionalRiskDashboard";
 import { PortfolioConstructionPanel } from "@/components/PortfolioConstructionPanel";
 import { DataQualityPanel } from "@/components/DataQualityBadge";
 import { CalculationLineagePanel } from "@/components/CalculationLineagePanel";
-
-export const dynamic = "force-dynamic";
 
 function sumWeights(positions: Position[], predicate: (position: Position) => boolean) {
   return positions.reduce((total, position) => total + (predicate(position) ? position.portfolio_weight : 0), 0);
@@ -106,69 +109,127 @@ const emptyOptimizationProposal: PortfolioOptimizationProposal = {
   unavailable: true,
 };
 
-interface PageProps {
-  searchParams: Promise<{ account_id?: string }>;
-}
+type PortfolioState = {
+  loading: boolean;
+  loadError: string | null;
+  summary: Awaited<ReturnType<typeof getPortfolioSummary>> | null;
+  positions: Position[];
+  advancedRisk: Record<string, unknown> | null;
+  attribution: Record<string, unknown> | null;
+  rebalance: RebalanceProposal;
+  optimization: PortfolioOptimizationProposal;
+  analyticsError: string | null;
+};
 
-export default async function PortfolioPage(props: PageProps) {
-  const searchParams = await props.searchParams;
-  const accountId = searchParams.account_id || undefined;
+function PortfolioContent() {
+  const searchParams = useSearchParams();
+  const accountId = searchParams.get("account_id") || undefined;
   const professionalAnalyticsAvailable = Boolean(accountId && accountId !== "all");
 
-  let summary;
-  let positions: Position[] = [];
-  let loadError: string | null = null;
+  const [state, setState] = useState<PortfolioState>({
+    loading: true,
+    loadError: null,
+    summary: null,
+    positions: [],
+    advancedRisk: null,
+    attribution: null,
+    rebalance: emptyRebalanceProposal,
+    optimization: emptyOptimizationProposal,
+    analyticsError: null,
+  });
 
-  try {
-    [summary, positions] = await Promise.all([
-      getPortfolioSummary(accountId),
-      getPositions(accountId),
-    ]);
-  } catch (error) {
-    loadError = formatApiError(error);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setState((current) => ({ ...current, loading: true, loadError: null, analyticsError: null }));
+
+      try {
+        const [summary, positions] = await Promise.all([
+          getPortfolioSummary(accountId),
+          getPositions(accountId),
+        ]);
+
+        let advancedRisk: Record<string, unknown> | null = null;
+        let attribution: Record<string, unknown> | null = null;
+        let rebalance: RebalanceProposal = emptyRebalanceProposal;
+        let optimization: PortfolioOptimizationProposal = emptyOptimizationProposal;
+        let analyticsError: string | null = null;
+
+        if (professionalAnalyticsAvailable) {
+          try {
+            [advancedRisk, attribution, rebalance, optimization] = await Promise.all([
+              getAdvancedRiskMetrics(accountId),
+              getPerformanceAttribution(accountId),
+              getRebalanceProposal(accountId),
+              getOptimizationProposal(accountId),
+            ]);
+          } catch (error) {
+            if (error instanceof ApiError) {
+              analyticsError =
+                typeof error.detail === "object" && error.detail && "message" in (error.detail as object)
+                  ? String((error.detail as { message?: string }).message)
+                  : `Professional analytics unavailable (${error.status}).`;
+            } else {
+              analyticsError = "Professional analytics unavailable.";
+            }
+          }
+        }
+
+        if (!cancelled) {
+          setState({
+            loading: false,
+            loadError: null,
+            summary,
+            positions,
+            advancedRisk,
+            attribution,
+            rebalance,
+            optimization,
+            analyticsError,
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setState({
+            loading: false,
+            loadError: formatApiError(error),
+            summary: null,
+            positions: [],
+            advancedRisk: null,
+            attribution: null,
+            rebalance: emptyRebalanceProposal,
+            optimization: emptyOptimizationProposal,
+            analyticsError: null,
+          });
+        }
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, professionalAnalyticsAvailable]);
+
+  if (state.loading) {
+    return <PageLoading />;
   }
 
-  if (!summary) {
+  if (!state.summary) {
     return (
       <div className="grid gap-6">
         <Disclaimer />
-        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
-          {loadError ?? "Portfolio data is unavailable."}
-        </div>
+        <PageErrorBanner message={state.loadError ?? "Portfolio data is unavailable."} />
       </div>
     );
   }
 
-  let advancedRisk: any = null;
-  let attribution: any = null;
-  let rebalance: RebalanceProposal = emptyRebalanceProposal;
-  let optimization: PortfolioOptimizationProposal = emptyOptimizationProposal;
-  let analyticsError: string | null = null;
-
-  if (professionalAnalyticsAvailable) {
-    try {
-      [advancedRisk, attribution, rebalance, optimization] = await Promise.all([
-        getAdvancedRiskMetrics(accountId),
-        getPerformanceAttribution(accountId),
-        getRebalanceProposal(accountId),
-        getOptimizationProposal(accountId),
-      ]);
-    } catch (error) {
-      if (error instanceof ApiError) {
-        analyticsError =
-          typeof error.detail === "object" && error.detail && "message" in (error.detail as object)
-            ? String((error.detail as { message?: string }).message)
-            : `Professional analytics unavailable (${error.status}).`;
-      } else {
-        analyticsError = "Professional analytics unavailable.";
-      }
-    }
-  }
-
-  const { risk, derivedFromPositions } = deriveRiskFromPositions(summary.risk, positions);
+  const { risk, derivedFromPositions } = deriveRiskFromPositions(state.summary.risk, state.positions);
   const [topCurrency, topCurrencyWeight] = topExposure(risk.currency_exposure);
-
-  const suitabilityWarnings = summary.suitability_warnings ?? [];
+  const suitabilityWarnings = state.summary.suitability_warnings ?? [];
+  const advancedRisk = state.advancedRisk as any;
+  const attribution = state.attribution as any;
 
   return (
     <div className="grid gap-6">
@@ -182,12 +243,12 @@ export default async function PortfolioPage(props: PageProps) {
           Select a specific account to view performance, historical risk, attribution, tax lots, and construction proposals.
         </div>
       ) : null}
-      {analyticsError ? (
+      {state.analyticsError ? (
         <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
-          {analyticsError}
+          {state.analyticsError}
         </div>
       ) : null}
-      {positions.length === 0 ? (
+      {state.positions.length === 0 ? (
         <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">
           No live IBKR read-only portfolio is connected. Mock holdings are disabled.
         </div>
@@ -203,21 +264,21 @@ export default async function PortfolioPage(props: PageProps) {
         <StatCard label="Speculative Exposure" value={`${risk.speculative_percent.toFixed(2)}%`} tone="warn" />
         <StatCard label="Currency Exposure" value={topCurrency} detail={`${topCurrencyWeight.toFixed(2)}%`} />
       </section>
-      
-      <HoldingsTable positions={positions} />
+
+      <HoldingsTable positions={state.positions} />
 
       <PortfolioConstructionPanel
-        rebalance={rebalance}
-        optimization={optimization}
-        baseCurrency={summary.summary.base_currency}
+        rebalance={state.rebalance}
+        optimization={state.optimization}
+        baseCurrency={state.summary.summary.base_currency}
       />
-      
+
       {advancedRisk && attribution ? (
         <ProfessionalRiskDashboard
           suitabilityWarnings={suitabilityWarnings}
           advancedRisk={advancedRisk}
           attribution={attribution}
-          baseCurrency={summary.summary.base_currency}
+          baseCurrency={state.summary.summary.base_currency}
         />
       ) : null}
 
@@ -246,5 +307,13 @@ export default async function PortfolioPage(props: PageProps) {
         </div>
       </section>
     </div>
+  );
+}
+
+export default function PortfolioPage() {
+  return (
+    <Suspense fallback={<PageLoading />}>
+      <PortfolioContent />
+    </Suspense>
   );
 }

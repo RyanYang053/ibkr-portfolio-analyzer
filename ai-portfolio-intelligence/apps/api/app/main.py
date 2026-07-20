@@ -16,6 +16,8 @@ from app.api.routes import (
     broker,
     chat,
     decision_center,
+    desktop,
+    desktop_ui,
     health,
     pnl,
     portfolio,
@@ -23,8 +25,10 @@ from app.api.routes import (
     stocks,
     watchlist,
 )
-from app.core.config import settings, validate_production_settings
+from app.core.config import is_desktop_local, settings, validate_production_settings
+from app.core.local_runtime import load_local_runtime_from_env
 from app.core.request_context import activate_request_context, clear_request_context
+from app.middleware.local_session import LocalSessionMiddleware
 from app.services.scheduler import run_background_scheduler
 
 
@@ -47,6 +51,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_production_settings()
+    if is_desktop_local():
+        from app.core.desktop_bootstrap import bootstrap_desktop_persistence
+
+        bootstrap_desktop_persistence()
+
     from app.db.broker_config_repo import apply_persisted_broker_config
 
     apply_persisted_broker_config()
@@ -78,8 +87,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_local_runtime = load_local_runtime_from_env()
+if _local_runtime is not None:
+    app.add_middleware(LocalSessionMiddleware, runtime=_local_runtime)
+
 app.include_router(auth.router)
 app.include_router(health.router)
+app.include_router(desktop.router)
+app.include_router(desktop_ui.router)
 app.include_router(ai.router)
 app.include_router(broker.router)
 app.include_router(portfolio.router)

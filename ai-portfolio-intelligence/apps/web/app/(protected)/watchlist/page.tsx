@@ -1,11 +1,20 @@
+"use client";
+
 import { Disclaimer } from "@/components/Disclaimer";
-import { getWatchlist } from "@/lib/api";
+import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { WatchlistContainer } from "@/components/WatchlistContainer";
+import { getWatchlist } from "@/lib/api";
+import { useClientResource } from "@/lib/use-client-resource";
 
-export const dynamic = "force-dynamic";
+export default function WatchlistPage() {
+  const { data: items, error, loading } = useClientResource(
+    () => getWatchlist() as Promise<any[]>,
+    [],
+  );
 
-export default async function WatchlistPage() {
-  const items = await getWatchlist() as any[];
+  if (loading) {
+    return <PageLoading />;
+  }
 
   return (
     <div className="grid gap-6">
@@ -14,8 +23,8 @@ export default async function WatchlistPage() {
         <h2 className="text-3xl font-semibold">Watchlist</h2>
       </div>
       <Disclaimer />
-      <WatchlistContainer initialItems={items} />
+      {error ? <PageErrorBanner message={error} /> : null}
+      <WatchlistContainer initialItems={items ?? []} />
     </div>
   );
 }
-

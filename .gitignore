@@ -10,6 +10,12 @@ ENV/
 out/
 dist/
 build/
+ai-portfolio-intelligence/apps/desktop/src-tauri/target/
+ai-portfolio-intelligence/apps/desktop/src-tauri/binaries/portfolio-api-*
+
+# Local build / dev logs
+*.log
+ci-evidence/
 
 # Python caching
 __pycache__/

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.decision_center.decision_validation import to_personal_decision_support
 from app.services.decision_center.holding_context import HoldingContext
 
 DECISION_ACTIONS = (
@@ -102,13 +103,28 @@ def evaluate_holding_decision(context: HoldingContext) -> dict[str, Any]:
 
 def _result(action: str, gates: list[dict[str, Any]], context: HoldingContext) -> dict[str, Any]:
     assert action in DECISION_ACTIONS
+    personal = to_personal_decision_support(
+        action=action,
+        blockers=tuple(
+            str(gate.get("gate"))
+            for gate in gates
+            if gate.get("passed") is False
+        ),
+        assumptions=("decision_center_holding_v0.1",),
+    )
+    assert personal.order_generated is False
+    assert personal.requires_user_confirmation is True
     return {
         "instrument_key": context.instrument_key,
         "symbol": context.symbol,
         "action": action,
+        "outcome": personal.outcome.value,
         "gates": gates,
         "valuation_status": context.valuation_status,
         "lens_ensemble": context.lens_ensemble,
         "methodology_id": "decision_center_holding",
         "methodology_status": "experimental",
+        "order_generated": False,
+        "requires_user_confirmation": True,
+        "disclaimer": personal.disclaimer,
     }

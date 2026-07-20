@@ -8,7 +8,7 @@ from jose import JWTError
 from pydantic import BaseModel
 
 from app.api.user_store import get_user
-from app.core.config import settings
+from app.core.config import is_desktop_local, settings
 from app.core.request_context import bind_actor
 from app.core.security import decode_access_token, token_is_revoked
 
@@ -42,14 +42,30 @@ def _principal_for_email(email: str) -> Principal:
 
 
 def auth_enforcement_active() -> bool:
+    if is_desktop_local():
+        # Desktop uses an invisible per-launch local session token, not app login.
+        return False
     if settings.disable_auth_enforcement:
         return False
     return True
 
 
+def _desktop_local_principal() -> Principal:
+    principal = Principal(
+        user_id=settings.desktop_owner_id,
+        role="owner",
+        scopes=OWNER_SCOPES,
+    )
+    bind_actor(principal.user_id, tenant_id=principal.user_id)
+    return principal
+
+
 def get_current_principal(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> Principal:
+    if is_desktop_local():
+        return _desktop_local_principal()
+
     if not auth_enforcement_active():
         bootstrap = settings.bootstrap_owner_email
         if bootstrap and get_user(bootstrap):

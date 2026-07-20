@@ -1,19 +1,30 @@
+"use client";
+
 import { Disclaimer } from "@/components/Disclaimer";
 import { AIConfigForm } from "@/components/AIConfigForm";
 import { IBKRConfigForm } from "@/components/IBKRConfigForm";
 import { ScheduleConfigForm } from "@/components/ScheduleConfigForm";
 import { InvestorProfileForm } from "@/components/InvestorProfileForm";
 import { TargetPolicyForm } from "@/components/TargetPolicyForm";
+import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { getAIStatus, getBrokerStatus, getScheduleSettings } from "@/lib/api";
+import { useClientResource } from "@/lib/use-client-resource";
 
-export const dynamic = "force-dynamic";
+export default function SettingsPage() {
+  const { data, error, loading } = useClientResource(
+    () => Promise.all([getAIStatus(), getBrokerStatus(), getScheduleSettings()]),
+    [],
+  );
 
-export default async function SettingsPage() {
-  const [aiStatus, brokerStatus, scheduleData] = await Promise.all([
-    getAIStatus(),
-    getBrokerStatus(),
-    getScheduleSettings(),
-  ]);
+  if (loading) {
+    return <PageLoading />;
+  }
+
+  const [aiStatus, brokerStatus, scheduleData] = data ?? [
+    { provider: "unknown", model: "unknown", mode: "unknown" },
+    { status: "unknown", mode: "unknown" },
+    { settings: { enabled: false, morning_time: "09:30", midday_time: "12:30", night_time: "20:00" } },
+  ];
 
   const scheduleSettings = scheduleData?.settings ?? {
     enabled: false,
@@ -29,13 +40,14 @@ export default async function SettingsPage() {
         <h2 className="text-3xl font-semibold">Settings</h2>
       </div>
       <Disclaimer />
-      
+      {error ? <PageErrorBanner message={error} /> : null}
+
       <section className="grid gap-4 xl:grid-cols-2">
         <div className="flex flex-col gap-4">
           <InvestorProfileForm />
           <TargetPolicyForm />
         </div>
-        
+
         <div className="flex flex-col gap-4">
           <div className="rounded-md border border-line bg-white p-4">
             <h3 className="text-lg font-semibold">Broker Connection</h3>
@@ -75,7 +87,7 @@ export default async function SettingsPage() {
           </div>
         </div>
       </section>
-      
+
       <section className="rounded-md border border-line bg-white p-4">
         <h3 className="text-lg font-semibold">No-Trading Policy Acknowledgement</h3>
         <p className="mt-2 text-sm text-zinc-700">

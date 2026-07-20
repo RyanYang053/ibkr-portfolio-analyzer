@@ -2,6 +2,9 @@ import fs from "fs";
 import type { NextConfig } from "next";
 import path from "path";
 
+const desktopBuild =
+  process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local";
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
@@ -20,7 +23,10 @@ const securityHeaders = [
       // Next.js App Router emits inline RSC flight <script> tags. Blocking them
       // with script-src 'self' alone leaves a blank document (Playwright E2E).
       "script-src 'self' 'unsafe-inline'",
-      "connect-src 'self'",
+      // Desktop Tauri injects a loopback API base at runtime.
+      desktopBuild
+        ? "connect-src 'self' http://127.0.0.1:* http://localhost:* tauri: https://tauri.localhost"
+        : "connect-src 'self'",
     ].join("; "),
   },
 ];
@@ -57,19 +63,33 @@ function resolveOutputFileTracingRoot(): string {
 }
 
 const nextConfig: NextConfig = {
-  output: "standalone",
-  outputFileTracingRoot: resolveOutputFileTracingRoot(),
-  // Belt-and-suspenders: start-server.js requires ./cpu-profile which NFT
-  // sometimes omits from standalone traces.
-  outputFileTracingIncludes: {
-    "/*": [
-      "./node_modules/next/dist/server/lib/cpu-profile.js",
-      "../../node_modules/next/dist/server/lib/cpu-profile.js",
-    ],
-  },
-  async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
-  },
+  ...(desktopBuild
+    ? {
+        output: "export",
+        images: {
+          unoptimized: true,
+        },
+        trailingSlash: true,
+        // Avoid hung webpack build workers in desktop CI/local packaging.
+        experimental: {
+          webpackBuildWorker: false,
+        },
+      }
+    : {
+        output: "standalone",
+        outputFileTracingRoot: resolveOutputFileTracingRoot(),
+        // Belt-and-suspenders: start-server.js requires ./cpu-profile which NFT
+        // sometimes omits from standalone traces.
+        outputFileTracingIncludes: {
+          "/*": [
+            "./node_modules/next/dist/server/lib/cpu-profile.js",
+            "../../node_modules/next/dist/server/lib/cpu-profile.js",
+          ],
+        },
+        async headers() {
+          return [{ source: "/(.*)", headers: securityHeaders }];
+        },
+      }),
 };
 
 export default nextConfig;

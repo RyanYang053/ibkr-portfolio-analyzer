@@ -1,89 +1,105 @@
-# AI Portfolio Intelligence and Research System
+# Portfolio Analyzer
 
-Read-only portfolio analytics and research for Interactive Brokers-style accounts. The system does not execute trades.
+Local-first, read-only portfolio analytics and decision-support for Interactive Brokers accounts.
 
-## Quick Start (Docker)
+> **Product definition:** a local personal application. All portfolio data, broker sessions, tax records, and application state remain on your device. No application login or hosted backend is required.
+
+## Personal FULL GO (use this)
+
+On your Mac, from `ai-portfolio-intelligence`:
 
 ```bash
-cp .env.example .env
-# fill POSTGRES_PASSWORD, JWT_SECRET, BOOTSTRAP_TOKEN
-cd infra
-docker compose up --build
-curl -X POST http://localhost:8000/auth/bootstrap \
-  -H 'Content-Type: application/json' \
-  -d '{"bootstrap_token":"<BOOTSTRAP_TOKEN>","email":"owner@example.com","password":"change-me-now","name":"Owner"}'
-open http://localhost:3000/login
+python3 scripts/desktop_local_smoke.py    # verifies local API + session + export
+python3 scripts/run_personal_desktop.py   # starts local UI in your browser
 ```
 
-Supported runtimes: Python 3.12, Node 22.
+What you get immediately:
 
-## Required Environment
-
-| Variable | Purpose |
+| Capability | Status |
 | --- | --- |
-| `POSTGRES_PASSWORD` | Postgres credential for compose |
-| `JWT_SECRET` | Session signing secret |
-| `BOOTSTRAP_TOKEN` | One-time owner bootstrap |
-| `PERSISTENCE_BACKEND` | `postgres` for production-safe persistence |
-| `BROKER_MODE` | `mock_ibkr_readonly` (demo) or `ibkr_readonly` (live read-only) |
-| `IBKR_HOST` | Use `host.docker.internal` when Gateway runs on the host |
-| `GEMINI_API_KEY` | Optional AI provider key (environment only in production) |
+| No application login | Done |
+| Loopback-only API + per-launch session token | Done |
+| Local data under OS Application Support | Done |
+| Startup backup + data export zip | Done |
+| No Docker / Postgres for personal use | Done |
+| No order submission | Done |
+| Personal desktop UI (local browser) | Done |
+| IBKR password collection | Never |
 
-Migrations run automatically on API container start via Alembic `upgrade head`.
+Data directory (macOS):
 
-## Operating Modes
-
-- **Demo**: `BROKER_MODE=mock_ibkr_readonly` with explicit mock fixtures.
-- **Production-safe**: Postgres persistence, auth enforcement enabled, immutable audit events.
-- **Withheld until validated**: scenario fair values, institutional attribution, tax reporting, live advanced optimization.
-
-## IBKR Host Networking
-
-When TWS or IB Gateway runs on the host machine, set:
-
-```bash
-IBKR_HOST=host.docker.internal
-IBKR_PORT=4001
+```text
+~/Library/Application Support/PortfolioAnalyzer/
+├── state/
+├── imports/
+├── exports/
+├── backups/
+└── logs/
 ```
 
-Docker Compose maps `host.docker.internal` through `extra_hosts`.
+## Current stage vs signed installers
 
-## Local Development
+| Area | Status |
+| --- | --- |
+| Personal local runtime (smoke + launcher) | **GO** |
+| Full Next.js interactive panels in desktop shell | **GO** (static export under `apps/web/out`) |
+| Tauri + PyInstaller sidecar installer build | **GO** on machines with Rust + PyInstaller |
+| Signed / notarized DMG / EXE | Blocked on Apple/Windows signing certificates |
+| Docker / Postgres | CI and developer use only |
 
-Backend:
+Signed installers are optional for **your own** machine. Personal FULL GO does not require notarization.
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r apps/api/requirements.txt
-cd apps/api
-../../.venv/bin/uvicorn app.main:app --reload
+## Architecture
+
+```text
+Tauri desktop app
+├── Next.js static UI (apps/web/out) in the webview
+├── FastAPI sidecar on 127.0.0.1:<random port>
+├── X-Local-Session injected as window.__DESKTOP_RUNTIME__
+├── JSON state in Application Support
+└── OS Keychain for Flex tokens
 ```
 
-Frontend:
+Deployment modes:
 
-```bash
-cd apps/web
-npm install
-npm run dev
+```text
+desktop_local   → personal use (no login)
+development     → engineering (Docker/Postgres allowed)
 ```
 
-## Verification
+## Developer notes
+
+Docker Compose remains for CI:
 
 ```bash
-cd apps/api && python -m pytest tests -q
-cd apps/web && npm run build
-bash infra/scripts/docker_smoke.sh
-bash infra/scripts/production_e2e.sh
-bash infra/scripts/backup_restore_smoke.sh
+cd infra && docker compose up --build
 ```
 
-Health endpoints:
+Full desktop installer (requires Rust toolchain + PyInstaller):
 
-- `GET /health/live` — process liveness only
-- `GET /health/ready` — Postgres, Alembic head, governance tables, scheduler heartbeat, broker config
+```bash
+# One-shot: sidecar + static web + Tauri .app + DMG
+python3 scripts/build-desktop-installer.py
 
-Production CI also runs lint/typecheck (`requirements-dev.txt`, `pyproject.toml`), dependency audit, and Postgres production E2E/resilience scripts.
+# Or step by step:
+python3 scripts/build-backend-sidecar.py
+python3 scripts/prepare-tauri-binaries.py   # builds Next static export (uses /tmp on Documents volumes)
+cd apps/desktop && npm install && npx tauri build
+```
 
-## Required Disclaimer
+Artifacts:
 
-This is portfolio analysis and decision support only. The system does not execute trades. Review every suggestion independently before acting outside the platform.
+```text
+apps/desktop/src-tauri/target/release/bundle/macos/Portfolio Analyzer.app
+apps/desktop/src-tauri/target/release/bundle/dmg/Portfolio Analyzer_0.1.0_aarch64.dmg
+```
+
+Note: Tauri’s built-in DMG step can fail when the repo path contains spaces; `build-desktop-installer.py` creates the DMG with `hdiutil` instead.
+
+## Product claims
+
+Supported: broker-reconciled personal analytics, tax estimates, proxy attribution, decision-support signals, broker-reported margin.
+
+Not claimed: official books and records, CRA filing, registered advice, official Brinson, broker-equivalent margin, automated trading.
+
+See `docs/PRODUCT_SCOPE.md`.

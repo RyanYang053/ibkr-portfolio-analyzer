@@ -2,17 +2,25 @@ from typing import Literal, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.deployment_mode import DeploymentMode
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    app_name: str = "AI Portfolio Intelligence and Research System"
+    app_name: str = "Portfolio Analyzer"
     environment: str = "development"
+    deployment_mode: DeploymentMode = DeploymentMode.DEVELOPMENT
     database_url: str = "postgresql+psycopg://portfolio:portfolio@postgres:5432/portfolio"
-    persistence_backend: Literal["json", "postgres"] = "json"
+    persistence_backend: Literal["json", "postgres", "sqlite"] = "json"
     jwt_secret: str = "dev-only-change-me"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = ["http://localhost:3000", "tauri://localhost", "https://tauri.localhost"]
     broker_mode: str = "ibkr_readonly"
+    local_api_host: str | None = None
+    local_api_port: int | None = None
+    local_session_token: str | None = None
+    local_parent_pid: int | None = None
+    desktop_owner_id: str = "local-owner"
     ibkr_host: str = "127.0.0.1"
     ibkr_port: int = 4001
     ibkr_client_id: int = 10
@@ -87,7 +95,27 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def is_desktop_local() -> bool:
+    return settings.deployment_mode == DeploymentMode.DESKTOP_LOCAL
+
+
 def validate_production_settings() -> None:
+    from app.core.network_policy import assert_deployment_network_policy
+
+    if is_desktop_local():
+        bind_host = settings.local_api_host or settings.api_bind_host
+        assert_deployment_network_policy(
+            deployment_mode=settings.deployment_mode,
+            bind_host=bind_host,
+            database_url=settings.database_url,
+            persistence_backend=settings.persistence_backend,
+        )
+        if settings.persistence_backend not in {"json", "sqlite"}:
+            raise RuntimeError("DESKTOP_LOCAL persistence must be json or sqlite")
+        if not settings.local_session_token or len(settings.local_session_token) < 43:
+            raise RuntimeError("LOCAL_SESSION_TOKEN is required for DESKTOP_LOCAL mode")
+        return
+
     if settings.environment == "development":
         return
     weak_secrets = {"", "change-me", "dev-only-change-me"}

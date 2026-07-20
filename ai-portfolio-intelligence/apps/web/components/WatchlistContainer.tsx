@@ -190,7 +190,7 @@ export function WatchlistContainer({ initialItems }: { initialItems: WatchItem[]
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Link
-                      href={`/holdings/${item.symbol.toLowerCase()}`}
+                      href={`/holdings/detail?symbol=${encodeURIComponent(item.symbol.toUpperCase())}`}
                       className="text-lg font-bold text-zinc-900 hover:text-accent hover:underline flex items-center gap-1 group"
                     >
                       {item.symbol}

@@ -17,11 +17,9 @@ _FILE_LOCK = Lock()
 
 
 def _data_dir() -> str:
-    return os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "data",
-        "state",
-    )
+    from app.core.desktop_bootstrap import state_data_dir
+
+    return str(state_data_dir())
 
 
 class StateStore(ABC):

@@ -1,23 +1,24 @@
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+
 import { Disclaimer } from "@/components/Disclaimer";
 import { DecisionCenterClient } from "@/components/decision-center/DecisionCenterClient";
-import { formatApiError, getDecisionCenter } from "@/lib/api";
+import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { getDecisionCenter } from "@/lib/api";
+import { useClientResource } from "@/lib/use-client-resource";
 
-export const dynamic = "force-dynamic";
+function DecisionCenterContent() {
+  const searchParams = useSearchParams();
+  const accountId = searchParams.get("account_id") || undefined;
+  const { data: payload, error, loading } = useClientResource(
+    () => getDecisionCenter(accountId),
+    [accountId],
+  );
 
-interface PageProps {
-  searchParams: Promise<{ account_id?: string }>;
-}
-
-export default async function DecisionCenterPage(props: PageProps) {
-  const searchParams = await props.searchParams;
-  const accountId = searchParams.account_id || undefined;
-
-  let payload: Record<string, unknown> | null = null;
-  let loadError: string | null = null;
-  try {
-    payload = await getDecisionCenter(accountId);
-  } catch (error) {
-    loadError = formatApiError(error);
+  if (loading) {
+    return <PageLoading />;
   }
 
   const holdings = Array.isArray(payload?.holdings)
@@ -35,8 +36,8 @@ export default async function DecisionCenterPage(props: PageProps) {
         </p>
       </div>
       <Disclaimer />
-      {loadError ? (
-        <div className="rounded-md border border-warning bg-amber-50 p-4 text-sm text-warning">{loadError}</div>
+      {error ? (
+        <PageErrorBanner message={error} />
       ) : (
         <DecisionCenterClient
           accountId={accountId}
@@ -50,5 +51,13 @@ export default async function DecisionCenterPage(props: PageProps) {
         />
       )}
     </div>
+  );
+}
+
+export default function DecisionCenterPage() {
+  return (
+    <Suspense fallback={<PageLoading />}>
+      <DecisionCenterContent />
+    </Suspense>
   );
 }
