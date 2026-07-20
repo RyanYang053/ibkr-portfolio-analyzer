@@ -10,6 +10,7 @@ From `ai-portfolio-intelligence`:
 
 ```bash
 python3 scripts/desktop_local_smoke.py    # loopback API + session gate + export
+python3 scripts/desktop_restore_smoke.py  # export manifest hashes + restore roundtrip
 python3 scripts/run_personal_desktop.py   # starts API only (no browser UI)
 ```
 
