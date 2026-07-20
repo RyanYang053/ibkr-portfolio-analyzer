@@ -250,22 +250,53 @@ jobs:
           done
           npm run build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
-      - name: Require signing on tagged releases
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+      - name: Require macOS signing on tagged releases
+        if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'macOS'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          test -n "$APPLE_CERTIFICATE" || {
+            echo "Tagged macOS releases require APPLE_CERTIFICATE for signing/notarization."
+            exit 1
+          }
+
+      - name: Require Windows signing on tagged releases
+        if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'Windows'
+        shell: pwsh
+        env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
         run: |
-          if [ "${{ runner.os }}" = "macOS" ] && [ -z "$APPLE_CERTIFICATE" ]; then
-            echo "Tagged desktop releases require APPLE_CERTIFICATE for signing/notarization."
-            exit 1
-          fi
-          if [ "${{ runner.os }}" = "Windows" ] && [ -z "$WINDOWS_CERTIFICATE" ]; then
-            echo "Tagged desktop releases require WINDOWS_CERTIFICATE for code signing."
-            exit 1
-          fi
-          echo "Signing gate passed for ${{ runner.os }}."
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            throw "Tagged Windows releases require WINDOWS_CERTIFICATE for code signing."
+          }
+
+      - name: Verify macOS code signature and notarization
+        if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP=$(find apps/desktop/src-tauri/target -type d -name 'Portfolio Analyzer.app' | head -n 1)
+          test -n "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          spctl --assess --type execute --verbose=2 "$APP" || true
+          # Stapled ticket is required for offline Gatekeeper trust after notarization.
+          xcrun stapler validate "$APP"
+
+      - name: Verify Windows Authenticode signature
+        if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path "apps/desktop/src-tauri/target" -Recurse -Filter "*.exe" |
+            Where-Object { $_.FullName -match "nsis|setup" -and $_.Name -notmatch "uninstall" } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found for signature verification" }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if ($signature.Status -ne "Valid") {
+            throw "Invalid Windows installer signature: $($signature.Status)"
+          }
+          Write-Host "Authenticode OK: $($installer.FullName)"
 
       - name: Tauri application launch smoke
         shell: bash

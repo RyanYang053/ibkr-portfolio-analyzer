@@ -50,8 +50,16 @@ class StateStore(ABC):
 
 
 class JsonStateStore(StateStore):
+    def __init__(self, root: Path | str | None = None) -> None:
+        self._root_override = Path(root).resolve() if root is not None else None
+
+    def _root(self) -> Path:
+        if self._root_override is not None:
+            return self._root_override
+        return Path(_data_dir()).resolve()
+
     def _path(self, namespace: str, record_key: str) -> Path:
-        root = Path(_data_dir()).resolve()
+        root = self._root()
         path = (root / _safe_component(namespace) / f"{_safe_component(record_key)}.json").resolve()
         if root != path and root not in path.parents:
             raise StateStoreError("Resolved state path escaped the state root")

@@ -1,4 +1,9 @@
-"""Migrate legacy readable JSON state paths to hashed layout v2."""
+"""Migrate legacy readable JSON state paths to hashed layout v2.
+
+Compatibility constraint: record keys are recovered from the legacy filename
+stem (`path.stem`). Keys that historically contained path separators or were
+otherwise normalized away from a single stem cannot be reconstructed.
+"""
 
 from __future__ import annotations
 
@@ -52,6 +57,9 @@ def migrate_legacy_state_layout(state_root: Path) -> dict[str, Any]:
 
     Any directory under state/ whose name is not a 64-char hex digest is treated
     as a legacy namespace. Marker is written only after a full successful pass.
+
+    The store writes into ``state_root`` explicitly so migration never depends on
+    coincidentally matching process environment variables.
     """
     state_root = state_root.resolve()
     marker = state_root / MIGRATION_MARKER
@@ -62,7 +70,7 @@ def migrate_legacy_state_layout(state_root: Path) -> dict[str, Any]:
             "records": 0,
         }
 
-    store = JsonStateStore()
+    store = JsonStateStore(root=state_root)
     migrated_records = 0
     skipped_hashed = 0
     errors: list[str] = []
@@ -85,6 +93,7 @@ def migrate_legacy_state_layout(state_root: Path) -> dict[str, Any]:
             name = legacy_path.name
             if name.endswith(".migrated.json") or ".corrupt-" in name:
                 continue
+            # Compatibility: only single-segment stems are recoverable.
             record_key = legacy_path.stem
             try:
                 if migrate_legacy_record(

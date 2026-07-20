@@ -5,7 +5,8 @@ from app.db.state_store import JsonStateStore, StateStoreError
 
 
 def test_legacy_readable_paths_migrate_to_hashed_layout(tmp_path, monkeypatch):
-    monkeypatch.setenv("PORTFOLIO_DATA_DIR", str(tmp_path))
+    # Explicit store root should not require PORTFOLIO_DATA_DIR for writes.
+    monkeypatch.delenv("PORTFOLIO_DATA_DIR", raising=False)
     state = tmp_path / "state"
     thesis_dir = state / "holding_theses"
     thesis_dir.mkdir(parents=True)
@@ -31,7 +32,7 @@ def test_legacy_readable_paths_migrate_to_hashed_layout(tmp_path, monkeypatch):
     assert result["records"] == 3
     assert (state / MIGRATION_MARKER).exists()
 
-    store = JsonStateStore()
+    store = JsonStateStore(root=state)
     assert store.read_json("holding_theses", "U0001:AAPL") == {
         "summary": "Quality compounder"
     }

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.auth_deps import Principal, get_current_principal
@@ -21,6 +24,22 @@ def desktop_status(principal: Principal = Depends(get_current_principal)) -> dic
         "login_required": False if is_desktop_local() else True,
         "trading": "disabled",
     }
+
+
+@router.post("/ui-ready")
+def desktop_ui_ready(principal: Principal = Depends(get_current_principal)) -> dict:
+    """Mark that the bundled webview successfully reached protected UI."""
+    if not is_desktop_local():
+        raise HTTPException(status_code=404, detail="Not available")
+    root = portfolio_data_root()
+    marker = root / "ui-ready.json"
+    payload = {
+        "ready": True,
+        "owner_id": principal.user_id,
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    marker.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return {"ready": True}
 
 
 @router.post("/export")

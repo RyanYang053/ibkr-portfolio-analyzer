@@ -40,7 +40,11 @@ Data directory (macOS):
 
 ## Current release status
 
-Exact verified SHA: `67ab2c782bf1ee883250e99708d1836378effa51`
+Exact verified SHA for package matrix + launch smoke (pre-hardening): `67ab2c782bf1ee883250e99708d1836378effa51`
+
+Latest hardening adds: real installer/bundle launch preference, UI readiness marker,
+sidecar shutdown assertion, platform-specific signing gates, and signature verification
+on tagged releases.
 
 | Area | Status |
 | --- | --- |
