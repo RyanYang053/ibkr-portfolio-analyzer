@@ -211,6 +211,7 @@ jobs:
 
       - name: Build platform installer
         working-directory: ai-portfolio-intelligence/apps/desktop
+        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -225,13 +226,33 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: >
-          npm run build --
-          --target ${{ matrix.target }}
-          --bundles ${{ matrix.bundles }}
+        run: |
+          # Empty signing secrets must be unset; Tauri treats blank APPLE_CERTIFICATE as present.
+          for key in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID \
+            APPLE_API_ISSUER \
+            APPLE_API_KEY \
+            APPLE_API_KEY_PATH \
+            TAURI_SIGNING_PRIVATE_KEY \
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+            WINDOWS_CERTIFICATE \
+            WINDOWS_CERTIFICATE_PASSWORD
+          do
+            eval "value=\${$key}"
+            if [ -z "$value" ]; then
+              unset "$key"
+            fi
+          done
+          npm run build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Require signing on tagged releases
         if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -247,6 +268,7 @@ jobs:
           echo "Signing gate passed for ${{ runner.os }}."
 
       - name: Tauri application launch smoke
+        shell: bash
         env:
           DISPLAY: ":99"
         run: |
