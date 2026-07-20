@@ -82,13 +82,14 @@ def export_desktop_archive() -> Path:
     root = portfolio_data_root()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     export_path = root / "exports" / f"portfolio-export-{stamp}.zip"
-    manifest = {
+    files: list[dict[str, object]] = []
+    manifest: dict[str, object] = {
         "schema_version": 1,
         "application_version": "0.1.0",
         "commit_sha": os.getenv("GIT_SHA", "unknown"),
         "created_at": stamp,
         "deployment_mode": "desktop_local",
-        "files": [],
+        "files": files,
     }
     with zipfile.ZipFile(export_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for folder in ("state", "imports"):
@@ -100,7 +101,7 @@ def export_desktop_archive() -> Path:
                     continue
                 archive_name = str(path.relative_to(root))
                 archive.write(path, arcname=archive_name)
-                manifest["files"].append(
+                files.append(
                     {
                         "path": archive_name,
                         "sha256": sha256_file(path),
