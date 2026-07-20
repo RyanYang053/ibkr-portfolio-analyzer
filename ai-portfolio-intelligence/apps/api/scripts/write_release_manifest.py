@@ -107,9 +107,29 @@ def build_manifest(
     pytest_digest = _file_sha256(pytest_report) if pytest_report else None
     golden_digest = _file_sha256(golden_hash_file) if golden_hash_file else None
     resolved_container = container_digest or os.environ.get("CONTAINER_DIGEST") or "placeholder"
+    cert = certification_status(
+        code_sha=code_sha,
+        pytest_report_sha256=pytest_digest,
+        golden_fixture_sha256=golden_digest,
+        container_digest=resolved_container,
+        mode=mode,
+    )
+    branch = (
+        os.environ.get("GITHUB_REF_NAME", "").strip()
+        or os.environ.get("GITHUB_HEAD_REF", "").strip()
+        or "unknown"
+    )
+    workflow_run_id = os.environ.get("GITHUB_RUN_ID", "").strip() or None
+    workflow_event = os.environ.get("GITHUB_EVENT_NAME", "").strip() or None
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "code_sha": code_sha,
+        "commit_sha": code_sha,
+        "branch": branch,
+        "workflow_run_id": workflow_run_id,
+        "workflow_event": workflow_event,
+        "certification_mode": mode,
+        "tests_verified": bool(cert.get("evidence_complete")),
         "alembic_head": _alembic_head(),
         "app_version": "0.1.0",
         "environment": os.environ.get("ENVIRONMENT", "ci"),
@@ -118,13 +138,7 @@ def build_manifest(
         "pytest_report_sha256": pytest_digest,
         "golden_fixture_sha256": golden_digest,
         "container_digest": resolved_container,
-        "certification": certification_status(
-            code_sha=code_sha,
-            pytest_report_sha256=pytest_digest,
-            golden_fixture_sha256=golden_digest,
-            container_digest=resolved_container,
-            mode=mode,
-        ),
+        "certification": cert,
         "approval_status": {
             "all_experimental_or_approved": all(
                 str(item.get("approval_status") or "") in {"experimental", "approved"}
