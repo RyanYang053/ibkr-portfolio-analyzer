@@ -40,15 +40,17 @@ Data directory (macOS):
 
 ## Current release status
 
+Exact verified SHA: `67ab2c782bf1ee883250e99708d1836378effa51`
+
 | Area | Status |
 | --- | --- |
-| Local-first architecture | GO in principle |
-| Personal local API smoke | GO after local verification |
-| Full Next.js panels in Tauri | Built; needs exact-SHA CI |
-| Platform installers (DMG/NSIS/AppImage) | Built in Desktop CI with launch smoke |
-| Signed / notarized installers | Requires GitHub secrets (see below) |
-| Easy install for other users | Tag `desktop-v*` after secrets are set |
-| Docker / Postgres | CI and developer use only |
+| Local-first architecture | **GO** |
+| CI + Desktop validate | **GO** on exact SHA above |
+| Platform installers (DMG/NSIS/AppImage/DEB) | **GO** (all four package jobs green) |
+| Packaged sidecar smoke | **GO** |
+| Tauri application launch smoke | **GO** |
+| Signed / notarized installers | Add GitHub signing secrets, then tag `desktop-v*` |
+| Public GitHub Release for other users | **Ready after signing secrets** |
 
 ## Architecture
 
