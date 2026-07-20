@@ -9,7 +9,6 @@ from app.api.auth_deps import get_current_principal
 from app.core.config import is_desktop_local
 from app.services.secrets.secret_store import get_secret_store
 
-
 router = APIRouter(
     prefix="/desktop/secrets",
     tags=["desktop-secrets"],

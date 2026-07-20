@@ -2,9 +2,9 @@ from secrets import token_urlsafe
 
 import pytest
 
+from app.core.deployment_mode import DeploymentMode
 from app.core.local_runtime import LocalRuntime, generate_session_token
 from app.core.network_policy import assert_deployment_network_policy, assert_loopback_bind
-from app.core.deployment_mode import DeploymentMode
 
 
 def test_generate_session_token_is_long_enough():

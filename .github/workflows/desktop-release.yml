@@ -71,6 +71,9 @@ jobs:
       - name: Run local desktop integration smoke
         run: python scripts/desktop_local_smoke.py
 
+      - name: Run desktop export/restore smoke
+        run: python scripts/desktop_restore_smoke.py
+
       - name: Install web dependencies
         run: npm ci
 
@@ -179,3 +182,50 @@ jobs:
           path: |
             ai-portfolio-intelligence/apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**
             ai-portfolio-intelligence/apps/desktop/src-tauri/target/release/bundle/**
+
+  publish-draft-release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: portfolio-analyzer-*
+          merge-multiple: false
+
+      - name: Collect installer files
+        id: collect
+        run: |
+          mkdir -p dist
+          find release-artifacts -type f \( \
+            -name '*.dmg' -o \
+            -name '*.exe' -o \
+            -name '*.msi' -o \
+            -name '*.AppImage' -o \
+            -name '*.deb' -o \
+            -name '*.app.tar.gz' \
+          \) -exec cp {} dist/ \;
+          ls -la dist
+          test "$(find dist -type f | wc -l)" -gt 0
+
+      - name: Create draft prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Portfolio Analyzer ${{ github.ref_name }}
+          draft: true
+          prerelease: true
+          files: dist/*
+          body: |
+            Draft unsigned installers for `${{ github.sha }}`.
+
+            Do not promote beyond prerelease until signing/notarization and
+            packaged launch smoke are verified for this exact SHA.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

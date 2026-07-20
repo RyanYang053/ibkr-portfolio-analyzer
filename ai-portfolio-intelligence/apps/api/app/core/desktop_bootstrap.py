@@ -12,7 +12,6 @@ from pathlib import Path
 from app.core.config import is_desktop_local, settings
 from app.core.local_runtime import application_support_dir
 
-
 MAX_BACKUPS = 10
 
 

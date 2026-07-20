@@ -9,7 +9,6 @@ from starlette.responses import JSONResponse
 from app.core.local_runtime import LocalRuntime
 from app.core.network_policy import is_loopback_client
 
-
 PUBLIC_PATHS = frozenset(
     {
         "/health",

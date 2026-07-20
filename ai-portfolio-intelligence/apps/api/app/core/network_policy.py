@@ -6,7 +6,6 @@ import sys
 
 from app.core.deployment_mode import DeploymentMode
 
-
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 

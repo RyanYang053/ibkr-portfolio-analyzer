@@ -9,7 +9,6 @@ from typing import Any, Iterable
 from app.core.product_scope import TAX_DISCLAIMER
 from app.services.tax.tax_evidence import TaxExportReadiness, TaxOutputStatus
 
-
 TAX_UI_LABELS: dict[str, str] = {
     "Filing-ready tax": "Tax reconciliation export",
     "Tax certified": "Reconciled tax estimate",

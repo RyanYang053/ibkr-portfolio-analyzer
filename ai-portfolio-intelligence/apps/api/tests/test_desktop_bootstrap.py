@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from app.core.config import settings
-from app.core.desktop_bootstrap import backup_desktop_data, export_desktop_archive, portfolio_data_root
 from app.core.deployment_mode import DeploymentMode
+from app.core.desktop_bootstrap import backup_desktop_data, export_desktop_archive, portfolio_data_root
 
 
 def test_portfolio_data_root_honors_env(tmp_path, monkeypatch):

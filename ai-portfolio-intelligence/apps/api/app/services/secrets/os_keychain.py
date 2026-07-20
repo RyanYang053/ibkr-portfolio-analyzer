@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from typing import Protocol
 
-
 SERVICE_NAME = "PortfolioAnalyzer"
 
 
@@ -58,9 +57,9 @@ def default_secret_backend(*, allow_memory_fallback: bool = False) -> SecretBack
         import keyring  # noqa: F401
 
         return KeyringSecretBackend()
-    except Exception:
+    except Exception as exc:
         if not allow_memory_fallback:
             raise RuntimeError(
                 f"OS keychain unavailable on {sys.platform}; cannot store secrets safely"
-            )
+            ) from exc
         return MemorySecretBackend()
