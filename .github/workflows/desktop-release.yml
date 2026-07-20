@@ -84,7 +84,7 @@ jobs:
         run: npm run web:typecheck
 
       - name: Static desktop export
-        run: python scripts/prepare-tauri-binaries.py --no-require-sidecar
+        run: python scripts/prepare-tauri-binaries.py --no-require-sidecar --in-place
         env:
           NEXT_PUBLIC_DEPLOYMENT_MODE: desktop_local
 
@@ -155,7 +155,7 @@ jobs:
         run: python scripts/build-backend-sidecar.py
 
       - name: Prepare static frontend and validate sidecar
-        run: python scripts/prepare-tauri-binaries.py
+        run: python scripts/prepare-tauri-binaries.py --in-place
         env:
           NEXT_PUBLIC_DEPLOYMENT_MODE: desktop_local
 

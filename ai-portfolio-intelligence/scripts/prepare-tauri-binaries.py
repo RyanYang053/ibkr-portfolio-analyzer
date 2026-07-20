@@ -23,11 +23,28 @@ WEB_OUT = WEB / "out"
 BACKUP = WEB / ".desktop-build-backup"
 
 
+def npm_executable() -> str:
+    candidates = ("npm.cmd", "npm.exe", "npm") if os.name == "nt" else ("npm",)
+    for name in candidates:
+        found = shutil.which(name)
+        if found:
+            return found
+    raise SystemExit("npm was not found on PATH")
+
+
 def run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> None:
     merged = os.environ.copy()
     if env:
         merged.update(env)
     subprocess.check_call(cmd, cwd=cwd, env=merged)
+
+
+def npm_run(script: str, *, cwd: Path, env: dict[str, str] | None = None) -> None:
+    run([npm_executable(), "run", script], cwd=cwd, env=env)
+
+
+def npm_install(*, cwd: Path, env: dict[str, str] | None = None) -> None:
+    run([npm_executable(), "install", "--no-fund", "--no-audit"], cwd=cwd, env=env)
 
 
 def rust_target_triple() -> str:
@@ -109,7 +126,7 @@ def build_static_export(*, use_temp: bool) -> None:
     if not use_temp:
         try:
             backup_incompatible_paths(WEB, BACKUP)
-            run(["npm", "run", "build"], cwd=WEB, env=env)
+            npm_run("build", cwd=WEB, env=env)
             install_spa_fallback(WEB_OUT)
         finally:
             restore_backup(WEB, BACKUP)
@@ -120,8 +137,8 @@ def build_static_export(*, use_temp: bool) -> None:
         tmp_web = tmp_root / "web"
         copy_web_sources(tmp_web)
         backup_incompatible_paths(tmp_web, tmp_web / ".desktop-build-backup")
-        run(["npm", "install", "--no-fund", "--no-audit"], cwd=tmp_web, env=env)
-        run(["npm", "run", "build"], cwd=tmp_web, env=env)
+        npm_install(cwd=tmp_web, env=env)
+        npm_run("build", cwd=tmp_web, env=env)
         tmp_out = tmp_web / "out"
         if not tmp_out.exists():
             raise SystemExit(f"Expected static export at {tmp_out}")

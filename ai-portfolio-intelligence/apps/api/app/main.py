@@ -8,11 +8,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from app.api.routes import (
-    admin,
     ai,
     alerts,
     analysis,
-    auth,
     broker,
     chat,
     decision_center,
@@ -93,6 +91,8 @@ if _local_runtime is not None:
 app.include_router(health.router)
 app.include_router(desktop.router)
 if not is_desktop_local():
+    from app.api.routes import admin, auth
+
     app.include_router(auth.router)
     app.include_router(admin.router)
 app.include_router(ai.router)
