@@ -401,6 +401,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           path: ai-portfolio-intelligence/apps/api/migration-roundtrip.log
+
+  financial-golden-master:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -463,6 +465,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           path: ai-portfolio-intelligence/apps/api/coverage/
+
+  web-lint-type:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -508,6 +512,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           path: ai-portfolio-intelligence/apps/api/security-reports/
+
+  production-postgres-e2e:
     runs-on: ubuntu-latest
     defaults:
       run:
