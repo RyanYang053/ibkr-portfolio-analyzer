@@ -158,10 +158,9 @@ def main() -> int:
     suffix = ".exe" if os.name == "nt" else ""
     sidecar = TAURI_BINARIES / f"portfolio-api-{triple}{suffix}"
     if not args.no_require_sidecar and not sidecar.exists():
-        print(
-            f"WARNING: missing sidecar {sidecar}. "
-            "Run: python scripts/build-backend-sidecar.py",
-            file=sys.stderr,
+        raise SystemExit(
+            f"Required Tauri sidecar is missing: {sidecar}. "
+            "Run python scripts/build-backend-sidecar.py first."
         )
 
     print("Desktop prepare complete")

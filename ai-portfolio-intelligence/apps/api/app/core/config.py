@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     deployment_mode: DeploymentMode = DeploymentMode.DEVELOPMENT
     database_url: str = "postgresql+psycopg://portfolio:portfolio@postgres:5432/portfolio"
-    persistence_backend: Literal["json", "postgres", "sqlite"] = "json"
+    persistence_backend: Literal["json", "postgres"] = "json"
     jwt_secret: str = "dev-only-change-me"
     cors_origins: list[str] = ["http://localhost:3000", "tauri://localhost", "https://tauri.localhost"]
     broker_mode: str = "ibkr_readonly"
@@ -110,8 +110,8 @@ def validate_production_settings() -> None:
             database_url=settings.database_url,
             persistence_backend=settings.persistence_backend,
         )
-        if settings.persistence_backend not in {"json", "sqlite"}:
-            raise RuntimeError("DESKTOP_LOCAL persistence must be json or sqlite")
+        if settings.persistence_backend != "json":
+            raise RuntimeError("Desktop v1 supports only the audited JSON state backend")
         if not settings.local_session_token or len(settings.local_session_token) < 43:
             raise RuntimeError("LOCAL_SESSION_TOKEN is required for DESKTOP_LOCAL mode")
         return

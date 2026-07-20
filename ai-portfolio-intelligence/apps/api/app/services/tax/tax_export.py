@@ -19,9 +19,19 @@ TAX_UI_LABELS: dict[str, str] = {
 }
 
 
+def safe_csv_value(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    if value.startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
 def assert_not_filing_ready(readiness: TaxExportReadiness) -> None:
-    assert readiness.filing_ready is False
-    assert readiness.status != TaxOutputStatus.WITHHELD or not readiness.ready_for_review
+    if readiness.filing_ready is not False:
+        raise ValueError("Tax export must never be filing-ready")
+    if readiness.status == TaxOutputStatus.WITHHELD and readiness.ready_for_review:
+        raise ValueError("Withheld tax output cannot be ready for review")
 
 
 def export_tax_worksheet_csv(
@@ -30,6 +40,7 @@ def export_tax_worksheet_csv(
     readiness: TaxExportReadiness,
 ) -> str:
     """Export a review worksheet CSV with mandatory disclaimer row metadata."""
+    assert_not_filing_ready(readiness)
     buffer = io.StringIO()
     buffer.write(f"# disclaimer,{TAX_DISCLAIMER}\n")
     buffer.write(f"# tax_year,{readiness.tax_year}\n")
@@ -42,8 +53,12 @@ def export_tax_worksheet_csv(
         buffer.write("symbol,quantity,estimated_gain_loss,notes\n")
         return buffer.getvalue()
 
-    fieldnames = list(materialized[0].keys())
+    sanitized = [
+        {key: safe_csv_value(value) for key, value in row.items()}
+        for row in materialized
+    ]
+    fieldnames = list(sanitized[0].keys())
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
     writer.writeheader()
-    writer.writerows(materialized)
+    writer.writerows(sanitized)
     return buffer.getvalue()

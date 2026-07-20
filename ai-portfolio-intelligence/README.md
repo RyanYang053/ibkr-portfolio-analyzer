@@ -4,26 +4,26 @@ Local-first, read-only portfolio analytics and decision-support for Interactive 
 
 > **Product definition:** a local personal application. All portfolio data, broker sessions, tax records, and application state remain on your device. No application login or hosted backend is required.
 
-## Personal FULL GO (use this)
+## Personal developer bring-up
 
-On your Mac, from `ai-portfolio-intelligence`:
+From `ai-portfolio-intelligence`:
 
 ```bash
-python3 scripts/desktop_local_smoke.py    # verifies local API + session + export
-python3 scripts/run_personal_desktop.py   # starts local UI in your browser
+python3 scripts/desktop_local_smoke.py    # loopback API + session gate + export
+python3 scripts/run_personal_desktop.py   # starts API only (no browser UI)
 ```
 
-What you get immediately:
+The full interactive UI ships inside the Tauri desktop app. The session token is injected by Rust into the webview and is **not** served by any public HTTP route.
 
 | Capability | Status |
 | --- | --- |
 | No application login | Done |
 | Loopback-only API + per-launch session token | Done |
+| Token not disclosed over HTTP | Done |
 | Local data under OS Application Support | Done |
-| Startup backup + data export zip | Done |
+| Startup backup retention + export manifest | Done |
 | No Docker / Postgres for personal use | Done |
 | No order submission | Done |
-| Personal desktop UI (local browser) | Done |
 | IBKR password collection | Never |
 
 Data directory (macOS):
@@ -37,17 +37,17 @@ Data directory (macOS):
 └── logs/
 ```
 
-## Current stage vs signed installers
+## Current release status
 
 | Area | Status |
 | --- | --- |
-| Personal local runtime (smoke + launcher) | **GO** |
-| Full Next.js interactive panels in desktop shell | **GO** (static export under `apps/web/out`) |
-| Tauri + PyInstaller sidecar installer build | **GO** on machines with Rust + PyInstaller |
-| Signed / notarized DMG / EXE | Blocked on Apple/Windows signing certificates |
+| Local-first architecture | GO in principle |
+| Personal local API smoke | GO after local verification |
+| Full Next.js panels in Tauri | Built; needs exact-SHA CI |
+| Platform installers (DMG/NSIS/AppImage) | Wired in workflow; unsigned |
+| Signed / notarized installers | Blocked on signing certificates |
+| Easy install for other users | **NO-GO** until signed releases + exact-SHA evidence |
 | Docker / Postgres | CI and developer use only |
-
-Signed installers are optional for **your own** machine. Personal FULL GO does not require notarization.
 
 ## Architecture
 
@@ -55,15 +55,15 @@ Signed installers are optional for **your own** machine. Personal FULL GO does n
 Tauri desktop app
 ├── Next.js static UI (apps/web/out) in the webview
 ├── FastAPI sidecar on 127.0.0.1:<random port>
-├── X-Local-Session injected as window.__DESKTOP_RUNTIME__
-├── JSON state in Application Support
+├── X-Local-Session injected as window.__DESKTOP_RUNTIME__ (webview only)
+├── JSON state in Application Support (fail-closed on corruption)
 └── OS Keychain for Flex tokens
 ```
 
 Deployment modes:
 
 ```text
-desktop_local   → personal use (no login)
+desktop_local   → personal use (no login, JSON state only)
 development     → engineering (Docker/Postgres allowed)
 ```
 
@@ -78,23 +78,19 @@ cd infra && docker compose up --build
 Full desktop installer (requires Rust toolchain + PyInstaller):
 
 ```bash
-# One-shot: sidecar + static web + Tauri .app + DMG
+# One-shot: sidecar + static web + Tauri installers
 python3 scripts/build-desktop-installer.py
 
 # Or step by step:
 python3 scripts/build-backend-sidecar.py
-python3 scripts/prepare-tauri-binaries.py   # builds Next static export (uses /tmp on Documents volumes)
+python3 scripts/prepare-tauri-binaries.py
+python3 scripts/smoke-packaged-sidecar.py
 cd apps/desktop && npm install && npx tauri build
 ```
 
-Artifacts:
+Artifacts land under `apps/desktop/src-tauri/target/release/bundle/` (and target-triple paths in CI).
 
-```text
-apps/desktop/src-tauri/target/release/bundle/macos/Portfolio Analyzer.app
-apps/desktop/src-tauri/target/release/bundle/dmg/Portfolio Analyzer_0.1.0_aarch64.dmg
-```
-
-Note: Tauri’s built-in DMG step can fail when the repo path contains spaces; `build-desktop-installer.py` creates the DMG with `hdiutil` instead.
+Note: Tauri’s built-in DMG step can fail when the repo path contains spaces; `build-desktop-installer.py` can create a DMG with `hdiutil` as a fallback.
 
 ## Product claims
 

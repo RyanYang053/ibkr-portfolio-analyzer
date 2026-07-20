@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
@@ -16,10 +17,22 @@ from app.core.config import settings
 _FILE_LOCK = Lock()
 
 
+class StateStoreError(RuntimeError):
+    pass
+
+
+class StateCorruptionError(StateStoreError):
+    pass
+
+
 def _data_dir() -> str:
     from app.core.desktop_bootstrap import state_data_dir
 
     return str(state_data_dir())
+
+
+def _safe_component(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 class StateStore(ABC):
@@ -37,40 +50,59 @@ class StateStore(ABC):
 
 
 class JsonStateStore(StateStore):
-    def _path(self, namespace: str, record_key: str) -> str:
-        safe_ns = namespace.replace("/", "_").replace(":", "__")
-        safe_key = record_key.replace("/", "_").replace("..", "_").replace(":", "__")
-        return os.path.join(_data_dir(), safe_ns, f"{safe_key}.json")
+    def _path(self, namespace: str, record_key: str) -> Path:
+        root = Path(_data_dir()).resolve()
+        path = (root / _safe_component(namespace) / f"{_safe_component(record_key)}.json").resolve()
+        if root != path and root not in path.parents:
+            raise StateStoreError("Resolved state path escaped the state root")
+        return path
 
     def read_json(self, namespace: str, record_key: str, default: Any = None) -> Any:
         path = self._path(namespace, record_key)
-        if not os.path.exists(path):
+        if not path.exists():
             return default
         try:
-            with open(path, "r", encoding="utf-8") as handle:
-                return json.load(handle)
-        except Exception:
-            return default
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            quarantine = path.with_suffix(f".corrupt-{stamp}.json")
+            path.replace(quarantine)
+            raise StateCorruptionError(
+                f"Corrupted state was quarantined: {quarantine.name}"
+            ) from exc
+        except OSError as exc:
+            raise StateStoreError(
+                f"Unable to read state record {namespace}/{record_key}"
+            ) from exc
 
     def write_json(self, namespace: str, record_key: str, payload: Any) -> None:
         path = self._path(namespace, record_key)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         with _FILE_LOCK:
-            fd, temporary_path = tempfile.mkstemp(prefix="state_", suffix=".tmp", dir=os.path.dirname(path))
+            fd, temporary_path = tempfile.mkstemp(
+                prefix="state_",
+                suffix=".tmp",
+                dir=str(path.parent),
+            )
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
                     json.dump(payload, handle, indent=2)
                     handle.flush()
                     os.fsync(handle.fileno())
                 os.replace(temporary_path, path)
+                directory_fd = os.open(str(path.parent), os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
             finally:
                 if os.path.exists(temporary_path):
                     os.unlink(temporary_path)
 
     def delete(self, namespace: str, record_key: str) -> None:
         path = self._path(namespace, record_key)
-        if os.path.exists(path):
-            os.unlink(path)
+        if path.exists():
+            path.unlink()
 
 
 class PostgresStateStore(StateStore):
@@ -91,10 +123,14 @@ class PostgresStateStore(StateStore):
                 return default
             try:
                 return json.loads(row.payload_json)
-            except json.JSONDecodeError:
-                return default
+            except json.JSONDecodeError as exc:
+                raise StateCorruptionError(
+                    f"Corrupted postgres state for {namespace}/{record_key}"
+                ) from exc
 
     def write_json(self, namespace: str, record_key: str, payload: Any) -> None:
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         from app.db.session import SessionLocal
         from app.models.professional_state import ProfessionalStateRecord
 

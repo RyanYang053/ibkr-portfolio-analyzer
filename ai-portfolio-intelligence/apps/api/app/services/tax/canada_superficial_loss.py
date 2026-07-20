@@ -17,14 +17,18 @@ class SuperficialLossFlag:
     status: str = "potential_adjustment"
 
 
-def potential_superficial_loss_flags(
+def potential_repurchase_window_flags(
     *,
     symbol: str,
     disposal_date: date,
     disposal_quantity: Decimal,
     repurchase_dates: tuple[date, ...],
 ) -> tuple[SuperficialLossFlag, ...]:
-    """Flag ±30 calendar-day repurchase windows as review items."""
+    """Flag ±30 calendar-day repurchase windows as review items.
+
+    This is a broad warning detector, not a CRA superficial-loss determination.
+    Affiliated-person and substituted-property continuity checks are out of scope.
+    """
     if disposal_quantity >= 0:
         return ()
 
@@ -41,9 +45,13 @@ def potential_superficial_loss_flags(
                     window_end=window_end,
                     reason=(
                         f"Repurchase on {repurchase.isoformat()} falls within the "
-                        "30-day superficial-loss window; review before treating the "
+                        "30-day repurchase warning window; review before treating the "
                         "loss as allowable."
                     ),
                 )
             )
     return tuple(flags)
+
+
+# Backward-compatible alias; prefer potential_repurchase_window_flags.
+potential_superficial_loss_flags = potential_repurchase_window_flags

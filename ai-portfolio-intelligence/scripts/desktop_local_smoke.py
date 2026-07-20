@@ -59,7 +59,6 @@ def main() -> int:
             "ENVIRONMENT": "desktop",
             "PERSISTENCE_BACKEND": "json",
             "PORTFOLIO_DATA_DIR": str(data_dir),
-            "DATABASE_URL": f"sqlite+pysqlite:///{data_dir / 'portfolio.db'}",
             "LOCAL_API_HOST": host,
             "LOCAL_API_PORT": str(port),
             "LOCAL_SESSION_TOKEN": token,
@@ -120,11 +119,18 @@ def main() -> int:
         if ok_status != 200 or "desktop_local" not in body:
             raise SystemExit(f"desktop/status failed: {ok_status} {body}")
 
-        ui_status, ui_body = http_json(f"{base}/")
-        if ui_status != 200 or "Portfolio Analyzer" not in ui_body:
-            raise SystemExit(f"desktop UI failed: {ui_status}")
-        if "__DESKTOP_RUNTIME__" not in ui_body:
-            raise SystemExit("desktop UI missing runtime injection")
+        root_status, root_body = http_json(f"{base}/")
+        if root_status not in {401, 404}:
+            raise SystemExit(f"Expected protected or unavailable API root, got {root_status}")
+        if token in root_body or "__DESKTOP_RUNTIME__" in root_body:
+            raise SystemExit("Local session token was exposed through an HTTP response")
+
+        for public_path in ("/health", "/health/live", "/version"):
+            public_status, public_body = http_json(f"{base}{public_path}")
+            if public_status != 200:
+                raise SystemExit(f"{public_path} failed: {public_status}")
+            if token in public_body or "__DESKTOP_RUNTIME__" in public_body:
+                raise SystemExit(f"Token leaked via {public_path}")
 
         export_status, export_body = http_json(
             f"{base}/desktop/export",

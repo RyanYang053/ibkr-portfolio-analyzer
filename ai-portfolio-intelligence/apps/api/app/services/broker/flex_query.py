@@ -11,8 +11,9 @@ from typing import Optional
 
 import httpx
 
-from app.core.config import settings
+from app.core.config import is_desktop_local, settings
 from app.schemas.domain import Transaction
+from app.services.secrets.secret_store import get_secret_store
 
 FLEX_SEND_URL = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest"
 FLEX_GET_URL = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement"
@@ -65,12 +66,20 @@ class FlexParseResult:
         return len(self.rejected_rows)
 
 
+def configured_flex_token() -> str | None:
+    if is_desktop_local():
+        return get_secret_store().get("ibkr_flex_token")
+    return settings.ibkr_flex_token
+
+
 def flex_activity_query_configured() -> bool:
-    return bool(settings.ibkr_flex_token and settings.ibkr_flex_activity_query_id)
+    return bool(configured_flex_token() and settings.ibkr_flex_activity_query_id)
 
 
 def flex_query_configured() -> bool:
-    return flex_activity_query_configured() or bool(settings.ibkr_flex_token and settings.ibkr_flex_query_id)
+    return flex_activity_query_configured() or bool(
+        configured_flex_token() and settings.ibkr_flex_query_id
+    )
 
 
 def _normalize_key(value: str) -> str:
@@ -354,7 +363,7 @@ def _request_flex_statement(
 
 
 def fetch_flex_cash_ledger(account_id: str, query_id: Optional[str] = None) -> FlexParseResult:
-    token = settings.ibkr_flex_token
+    token = configured_flex_token()
     query = query_id or settings.ibkr_flex_activity_query_id or settings.ibkr_flex_query_id
     if not token or not query:
         raise RuntimeError(

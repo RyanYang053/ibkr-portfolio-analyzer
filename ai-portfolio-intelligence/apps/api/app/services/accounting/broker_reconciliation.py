@@ -18,7 +18,7 @@ class AccountingStatus(StrEnum):
 
 
 def personal_residual_tolerance(ending_nav: Decimal) -> Decimal:
-    """Personal-use gate: cent floor or 1 bp of ending NAV."""
+    """Personal-use gate: cent floor or 0.1 bp of ending NAV."""
     return max(Decimal("0.01"), abs(ending_nav) * Decimal("0.00001"))
 
 

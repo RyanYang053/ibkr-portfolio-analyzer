@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from app.core.config import settings
+from app.services.broker.flex_query import flex_activity_query_configured
 
 router = APIRouter(tags=["health"])
 _APP_START_MONOTONIC = time.monotonic()
@@ -237,7 +238,7 @@ def health_dependencies() -> dict[str, object]:
         "governance_tables": {"ok": governance_ok, "detail": _safe_detail(governance_detail)},
         "scheduler": {"ok": scheduler_ok, "detail": _safe_detail(scheduler_detail)},
         "broker_config": {"ok": broker_ok, "detail": _safe_detail(broker_detail)},
-        "flex_configured": bool(settings.ibkr_flex_token and settings.ibkr_flex_activity_query_id),
+        "flex_configured": flex_activity_query_configured(),
         "scheduler_enabled": settings.scheduler_enabled,
         "environment": settings.environment,
     }

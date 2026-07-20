@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Personal local launcher: no Docker, no login, opens the local UI in your browser."""
+"""Personal local API launcher (no UI). Prefer the Tauri desktop app for the full product."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import subprocess
 import sys
 import time
 import urllib.request
-import webbrowser
 from pathlib import Path
 from secrets import token_urlsafe
 
@@ -66,7 +65,6 @@ def main() -> int:
             "ENVIRONMENT": "desktop",
             "PERSISTENCE_BACKEND": "json",
             "PORTFOLIO_DATA_DIR": str(data_dir),
-            "DATABASE_URL": f"sqlite+pysqlite:///{data_dir / 'portfolio.db'}",
             "LOCAL_API_HOST": host,
             "LOCAL_API_PORT": str(port),
             "LOCAL_SESSION_TOKEN": token,
@@ -98,12 +96,11 @@ def main() -> int:
     base = f"http://{host}:{port}"
     try:
         wait_healthy(f"{base}/health")
-        webbrowser.open(f"{base}/")
-        print("PERSONAL_DESKTOP_RUNNING")
-        print(f"UI:   {base}/")
+        print("PERSONAL_DESKTOP_API_RUNNING")
         print(f"API:  {base}")
         print(f"DATA: {data_dir}")
-        print("No login required. Press Ctrl+C to stop.")
+        print("Session token is injected only by the Tauri webview; it is not served over HTTP.")
+        print("For the full UI, build/run apps/desktop (Tauri). Press Ctrl+C to stop.")
         while True:
             code = proc.poll()
             if code is not None:

@@ -37,7 +37,7 @@ def test_token_matches_constant_time():
     assert runtime.token_matches(None) is False
 
 
-def test_desktop_requires_loopback_and_local_persistence():
+def test_desktop_requires_loopback_and_json_persistence():
     assert_loopback_bind("127.0.0.1")
     with pytest.raises(RuntimeError):
         assert_loopback_bind("0.0.0.0")
@@ -45,13 +45,13 @@ def test_desktop_requires_loopback_and_local_persistence():
     assert_deployment_network_policy(
         deployment_mode=DeploymentMode.DESKTOP_LOCAL,
         bind_host="127.0.0.1",
-        database_url="sqlite+pysqlite:////tmp/portfolio.db",
+        database_url="unused",
         persistence_backend="json",
     )
-    with pytest.raises(RuntimeError, match="sqlite mode requires"):
+    with pytest.raises(RuntimeError, match="must be json"):
         assert_deployment_network_policy(
             deployment_mode=DeploymentMode.DESKTOP_LOCAL,
             bind_host="127.0.0.1",
-            database_url="postgresql+psycopg://portfolio:portfolio@localhost/portfolio",
+            database_url="sqlite+pysqlite:////tmp/portfolio.db",
             persistence_backend="sqlite",
         )

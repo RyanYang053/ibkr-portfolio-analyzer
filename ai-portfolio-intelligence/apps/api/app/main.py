@@ -17,7 +17,6 @@ from app.api.routes import (
     chat,
     decision_center,
     desktop,
-    desktop_ui,
     health,
     pnl,
     portfolio,
@@ -91,10 +90,11 @@ _local_runtime = load_local_runtime_from_env()
 if _local_runtime is not None:
     app.add_middleware(LocalSessionMiddleware, runtime=_local_runtime)
 
-app.include_router(auth.router)
 app.include_router(health.router)
 app.include_router(desktop.router)
-app.include_router(desktop_ui.router)
+if not is_desktop_local():
+    app.include_router(auth.router)
+    app.include_router(admin.router)
 app.include_router(ai.router)
 app.include_router(broker.router)
 app.include_router(portfolio.router)
@@ -104,9 +104,13 @@ app.include_router(analysis.router)
 app.include_router(reports.router)
 app.include_router(watchlist.router)
 app.include_router(alerts.router)
-app.include_router(admin.router)
 app.include_router(chat.router)
 app.include_router(pnl.router)
+
+if is_desktop_local():
+    from app.api.routes import desktop_secrets
+
+    app.include_router(desktop_secrets.router)
 
 
 @app.get("/health")

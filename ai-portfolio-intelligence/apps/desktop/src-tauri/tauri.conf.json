@@ -11,16 +11,16 @@
   "app": {
     "windows": [],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; base-uri 'none'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data:; connect-src ipc: http://ipc.localhost http://127.0.0.1:*"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
-      "icons/henry.w@example.net",
+      "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico",
       "icons/icon.png"

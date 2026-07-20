@@ -12,13 +12,9 @@ from app.core.network_policy import is_loopback_client
 
 PUBLIC_PATHS = frozenset(
     {
-        "/",
         "/health",
         "/health/live",
-        "/health/ready",
         "/version",
-        "/ui/styles.css",
-        "/ui/app.js",
     }
 )
 

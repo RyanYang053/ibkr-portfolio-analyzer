@@ -53,7 +53,7 @@ class KeyringSecretBackend:
             return
 
 
-def default_secret_backend(*, allow_memory_fallback: bool = True) -> SecretBackend:
+def default_secret_backend(*, allow_memory_fallback: bool = False) -> SecretBackend:
     try:
         import keyring  # noqa: F401
 

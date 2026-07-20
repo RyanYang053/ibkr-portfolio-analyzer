@@ -33,10 +33,6 @@ impl BackendProcess {
             .env("ENVIRONMENT", "desktop")
             .env("PERSISTENCE_BACKEND", "json")
             .env("PORTFOLIO_DATA_DIR", data_dir.to_string_lossy().as_ref())
-            .env(
-                "DATABASE_URL",
-                format!("sqlite+pysqlite:///{}", data_dir.join("portfolio.db").display()),
-            )
             .env("LOCAL_API_HOST", &runtime.host)
             .env("LOCAL_API_PORT", runtime.port.to_string())
             .env("LOCAL_SESSION_TOKEN", &runtime.session_token)
@@ -55,6 +51,26 @@ impl BackendProcess {
         Ok(Self {
             child: Mutex::new(Some(child)),
         })
+    }
+
+    pub fn spawn_with_retry(
+        app: &AppHandle,
+    ) -> Result<(Self, DesktopRuntime), Box<dyn std::error::Error>> {
+        let mut last_error: Option<String> = None;
+        for _attempt in 0..10 {
+            let runtime = crate::secure_runtime::create_runtime()?;
+            match Self::spawn(app, &runtime) {
+                Ok(process) => return Ok((process, runtime)),
+                Err(error) => {
+                    last_error = Some(error.to_string());
+                }
+            }
+        }
+        Err(format!(
+            "Unable to start local API after retries: {}",
+            last_error.unwrap_or_else(|| "unknown error".to_string())
+        )
+        .into())
     }
 
     pub fn stop(&self) {

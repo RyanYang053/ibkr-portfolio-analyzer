@@ -17,8 +17,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            let runtime = secure_runtime::create_runtime()?;
-            let backend = BackendProcess::spawn(app.handle(), &runtime)?;
+            let (backend, runtime) = BackendProcess::spawn_with_retry(app.handle())?;
             let injection = build_runtime_injection(&runtime);
             let bootstrap = format!(
                 "Object.defineProperty(window, '__DESKTOP_RUNTIME__', {{ value: {injection}, writable: false, configurable: false }});"

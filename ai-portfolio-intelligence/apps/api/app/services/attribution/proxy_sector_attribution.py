@@ -39,6 +39,25 @@ class ProxySectorAttributionResult:
         return False
 
 
+def validate_weights(
+    sectors: tuple[tuple[str, Decimal, Decimal, Decimal, Decimal], ...],
+    *,
+    tolerance: Decimal = Decimal("0.0001"),
+) -> None:
+    portfolio_weight = sum((row[1] for row in sectors), Decimal("0"))
+    proxy_weight = sum((row[2] for row in sectors), Decimal("0"))
+
+    if abs(portfolio_weight - Decimal("1")) > tolerance:
+        raise ValueError("Portfolio sector weights do not reconcile to 100%")
+
+    if abs(proxy_weight - Decimal("1")) > tolerance:
+        raise ValueError("Proxy sector weights do not reconcile to 100%")
+
+    names = [row[0] for row in sectors]
+    if len(names) != len(set(names)):
+        raise ValueError("Duplicate sector records are not allowed")
+
+
 def compute_proxy_sector_attribution(
     *,
     sectors: tuple[tuple[str, Decimal, Decimal, Decimal, Decimal], ...],
@@ -55,6 +74,8 @@ def compute_proxy_sector_attribution(
             "licensed_point_in_time_brinson is disabled until an approved "
             "licensed provider is configured"
         )
+
+    validate_weights(sectors)
 
     effects: list[SectorAttributionEffect] = []
     total_alloc = Decimal("0")

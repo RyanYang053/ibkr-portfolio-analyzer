@@ -65,19 +65,20 @@ def evaluate_holding_decision(context: HoldingContext) -> dict[str, Any]:
     if risk_flag:
         return _result("Review trim", gates, context)
 
-    # 4. Valuation — real gate; without approved valuation, never recommend add.
-    valuation_ok = context.valuation_status in {"available", "approved"}
+    # 4. Valuation — available is enough to continue analysis; add requires approved.
+    valuation_available = context.valuation_status in {"available", "approved"}
+    valuation_approved_for_add = context.valuation_status == "approved"
     gates.append(
         {
             "gate": "valuation_status",
-            "passed": valuation_ok,
+            "passed": valuation_available,
             "detail": {
                 "valuation_status": context.valuation_status,
-                "note": "Add reviews require available/approved valuation evidence.",
+                "note": "Add reviews require approved valuation evidence.",
             },
         }
     )
-    if not valuation_ok:
+    if not valuation_available:
         return _result("Review thesis", gates, context)
 
     # 5. Portfolio fit
@@ -95,8 +96,20 @@ def evaluate_holding_decision(context: HoldingContext) -> dict[str, Any]:
         return _result("Data insufficient", gates, context)
     if "inversion_flags" in labels or "risk_caution" in labels:
         return _result("Review trim", gates, context)
-    if "quality_supportive" in labels and not fit.get("over_concentrated"):
+    if "quality_supportive" in labels and valuation_approved_for_add and not fit.get("over_concentrated"):
         return _result("Review add", gates, context)
+    if "quality_supportive" in labels and not valuation_approved_for_add:
+        gates.append(
+            {
+                "gate": "valuation_approval_for_add",
+                "passed": False,
+                "detail": {
+                    "valuation_status": context.valuation_status,
+                    "required": "approved",
+                },
+            }
+        )
+        return _result("Review thesis", gates, context)
 
     return _result("No action", gates, context)
 
