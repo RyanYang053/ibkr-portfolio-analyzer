@@ -52,6 +52,29 @@ def test_changed_dimensions_tracked_against_previous():
     assert now.previous_regime == prev.label
 
 
+def test_portfolio_proxy_derivation_is_labeled_and_data_driven():
+    from types import SimpleNamespace
+
+    from app.services.market_intelligence.snapshot import derive_portfolio_proxy_dimensions
+
+    summary = SimpleNamespace(net_liquidation=100000.0, cash=2000.0)
+    positions = [
+        SimpleNamespace(asset_class="STK", unrealized_pnl=500),
+        SimpleNamespace(asset_class="STK", unrealized_pnl=300),
+        SimpleNamespace(asset_class="STK", unrealized_pnl=-100),
+        SimpleNamespace(asset_class="STK", unrealized_pnl=200),
+    ]
+    dims, limitations = derive_portfolio_proxy_dimensions(summary, positions)
+    assert dims.trend == "up"  # 3 of 4 positive
+    assert dims.risk_appetite == "risk_on"  # 2% cash
+    # The proxy is explicitly labeled, not presented as true market breadth.
+    assert "portfolio_proxy" in limitations
+
+    # Too few holdings -> honest insufficient, not a guess.
+    thin = derive_portfolio_proxy_dimensions(summary, positions[:2])
+    assert "insufficient_holdings_for_proxy" in thin[1]
+
+
 def test_regime_is_deterministic_not_llm():
     # Same inputs -> identical label every time (no stochastic/LLM step).
     inputs = RegimeInputs(trend="up", breadth="broad", volatility="low", risk_appetite="risk_on")

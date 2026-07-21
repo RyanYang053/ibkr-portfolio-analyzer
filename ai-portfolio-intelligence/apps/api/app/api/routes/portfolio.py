@@ -5,7 +5,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.account_deps import resolve_authorized_account_id, resolve_settings_account_id, resolve_authorized_account_ids
+from app.api.account_deps import (
+  resolve_authorized_account_id,
+  resolve_authorized_account_ids,
+  resolve_settings_account_id,
+)
 from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.core.audit import log_audit_action
@@ -500,7 +504,12 @@ def risk(
     account_summary, account_positions = _resolve_account_data(adapter, account_id, principal)
     validation = validate_portfolio_snapshot(account_summary, account_positions)
     require_analytics_safe(validation)
-    return analyze_portfolio_risk(account_summary, account_positions)
+    result = analyze_portfolio_risk(account_summary, account_positions)
+    from app.db.analytics_snapshot_repo import save_risk_snapshot
+
+    payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
+    save_risk_snapshot(str(getattr(account_summary, "account_id", account_id) or "default"), payload)
+    return result
 
 
 def _portfolio_research_events(positions: list[Position]) -> list[dict]:
@@ -862,3 +871,42 @@ def point_in_time_fundamentals(symbol: str, as_of: Optional[str] = None):
         "point_in_time": snapshot.source != "synthetic_demo",
         "synthetic_demo": snapshot.source == "synthetic_demo",
     }
+
+
+@router.get("/options")
+def portfolio_options(
+    account_id: Optional[str] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, object]:
+    """Portfolio-level options risk (§11): net Greeks + expiry/assignment exposure.
+
+    Computed from held option positions and persisted as an option_risk_snapshot.
+    Reports exclusions honestly rather than assuming coverage.
+    """
+    summary, positions = _resolve_account_data(adapter, account_id, principal)
+    from app.db.option_snapshot_repo import save_option_risk_snapshot
+    from app.services.options.portfolio_greeks import (
+        compute_portfolio_greeks,
+        portfolio_greeks_as_dict,
+    )
+
+    base_currency = getattr(summary, "base_currency", "USD")
+    greeks_summary, exclusions = compute_portfolio_greeks(positions, base_currency=base_currency)
+    greeks = portfolio_greeks_as_dict(greeks_summary)
+    option_count = sum(1 for p in positions if getattr(p, "asset_class", None) in {"OPT", "FOP"})
+    payload = {
+        "account_id": getattr(summary, "account_id", account_id),
+        "net_greeks": greeks,
+        "option_position_count": option_count,
+        "exclusions": exclusions,
+        "data_quality": {
+            "status": "available" if option_count else "no_options",
+            "excluded": exclusions,
+            "note": "Net Greeks exclude positions without usable market inputs; exclusions are listed.",
+        },
+        "order_generated": False,
+    }
+    snapshot_id = save_option_risk_snapshot(str(payload["account_id"] or "default"), payload)
+    payload["snapshot_id"] = snapshot_id
+    return payload

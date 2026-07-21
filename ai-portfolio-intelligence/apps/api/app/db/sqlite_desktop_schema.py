@@ -429,6 +429,139 @@ def _decision_os_metadata() -> MetaData:
         Column("updated_at", DateTime(timezone=True), nullable=False),
     )
 
+    Table(
+        "option_positions",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("account_id", String(64), nullable=False),
+        Column("con_id", Integer, nullable=True),
+        Column("underlying", String(32), nullable=False),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+
+    Table(
+        "option_strategy_groups",
+        metadata,
+        Column("group_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("strategy_type", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "option_risk_snapshots",
+        metadata,
+        Column("snapshot_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+
+    Table(
+        "option_scenario_runs",
+        metadata,
+        Column("run_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    # --- Remaining Section-17 tables (risk/stress/catalysts/reference/settings) ---
+    Table(
+        "risk_snapshots",
+        metadata,
+        Column("snapshot_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "stress_test_runs",
+        metadata,
+        Column("run_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "catalysts",
+        metadata,
+        Column("catalyst_id", String(64), primary_key=True),
+        Column("instrument_id", String(128), nullable=False),
+        Column("catalyst_type", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "catalyst_outcomes",
+        metadata,
+        Column("outcome_id", String(64), primary_key=True),
+        Column("catalyst_id", String(64), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "performance_periods",
+        metadata,
+        Column("period_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("period", String(32), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "construction_scenarios",
+        metadata,
+        Column("scenario_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("scenario_type", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "price_bars",
+        metadata,
+        Column("instrument_id", String(128), primary_key=True),
+        Column("bar_date", String(32), primary_key=True),
+        Column("interval", String(16), primary_key=True),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+    Table(
+        "quotes",
+        metadata,
+        Column("instrument_id", String(128), primary_key=True),
+        Column("as_of", DateTime(timezone=True), primary_key=True),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+    Table(
+        "corporate_actions",
+        metadata,
+        Column("action_id", String(64), primary_key=True),
+        Column("instrument_id", String(128), nullable=False),
+        Column("action_type", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "estimate_points",
+        metadata,
+        Column("instrument_id", String(128), primary_key=True),
+        Column("metric", String(48), primary_key=True),
+        Column("as_of", DateTime(timezone=True), primary_key=True),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+    Table(
+        "application_settings",
+        metadata,
+        Column("owner_id", String(64), primary_key=True),
+        Column("key", String(128), primary_key=True),
+        Column("value_json", json_document_type(), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
     return metadata
 
 

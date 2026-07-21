@@ -11,6 +11,7 @@ from app.api.routes import (
     ai,
     alerts,
     analysis,
+    app_settings,
     broker,
     chat,
     construction,
@@ -23,8 +24,8 @@ from app.api.routes import (
     journal,
     markets,
     methodologies,
-    onboarding,
     monitoring,
+    onboarding,
     planning,
     pnl,
     portfolio,
@@ -125,6 +126,7 @@ app.include_router(screener.router)
 app.include_router(trade_plans.router)
 app.include_router(journal.router)
 app.include_router(onboarding.router)
+app.include_router(app_settings.router)
 app.include_router(monitoring.router)
 app.include_router(data_health.router)
 app.include_router(methodologies.router)

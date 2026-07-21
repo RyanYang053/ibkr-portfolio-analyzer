@@ -13,7 +13,9 @@ import {
   getChartData,
   getFundamentals,
   getInstrumentOverview,
+  getOptionsStrategy,
   getStockValuation,
+  getTaxLots,
   getTechnicals,
 } from "@/lib/api";
 import { useAppRouter } from "@/lib/use-app-router";
@@ -21,7 +23,7 @@ import { useClientResource } from "@/lib/use-client-resource";
 
 type Section = Record<string, unknown>;
 
-const TABS = ["Overview", "Chart", "Technicals", "Financials", "Valuation"] as const;
+const TABS = ["Overview", "Chart", "Technicals", "Financials", "Valuation", "Options", "Tax"] as const;
 type Tab = (typeof TABS)[number];
 
 function str(value: unknown, fallback = "—"): string {
@@ -275,6 +277,67 @@ function SecurityWorkspace({ instrumentId }: { instrumentId: string }) {
                     {JSON.stringify(val, null, 2)}
                   </pre>
                 )}
+              </div>
+            );
+          }}
+        />
+      ) : null}
+
+      {tab === "Options" ? (
+        <DataTab
+          loader={() => getOptionsStrategy(symbol, accountId)}
+          deps={[symbol, accountId]}
+          render={(report) => (
+            <div className="rounded-md border border-line bg-white p-4">
+              <h3 className="mb-3 text-lg font-semibold">Options strategies</h3>
+              <p className="mb-2 text-xs text-zinc-500">
+                Model estimates and expiry payoffs — not order instructions.
+              </p>
+              <pre className="overflow-x-auto rounded bg-panel p-3 text-xs">
+                {JSON.stringify(report, null, 2)}
+              </pre>
+            </div>
+          )}
+        />
+      ) : null}
+
+      {tab === "Tax" ? (
+        <DataTab
+          loader={() => getTaxLots(accountId)}
+          deps={[accountId]}
+          render={(payload) => {
+            const lots = ((payload as Section).lots as Section[] | undefined) ?? [];
+            const forSymbol = lots.filter((l) => String(l.symbol ?? "").toUpperCase() === symbol);
+            return (
+              <div className="rounded-md border border-line bg-white p-4">
+                <h3 className="mb-3 text-lg font-semibold">Tax lots</h3>
+                {forSymbol.length === 0 ? (
+                  <p className="text-sm text-zinc-600">No tax lots for {symbol} (owned securities only).</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-zinc-500">
+                        <th className="py-1">Acquired</th>
+                        <th>Qty</th>
+                        <th>Cost basis</th>
+                        <th>Holding</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {forSymbol.slice(0, 20).map((l, i) => (
+                        <tr key={i} className="border-t border-line">
+                          <td className="py-1">{str(l.acquired_date ?? l.acquisition_date)}</td>
+                          <td>{str(l.quantity)}</td>
+                          <td>{str(l.cost_basis_per_share ?? l.cost_basis)}</td>
+                          <td>{str(l.holding_period)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                <p className="mt-2 text-xs text-zinc-500">
+                  Tax outputs remain experimental decision support unless broker-reconciled.
+                </p>
               </div>
             );
           }}
