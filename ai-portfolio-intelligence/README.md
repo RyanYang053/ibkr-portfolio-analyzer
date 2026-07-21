@@ -99,12 +99,6 @@ WINDOWS_CERTIFICATE_PASSWORD
 
 Without those secrets, main-branch CI still builds unsigned installers and runs launch smoke. Tagged releases refuse to publish unsigned macOS/Windows artifacts.
 
-Docker Compose remains for CI:
-
-```bash
-cd infra && docker compose up --build
-```
-
 Full **macOS** installer helper (requires Rust toolchain + PyInstaller):
 
 ```bash
