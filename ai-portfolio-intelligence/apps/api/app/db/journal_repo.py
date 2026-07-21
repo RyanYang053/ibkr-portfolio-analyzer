@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any
 
 from app.core.config import settings
 from app.db.sql_dialect import json_cast
@@ -119,17 +118,17 @@ def list_journal_entries(account_id: str, *, limit: int = 500) -> list[JournalEn
                 ),
                 {"account_id": account_id, "limit": limit},
             ).scalars().all()
-        out = []
+        sql_out: list[JournalEntry] = []
         for row in rows:
             payload = row if isinstance(row, dict) else json.loads(row)
-            out.append(JournalEntry.model_validate(payload))
-        return out
+            sql_out.append(JournalEntry.model_validate(payload))
+        return sql_out
 
     from app.db.state_store import get_state_store
 
     store = get_state_store()
     index = store.read_json(_NAMESPACE, f"index:{account_id}", default={"ids": []}) or {"ids": []}
-    out: list[Any] = []
+    out: list[JournalEntry] = []
     for eid in (index.get("ids") or [])[:limit]:
         payload = store.read_json(_NAMESPACE, str(eid), default=None)
         if payload:

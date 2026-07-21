@@ -59,11 +59,11 @@ def get_stages(owner_id: str) -> dict[str, OnboardingStage]:
             rows = session.execute(
                 text("SELECT payload_json FROM onboarding_stages WHERE owner_id = :o"), {"o": owner_id}
             ).scalars().all()
-        out = {}
+        sql_out: dict[str, OnboardingStage] = {}
         for r in rows:
             stage = OnboardingStage.model_validate(_load(r))
-            out[stage.stage] = stage
-        return out
+            sql_out[stage.stage] = stage
+        return sql_out
     from app.db.state_store import get_state_store
 
     store = get_state_store()
