@@ -5,8 +5,11 @@ from __future__ import annotations
 from datetime import date
 
 from app.schemas.domain import FundamentalSnapshot
-from app.services.valuation.scenario_valuation import persist_valuation_run, run_scenario_valuation
-from app.services.valuation.scenario_valuation import ScenarioValuationResult
+from app.services.valuation.scenario_valuation import (
+    ScenarioValuationResult,
+    persist_valuation_run,
+    run_scenario_valuation,
+)
 
 
 def test_persist_valuation_run_writes_state(monkeypatch, tmp_path) -> None:

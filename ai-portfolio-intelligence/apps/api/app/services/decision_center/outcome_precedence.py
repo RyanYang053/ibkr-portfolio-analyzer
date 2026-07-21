@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.core.product_contract import DecisionOutcome, OUTCOME_TO_ACTION_LABEL
+from app.core.product_contract import OUTCOME_TO_ACTION_LABEL, DecisionOutcome
 from app.schemas.decision_context import DecisionContext
 from app.schemas.decision_gate import GateResult
 

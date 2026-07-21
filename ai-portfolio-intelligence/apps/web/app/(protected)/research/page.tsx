@@ -26,13 +26,14 @@ function ResearchContent() {
 
   const [queuePayload, changePayload] = data ?? [{ queue: [], catalysts: [] }, { changes: [] }];
   const changeFeedDegraded = Boolean((changePayload as { __degraded?: boolean }).__degraded);
-  const queue = Array.isArray(queuePayload?.queue)
-    ? (queuePayload.queue as Array<Record<string, unknown>>)
-    : Array.isArray(queuePayload?.items)
-      ? (queuePayload.items as Array<Record<string, unknown>>)
+  const qp = (queuePayload ?? {}) as Record<string, unknown>;
+  const queue = Array.isArray(qp.queue)
+    ? (qp.queue as Array<Record<string, unknown>>)
+    : Array.isArray(qp.items)
+      ? (qp.items as Array<Record<string, unknown>>)
       : [];
-  const catalysts = Array.isArray(queuePayload?.catalysts)
-    ? (queuePayload.catalysts as Array<Record<string, unknown>>)
+  const catalysts = Array.isArray(qp.catalysts)
+    ? (qp.catalysts as Array<Record<string, unknown>>)
     : [];
   const changes = Array.isArray(changePayload?.changes)
     ? (changePayload.changes as Array<Record<string, unknown>>)

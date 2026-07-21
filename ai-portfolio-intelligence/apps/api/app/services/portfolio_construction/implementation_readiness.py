@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.product_contract import ImplementationStatus, ORDER_GENERATED_DEFAULT
+from app.core.product_contract import ORDER_GENERATED_DEFAULT, ImplementationStatus
 
 
 def evaluate_implementation_readiness(

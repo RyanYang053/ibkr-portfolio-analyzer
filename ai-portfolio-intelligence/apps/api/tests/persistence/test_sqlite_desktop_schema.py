@@ -14,6 +14,7 @@ def test_ensure_decision_os_sqlite_tables(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "database_url", f"sqlite+pysqlite:///{db_path}")
 
     from sqlalchemy.orm import sessionmaker
+
     import app.db.session as session_mod
 
     session_mod.engine = session_mod._build_engine()

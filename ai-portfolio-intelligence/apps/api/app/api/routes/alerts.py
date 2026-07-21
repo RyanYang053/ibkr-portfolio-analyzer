@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.account_deps import resolve_authorized_account_id
 from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import broker_not_configured_error, get_broker_adapter
-from app.db.resolved_alert_repo import is_resolved, resolve_alert as persist_resolve_alert
+from app.db.resolved_alert_repo import is_resolved
+from app.db.resolved_alert_repo import resolve_alert as persist_resolve_alert
 from app.services.broker.base import BrokerAdapter
 from app.services.data_quality.validation import validate_and_gate_snapshot
 from app.services.risk.portfolio_risk import analyze_portfolio_risk

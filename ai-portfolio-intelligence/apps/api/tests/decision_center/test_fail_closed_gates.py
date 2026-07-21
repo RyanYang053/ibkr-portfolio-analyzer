@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.core.product_contract import DecisionOutcome
 from app.schemas.decision_context import DecisionContext
+from app.services.decision_center.ai_outcome_enforcement import enforce_authoritative_outcome
 from app.services.decision_center.gates.remaining import (
     ImplementationGate,
     MethodologyGate,
     TaxGate,
 )
-from app.services.decision_center.ai_outcome_enforcement import enforce_authoritative_outcome
-from app.core.product_contract import DecisionOutcome
 
 
 def _ctx(**kwargs) -> DecisionContext:

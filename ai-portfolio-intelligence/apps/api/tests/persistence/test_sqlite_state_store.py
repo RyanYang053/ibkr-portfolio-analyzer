@@ -15,6 +15,7 @@ def test_sqlite_state_store_roundtrip(tmp_path, monkeypatch) -> None:
 
     # Rebuild engine binding for the monkeypatched URL.
     from sqlalchemy.orm import sessionmaker
+
     import app.db.session as session_mod
 
     session_mod.engine = session_mod._build_engine()

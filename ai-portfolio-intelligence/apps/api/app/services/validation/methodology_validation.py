@@ -130,8 +130,6 @@ def record_approval(
     store.write_json(_NAMESPACE, "catalog", {"items": items})
     # Dual-write SQL tables when present (0032 / 0034).
     try:
-        from datetime import datetime
-
         from app.db.methodology_approval_repo import (
             write_personal_methodology_approval,
             write_valuation_model_approval,

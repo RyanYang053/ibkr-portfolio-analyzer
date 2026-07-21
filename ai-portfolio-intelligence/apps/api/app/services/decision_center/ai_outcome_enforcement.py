@@ -7,10 +7,10 @@ from typing import Any
 from app.core.product_contract import (
     AI_MAY_SET_DECISION_OUTCOME,
     FORBIDDEN_AUTHORITATIVE_ACTIONS,
-    OUTCOME_TO_ACTION_LABEL,
-    DecisionOutcome,
     HUMAN_REVIEW_REQUIRED,
     ORDER_GENERATED_DEFAULT,
+    OUTCOME_TO_ACTION_LABEL,
+    DecisionOutcome,
 )
 
 

@@ -44,8 +44,9 @@ def test_run_golden_fixtures_script(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(settings, "persistence_backend", "json")
 
-    from scripts.run_golden_fixtures import main
     import sys
+
+    from scripts.run_golden_fixtures import main
 
     digest = tmp_path / "golden.sha256"
     argv = ["run_golden_fixtures.py", "--digest-out", str(digest), "--json-out", str(tmp_path / "out.json")]
