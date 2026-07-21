@@ -8,9 +8,9 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 from app.core.product_contract import (
+    ORDER_GENERATED_DEFAULT,
     DecisionOutcome,
     ImplementationStatus,
-    ORDER_GENERATED_DEFAULT,
 )
 from app.schemas.decision_gate import GateResult
 from app.schemas.decision_scenario import DecisionScenario

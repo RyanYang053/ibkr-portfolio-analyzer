@@ -63,6 +63,34 @@ def assert_point_in_time(
     }
 
 
+def _parse_dt(value: datetime | str | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def is_stale(record: dict[str, Any], as_of: datetime | str) -> bool:
+    """Live-mode staleness (plan §15.4): evidence past its stale_after/expires_at.
+
+    Staleness is a *flag* for live provisional evaluation — it is not lookahead and
+    does not, on its own, reject the evidence.
+    """
+    as_of_dt = _parse_dt(as_of)
+    if as_of_dt is None:
+        return False
+    for field in ("stale_after", "expires_at"):
+        boundary = _parse_dt(record.get(field))
+        if boundary is not None and as_of_dt > boundary:
+            return True
+    return False
+
+
 def filter_usable_evidence(
     records: list[dict[str, Any]],
     *,
@@ -78,7 +106,17 @@ def filter_usable_evidence(
             field_name=str(record.get("evidence_id") or record.get("field") or "evidence"),
         )
         if check["ok"]:
-            usable.append(record)
+            # Annotate (a copy) with staleness so live callers can flag it provisional.
+            usable.append({**record, "pit_stale": is_stale(record, as_of)})
         else:
             rejected.append({**record, "pit_guard": check})
     return usable, rejected
+
+
+def stale_evidence_ids(usable: list[dict[str, Any]]) -> list[str]:
+    """Evidence ids among usable records that are stale (for provisional flagging)."""
+    return [
+        str(r.get("evidence_id") or r.get("field") or "evidence")
+        for r in usable
+        if r.get("pit_stale")
+    ]

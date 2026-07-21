@@ -13,6 +13,7 @@ from app.services.decision_center.gates.remaining import (
 from app.services.decision_center.gates.source_integrity import SourceIntegrityGate
 from app.services.decision_center.gates.suitability import RiskPolicyGate, SuitabilityGate, ThesisGate
 
+
 def default_gates():
     return [
         SourceIntegrityGate(),

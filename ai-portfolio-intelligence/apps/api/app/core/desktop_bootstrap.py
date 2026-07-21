@@ -41,6 +41,22 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _checkpoint_sqlite_wal() -> None:
+    """Flush the WAL into portfolio.db so a file-copy backup/export is complete."""
+    if settings.persistence_backend != "sqlite":
+        return
+    try:
+        from sqlalchemy import text
+
+        from app.db.session import engine
+
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+            conn.commit()
+    except Exception:  # noqa: BLE001 — backup/export must not crash on checkpoint
+        pass
+
+
 def prune_old_backups(root: Path) -> None:
     backups = sorted(
         (root / "backups").glob("portfolio-backup-*.zip"),
@@ -64,6 +80,7 @@ def backup_desktop_data(
         return None
 
     root = portfolio_data_root()
+    _checkpoint_sqlite_wal()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_path = root / "backups" / f"portfolio-backup-{reason}-{stamp}.zip"
     with zipfile.ZipFile(backup_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -106,7 +123,24 @@ def export_desktop_archive() -> Path:
         "deployment_mode": "desktop_local",
         "files": files,
     }
+    # Under SQLite, portfolio.db is the canonical store — checkpoint WAL and include
+    # it in the export, otherwise the export omits the actual data (backup integrity).
+    export_targets: list[Path] = []
+    if settings.persistence_backend == "sqlite":
+        _checkpoint_sqlite_wal()
+        db_path = root / "portfolio.db"
+        if db_path.exists():
+            export_targets.append(db_path)
     with zipfile.ZipFile(export_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for db_file in export_targets:
+            archive.write(db_file, arcname=db_file.name)
+            files.append(
+                {
+                    "path": db_file.name,
+                    "sha256": sha256_file(db_file),
+                    "size_bytes": db_file.stat().st_size,
+                }
+            )
         for folder in ("state", "imports"):
             base = root / folder
             if not base.exists():
@@ -157,12 +191,16 @@ def bootstrap_desktop_persistence() -> dict[str, object]:
             sqlite_url = default_sqlite_url()
             settings.database_url = sqlite_url
         ensure_sql_state_table()
-        try:
-            from app.db.sqlite_desktop_schema import ensure_decision_os_sqlite_tables
+        # P0.1: fail closed. Inspect the schema-init result and abort startup when
+        # required canonical tables cannot be created — never boot on a broken schema.
+        from app.db.sqlite_desktop_schema import ensure_decision_os_sqlite_tables
 
-            ensure_decision_os_sqlite_tables()
-        except Exception as exc:  # noqa: BLE001
-            legacy_import = {"schema_error": str(exc)}
+        schema_result = ensure_decision_os_sqlite_tables()
+        if not schema_result.get("ok"):
+            raise RuntimeError(
+                "SQLite Decision OS schema initialization failed; refusing to start. "
+                f"detail={schema_result.get('error', 'unknown error')}"
+            )
         marker_path = root / "state" / "legacy_json_migrated.json"
         if not marker_path.exists() and (root / "state").exists():
             # One-time import of any plain JSON namespaces into SQLite state store.

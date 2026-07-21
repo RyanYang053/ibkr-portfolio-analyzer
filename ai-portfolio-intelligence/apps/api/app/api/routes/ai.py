@@ -290,7 +290,6 @@ def trigger_scheduled_analysis(
     principal: Principal = Depends(get_current_principal),
 ):
     """Trigger a mock or real scheduled daily slot analysis (Morning, Midday, Night)."""
-    from app.api.account_deps import resolve_authorized_account_id
     from app.services.ai.scheduled_analysis_service import run_scheduled_analysis
     from app.services.system_actor import SystemActor
 

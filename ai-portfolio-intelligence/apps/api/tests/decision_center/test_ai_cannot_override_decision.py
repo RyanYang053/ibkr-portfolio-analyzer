@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.core.product_contract import AI_MAY_SET_DECISION_OUTCOME, DecisionOutcome, ORDER_GENERATED_DEFAULT
+from app.core.product_contract import AI_MAY_SET_DECISION_OUTCOME, ORDER_GENERATED_DEFAULT, DecisionOutcome
 from app.services.decision_center.ai_outcome_enforcement import enforce_authoritative_outcome
 
 

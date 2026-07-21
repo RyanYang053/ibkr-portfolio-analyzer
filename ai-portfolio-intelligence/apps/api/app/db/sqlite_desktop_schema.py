@@ -18,12 +18,12 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    inspect,
     text,
 )
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.migration_types import json_document_type
-from app.db.session import engine
 from app.db.state_store import ensure_sql_state_table
 
 
@@ -251,13 +251,333 @@ def _decision_os_metadata() -> MetaData:
         Column("payload_json", json_document_type(), nullable=True),
     )
 
+    Table(
+        "instruments",
+        metadata,
+        Column("instrument_id", String(128), primary_key=True),
+        Column("symbol", String(32), nullable=False),
+        Column("con_id", Integer, nullable=True),
+        Column("name", String(256), nullable=True),
+        Column("asset_class", String(32), nullable=True),
+        Column("currency", String(8), nullable=True),
+        Column("exchange", String(32), nullable=True),
+        Column("sector", String(128), nullable=True),
+        Column("industry", String(128), nullable=True),
+        Column("is_etf", Boolean, nullable=False, server_default=text("0")),
+        Column("status", String(32), nullable=False, server_default="active"),
+        Column("provisional", Boolean, nullable=False, server_default=text("0")),
+        Column("payload_json", json_document_type(), nullable=True),
+        Column("first_seen_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "instrument_aliases",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("alias", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("source", String(64), nullable=False, server_default="user"),
+        UniqueConstraint("alias", "instrument_id", name="uq_instrument_alias"),
+    )
+
+    Table(
+        "trade_plans",
+        metadata,
+        Column("trade_plan_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("symbol", String(32), nullable=False),
+        Column("direction", String(16), nullable=False),
+        Column("plan_type", String(32), nullable=False, server_default="discretionary"),
+        Column("status", String(48), nullable=False, server_default="draft"),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "trade_plan_versions",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("trade_plan_id", String(64), nullable=False),
+        Column("version", Integer, nullable=False),
+        Column("status", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        UniqueConstraint("trade_plan_id", "version", name="uq_trade_plan_version"),
+    )
+
+    Table(
+        "journal_entries",
+        metadata,
+        Column("entry_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("symbol", String(32), nullable=False),
+        Column("trade_plan_id", String(64), nullable=True),
+        Column("outcome_classification", String(32), nullable=False, server_default="open"),
+        Column("realized_return", Float, nullable=True),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "journal_reviews",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("review_id", String(64), nullable=False, unique=True),
+        Column("entry_id", String(64), nullable=False),
+        Column("interval", String(32), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "market_snapshots",
+        metadata,
+        Column("snapshot_id", String(64), primary_key=True),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "market_regimes",
+        metadata,
+        Column("regime_id", String(64), primary_key=True),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("label", String(48), nullable=False),
+        Column("confidence", Float, nullable=False, server_default="0"),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "economic_events",
+        metadata,
+        Column("event_id", String(64), primary_key=True),
+        Column("name", String(256), nullable=False),
+        Column("event_time", DateTime(timezone=True), nullable=True),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "screen_definitions",
+        metadata,
+        Column("screen_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("name", String(128), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "screen_runs",
+        metadata,
+        Column("run_id", String(64), primary_key=True),
+        Column("screen_id", String(64), nullable=False),
+        Column("account_id", String(64), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "screen_results",
+        metadata,
+        Column("result_id", String(64), primary_key=True),
+        Column("run_id", String(64), nullable=False),
+        Column("symbol", String(32), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+
+    Table(
+        "execution_matches",
+        metadata,
+        Column("match_id", String(64), primary_key=True),
+        Column("trade_plan_id", String(64), nullable=False),
+        Column("account_id", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("matched", Boolean, nullable=False, server_default=text("0")),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "research_notes",
+        metadata,
+        Column("note_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=True),
+        Column("note_type", String(32), nullable=False, server_default="security"),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "onboarding_stages",
+        metadata,
+        Column("owner_id", String(64), primary_key=True),
+        Column("stage", String(64), primary_key=True),
+        Column("status", String(32), nullable=False, server_default="not_started"),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "option_positions",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("account_id", String(64), nullable=False),
+        Column("con_id", Integer, nullable=True),
+        Column("underlying", String(32), nullable=False),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+
+    Table(
+        "option_strategy_groups",
+        metadata,
+        Column("group_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("strategy_type", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "option_risk_snapshots",
+        metadata,
+        Column("snapshot_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+
+    Table(
+        "option_scenario_runs",
+        metadata,
+        Column("run_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    # --- Remaining Section-17 tables (risk/stress/catalysts/reference/settings) ---
+    Table(
+        "risk_snapshots",
+        metadata,
+        Column("snapshot_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "stress_test_runs",
+        metadata,
+        Column("run_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "catalysts",
+        metadata,
+        Column("catalyst_id", String(64), primary_key=True),
+        Column("instrument_id", String(128), nullable=False),
+        Column("catalyst_type", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "catalyst_outcomes",
+        metadata,
+        Column("outcome_id", String(64), primary_key=True),
+        Column("catalyst_id", String(64), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "performance_periods",
+        metadata,
+        Column("period_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("period", String(32), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "construction_scenarios",
+        metadata,
+        Column("scenario_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("scenario_type", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "price_bars",
+        metadata,
+        Column("instrument_id", String(128), primary_key=True),
+        Column("bar_date", String(32), primary_key=True),
+        Column("interval", String(16), primary_key=True),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+    Table(
+        "quotes",
+        metadata,
+        Column("instrument_id", String(128), primary_key=True),
+        Column("as_of", DateTime(timezone=True), primary_key=True),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+    Table(
+        "corporate_actions",
+        metadata,
+        Column("action_id", String(64), primary_key=True),
+        Column("instrument_id", String(128), nullable=False),
+        Column("action_type", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+    Table(
+        "estimate_points",
+        metadata,
+        Column("instrument_id", String(128), primary_key=True),
+        Column("metric", String(48), primary_key=True),
+        Column("as_of", DateTime(timezone=True), primary_key=True),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+    Table(
+        "application_settings",
+        metadata,
+        Column("owner_id", String(64), primary_key=True),
+        Column("key", String(128), primary_key=True),
+        Column("value_json", json_document_type(), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
     return metadata
 
 
 def ensure_decision_os_sqlite_tables() -> dict[str, object]:
-    """Idempotent create for Decision OS tables used by desktop sqlite mode."""
+    """Idempotent create for Decision OS tables used by desktop sqlite mode.
+
+    Returns ``{"ok": True, ...}`` only when every required table is present after
+    creation. Callers MUST fail closed on ``{"ok": False}`` (plan P0.1) — the app
+    must never start with an incomplete canonical schema.
+    """
     ensure_sql_state_table()
+    # Import at call time so a rebound engine (desktop bootstrap / tests) is honored.
+    from app.db.session import engine
+
     metadata = _decision_os_metadata()
+    required = sorted(metadata.tables.keys())
     created: list[str] = []
     try:
         metadata.create_all(bind=engine, checkfirst=True)
@@ -265,6 +585,12 @@ def ensure_decision_os_sqlite_tables() -> dict[str, object]:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
             conn.commit()
+        # Verify the tables actually exist rather than trusting create_all.
+        inspector = inspect(engine)
+        present = set(inspector.get_table_names())
+        missing = [name for name in required if name not in present]
+        if missing:
+            return {"ok": False, "error": f"missing tables: {missing}", "missing": missing, "tables": created}
     except SQLAlchemyError as exc:
         return {"ok": False, "error": str(exc), "tables": created}
-    return {"ok": True, "tables": created, "schema_pin": "0036"}
+    return {"ok": True, "tables": created, "required": required, "schema_pin": "0036"}

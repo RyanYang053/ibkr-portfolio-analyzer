@@ -5,6 +5,7 @@ from datetime import date
 from typing import Any
 
 from app.core.config import settings
+from app.core.product_contract import DecisionOutcome
 from app.schemas.domain import DISCLAIMER, AccountSummary, AIReport, Position, Provenance, utc_now
 from app.services.ai.client import GeminiClient
 from app.services.ai.prompt_templates import (
@@ -15,12 +16,11 @@ from app.services.ai.prompt_templates import (
     build_stock_analysis_prompt,
 )
 from app.services.ai.structured_outputs import build_claim, build_structured_stock_context, evaluate_confidence_limits
+from app.services.decision_center.ai_outcome_enforcement import enforce_authoritative_outcome
 from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.provenance import build_report_provenance
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
-from app.core.product_contract import DecisionOutcome
-from app.services.decision_center.ai_outcome_enforcement import enforce_authoritative_outcome
 from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
 from app.services.technicals.indicators import calculate_technical_indicators
@@ -295,7 +295,7 @@ def generate_ai_portfolio_memo(
         str(pkt.get("symbol") or ""): pkt for pkt in decision_packets if pkt.get("symbol")
     }
     recommendations = []
-    for position, score_rec in zip(positions, score_interpretations):
+    for position, score_rec in zip(positions, score_interpretations, strict=False):
         packet = packet_by_symbol.get(position.symbol)
         if packet:
             recommendations.append(

@@ -495,6 +495,17 @@
         "title": "EvidenceFilterRequest",
         "type": "object"
       },
+      "FilterOp": {
+        "enum": [
+          "gte",
+          "lte",
+          "gt",
+          "lt",
+          "eq"
+        ],
+        "title": "FilterOp",
+        "type": "string"
+      },
       "FinancialGoal": {
         "properties": {
           "currency": {
@@ -850,6 +861,216 @@
         "title": "HistoricalDecisionRequest",
         "type": "object"
       },
+      "InstrumentOverview": {
+        "description": "Security-workspace Overview (plan \u00a75.1) \u2014 works for owned and unowned names.\n\nEach section carries its own status so a missing sub-source degrades that\nsection rather than fabricating a value or failing the whole page (\u00a715.3).",
+        "properties": {
+          "data_quality": {
+            "title": "Data Quality",
+            "type": "object"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "object"
+          },
+          "instrument": {
+            "$ref": "#/components/schemas/InstrumentRecord"
+          },
+          "market": {
+            "title": "Market",
+            "type": "object"
+          },
+          "position": {
+            "title": "Position",
+            "type": "object"
+          },
+          "position_status": {
+            "title": "Position Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instrument",
+          "position_status",
+          "market",
+          "position",
+          "decision",
+          "data_quality"
+        ],
+        "title": "InstrumentOverview",
+        "type": "object"
+      },
+      "InstrumentRecord": {
+        "description": "A canonical, position-independent reference for a tradable security.\n\nThe same record backs an owned holding, a watchlist name, a research\ncandidate, a benchmark, an ETF, or a security with no current position.\nconId is authoritative when present; a symbol-only record is provisional.",
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "asset_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Class"
+          },
+          "con_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Con Id"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "first_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen At"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "is_etf": {
+            "default": false,
+            "title": "Is Etf",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "provisional": {
+            "default": false,
+            "title": "Provisional",
+            "type": "boolean"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "status": {
+            "default": "active",
+            "title": "Status",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "instrument_id",
+          "symbol"
+        ],
+        "title": "InstrumentRecord",
+        "type": "object"
+      },
+      "InstrumentSearchResult": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "data_quality": {
+            "title": "Data Quality",
+            "type": "object"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/InstrumentRecord"
+            },
+            "title": "Instruments",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "count",
+          "instruments"
+        ],
+        "title": "InstrumentSearchResult",
+        "type": "object"
+      },
       "InvestmentPolicy": {
         "properties": {
           "constraints": {
@@ -1116,6 +1337,304 @@
         "title": "InvitationRequest",
         "type": "object"
       },
+      "JournalEntryCreate": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "decision_packet_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Packet Id"
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "entry_thesis": {
+            "default": "",
+            "title": "Entry Thesis",
+            "type": "string"
+          },
+          "expected_catalyst": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Catalyst"
+          },
+          "expected_holding_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Holding Period"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "planned_maximum_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Maximum Loss"
+          },
+          "position_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Size"
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "thesis_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Version Id"
+          },
+          "trade_plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Plan Id"
+          }
+        },
+        "required": [
+          "account_id",
+          "instrument_id"
+        ],
+        "title": "JournalEntryCreate",
+        "type": "object"
+      },
+      "JournalEntryUpdate": {
+        "properties": {
+          "benchmark_relative_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Relative Return"
+          },
+          "exit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Price"
+          },
+          "exit_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Reason"
+          },
+          "fees_and_fx": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fees And Fx"
+          },
+          "lessons": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lessons"
+          },
+          "market_regime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Regime"
+          },
+          "max_adverse_excursion": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Adverse Excursion"
+          },
+          "max_favourable_excursion": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Favourable Excursion"
+          },
+          "mistakes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mistakes"
+          },
+          "outcome_classification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OutcomeClassification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "realized_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Realized Return"
+          },
+          "rule_adherence": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Adherence"
+          },
+          "unplanned": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unplanned"
+          }
+        },
+        "title": "JournalEntryUpdate",
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -1133,6 +1652,206 @@
           "password"
         ],
         "title": "LoginRequest",
+        "type": "object"
+      },
+      "MarketIndicator": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "default": "unavailable",
+            "title": "Status",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "MarketIndicator",
+        "type": "object"
+      },
+      "MarketRegime": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "changed_dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Dimensions",
+            "type": "array"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "contradicting_evidence": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Contradicting Evidence",
+            "type": "array"
+          },
+          "data_limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Data Limitations",
+            "type": "array"
+          },
+          "dimensions": {
+            "$ref": "#/components/schemas/RegimeInputs"
+          },
+          "label": {
+            "$ref": "#/components/schemas/RegimeState"
+          },
+          "methodology": {
+            "default": "rule_based_regime_v1",
+            "title": "Methodology",
+            "type": "string"
+          },
+          "portfolio_implications": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Portfolio Implications",
+            "type": "array"
+          },
+          "previous_regime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegimeState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supporting_evidence": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supporting Evidence",
+            "type": "array"
+          },
+          "transition_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transition Date"
+          }
+        },
+        "required": [
+          "label",
+          "confidence",
+          "dimensions"
+        ],
+        "title": "MarketRegime",
+        "type": "object"
+      },
+      "MarketSnapshot": {
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "data_quality": {
+            "title": "Data Quality",
+            "type": "object"
+          },
+          "indicators": {
+            "items": {
+              "$ref": "#/components/schemas/MarketIndicator"
+            },
+            "title": "Indicators",
+            "type": "array"
+          },
+          "regime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarketRegime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "MarketSnapshot",
         "type": "object"
       },
       "MonitoringRuleRequest": {
@@ -1180,6 +1899,79 @@
         ],
         "title": "MonitoringRuleRequest",
         "type": "object"
+      },
+      "NoteType": {
+        "enum": [
+          "security",
+          "earnings",
+          "management",
+          "industry",
+          "macro",
+          "meeting",
+          "thesis"
+        ],
+        "title": "NoteType",
+        "type": "string"
+      },
+      "OnboardingStageUpdate": {
+        "properties": {
+          "blockers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockers"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StageStatus"
+          },
+          "user_acknowledged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Acknowledged"
+          },
+          "validation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Status"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "OnboardingStageUpdate",
+        "type": "object"
+      },
+      "OutcomeClassification": {
+        "enum": [
+          "win_good_process",
+          "win_lucky",
+          "loss_good_process",
+          "loss_mistake",
+          "scratch",
+          "open"
+        ],
+        "title": "OutcomeClassification",
+        "type": "string"
       },
       "PitCheckRequest": {
         "properties": {
@@ -1544,6 +2336,115 @@
         "title": "RebuildPolicyRequest",
         "type": "object"
       },
+      "RegimeInputs": {
+        "description": "Explainable dimensions. Any dimension may be None (unknown).",
+        "properties": {
+          "breadth": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Breadth"
+          },
+          "credit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit"
+          },
+          "earnings_revisions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earnings Revisions"
+          },
+          "liquidity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liquidity"
+          },
+          "rates": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rates"
+          },
+          "risk_appetite": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Appetite"
+          },
+          "trend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trend"
+          },
+          "volatility": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volatility"
+          }
+        },
+        "title": "RegimeInputs",
+        "type": "object"
+      },
+      "RegimeState": {
+        "enum": [
+          "risk_on_expansion",
+          "risk_on_but_narrowing",
+          "trending_defensive",
+          "range_bound",
+          "volatility_expansion",
+          "risk_off_contraction",
+          "crisis_or_dislocation",
+          "insufficient_data"
+        ],
+        "title": "RegimeState",
+        "type": "string"
+      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -1567,6 +2468,115 @@
           "name"
         ],
         "title": "RegisterRequest",
+        "type": "object"
+      },
+      "ResearchNoteCreate": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "body": {
+            "default": "",
+            "title": "Body",
+            "type": "string"
+          },
+          "evidence_links": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Links",
+            "type": "array"
+          },
+          "instrument_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Id"
+          },
+          "note_type": {
+            "$ref": "#/components/schemas/NoteType",
+            "default": "security"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "title": "ResearchNoteCreate",
+        "type": "object"
+      },
+      "ReviewInterval": {
+        "enum": [
+          "immediate_post_execution",
+          "catalyst",
+          "position_close",
+          "thirty_day",
+          "quarterly_process",
+          "custom"
+        ],
+        "title": "ReviewInterval",
+        "type": "string"
+      },
+      "ReviewRequest": {
+        "properties": {
+          "interval": {
+            "$ref": "#/components/schemas/ReviewInterval",
+            "default": "custom"
+          },
+          "lessons": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Lessons",
+            "type": "array"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "rule_adherence": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Adherence"
+          }
+        },
+        "title": "ReviewRequest",
         "type": "object"
       },
       "RoleUpdateRequest": {
@@ -1600,6 +2610,65 @@
           "period"
         ],
         "title": "ScheduledAnalyzeRequest",
+        "type": "object"
+      },
+      "ScreenDefinitionCreate": {
+        "properties": {
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/ScreenFilter"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "universe": {
+            "default": "holdings_and_watchlist",
+            "title": "Universe",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ScreenDefinitionCreate",
+        "type": "object"
+      },
+      "ScreenFilter": {
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "op": {
+            "$ref": "#/components/schemas/FilterOp"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "ScreenFilter",
+        "type": "object"
+      },
+      "SettingValue": {
+        "properties": {
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "SettingValue",
         "type": "object"
       },
       "SimulateRequest": {
@@ -1636,6 +2705,29 @@
         ],
         "title": "SimulateRequest",
         "type": "object"
+      },
+      "SizingMethod": {
+        "enum": [
+          "max_loss",
+          "volatility",
+          "atr",
+          "risk_contribution",
+          "fixed_percent",
+          "scenario_loss",
+          "user_entered"
+        ],
+        "title": "SizingMethod",
+        "type": "string"
+      },
+      "StageStatus": {
+        "enum": [
+          "not_started",
+          "in_progress",
+          "complete",
+          "blocked"
+        ],
+        "title": "StageStatus",
+        "type": "string"
       },
       "ThesisPutRequest": {
         "properties": {
@@ -1690,15 +2782,334 @@
         "title": "ThesisUpdateRequest",
         "type": "object"
       },
+      "TradeDirection": {
+        "enum": [
+          "buy",
+          "add",
+          "trim",
+          "exit",
+          "short"
+        ],
+        "title": "TradeDirection",
+        "type": "string"
+      },
+      "TradePlanCreate": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "catalysts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Catalysts",
+            "type": "array"
+          },
+          "decision_packet_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Packet Id"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/TradeDirection"
+          },
+          "entry_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry High"
+          },
+          "entry_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Low"
+          },
+          "holding_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holding Period"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "string"
+          },
+          "invalidation_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidation Price"
+          },
+          "plan_type": {
+            "default": "discretionary",
+            "title": "Plan Type",
+            "type": "string"
+          },
+          "proposed_quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Quantity"
+          },
+          "risk_budget_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Budget Pct"
+          },
+          "risks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Risks",
+            "type": "array"
+          },
+          "sizing_method": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SizingMethod"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "target_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target High"
+          },
+          "target_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Low"
+          },
+          "thesis_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Version Id"
+          }
+        },
+        "required": [
+          "account_id",
+          "instrument_id",
+          "direction"
+        ],
+        "title": "TradePlanCreate",
+        "type": "object"
+      },
+      "TradePlanUpdate": {
+        "properties": {
+          "catalysts": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalysts"
+          },
+          "entry_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry High"
+          },
+          "entry_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Low"
+          },
+          "holding_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holding Period"
+          },
+          "invalidation_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidation Price"
+          },
+          "proposed_quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Quantity"
+          },
+          "risk_budget_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Budget Pct"
+          },
+          "risks": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risks"
+          },
+          "sizing_method": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SizingMethod"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target High"
+          },
+          "target_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Low"
+          },
+          "user_acknowledged_limitations": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Acknowledged Limitations"
+          }
+        },
+        "title": "TradePlanUpdate",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
           "loc": {
             "items": {
               "anyOf": [
@@ -2710,6 +4121,137 @@
         "summary": "Resolve Alert",
         "tags": [
           "alerts"
+        ]
+      }
+    },
+    "/app-settings": {
+      "get": {
+        "operationId": "list_settings_app_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Settings App Settings Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Settings",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/app-settings/{key}": {
+      "get": {
+        "operationId": "read_setting_app_settings__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Read Setting App Settings  Key  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Setting",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "operationId": "write_setting_app_settings__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingValue"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Write Setting App Settings  Key  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Write Setting",
+        "tags": [
+          "settings"
         ]
       }
     },
@@ -4237,6 +5779,669 @@
         ]
       }
     },
+    "/instruments/search": {
+      "get": {
+        "operationId": "instrument_search_instruments_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentSearchResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Instrument Search",
+        "tags": [
+          "instruments"
+        ]
+      }
+    },
+    "/instruments/{instrument_id}": {
+      "get": {
+        "operationId": "instrument_detail_instruments__instrument_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instrument_id",
+            "required": true,
+            "schema": {
+              "title": "Instrument Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Instrument Detail",
+        "tags": [
+          "instruments"
+        ]
+      }
+    },
+    "/instruments/{instrument_id}/overview": {
+      "get": {
+        "description": "Aggregate the Overview tab (\u00a75.1) for any security, owned or not.",
+        "operationId": "instrument_overview_instruments__instrument_id__overview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instrument_id",
+            "required": true,
+            "schema": {
+              "title": "Instrument Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstrumentOverview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Instrument Overview",
+        "tags": [
+          "instruments"
+        ]
+      }
+    },
+    "/journal": {
+      "get": {
+        "operationId": "list_entries_journal_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Entries Journal Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Entries",
+        "tags": [
+          "journal"
+        ]
+      },
+      "post": {
+        "operationId": "create_entry_journal_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JournalEntryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Create Entry Journal Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Entry",
+        "tags": [
+          "journal"
+        ]
+      }
+    },
+    "/journal/analytics": {
+      "get": {
+        "operationId": "journal_analytics_journal_analytics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Journal Analytics Journal Analytics Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Journal Analytics",
+        "tags": [
+          "journal"
+        ]
+      }
+    },
+    "/journal/{entry_id}": {
+      "get": {
+        "operationId": "get_entry_journal__entry_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Entry Journal  Entry Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Entry",
+        "tags": [
+          "journal"
+        ]
+      },
+      "patch": {
+        "operationId": "update_entry_journal__entry_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JournalEntryUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Update Entry Journal  Entry Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Entry",
+        "tags": [
+          "journal"
+        ]
+      }
+    },
+    "/journal/{entry_id}/review": {
+      "post": {
+        "operationId": "add_review_journal__entry_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Add Review Journal  Entry Id  Review Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Review",
+        "tags": [
+          "journal"
+        ]
+      }
+    },
+    "/markets/calendar": {
+      "get": {
+        "operationId": "market_calendar_markets_calendar_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Market Calendar Markets Calendar Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Market Calendar",
+        "tags": [
+          "markets"
+        ]
+      }
+    },
+    "/markets/factors": {
+      "get": {
+        "operationId": "market_factors_markets_factors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Market Factors Markets Factors Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Market Factors",
+        "tags": [
+          "markets"
+        ]
+      }
+    },
+    "/markets/history": {
+      "get": {
+        "operationId": "market_history_markets_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Market History Markets History Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Market History",
+        "tags": [
+          "markets"
+        ]
+      }
+    },
+    "/markets/overview": {
+      "get": {
+        "operationId": "market_overview_markets_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Market Overview",
+        "tags": [
+          "markets"
+        ]
+      }
+    },
+    "/markets/regime": {
+      "get": {
+        "operationId": "market_regime_markets_regime_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketRegime"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Market Regime",
+        "tags": [
+          "markets"
+        ]
+      }
+    },
+    "/markets/sectors": {
+      "get": {
+        "operationId": "market_sectors_markets_sectors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Market Sectors Markets Sectors Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Market Sectors",
+        "tags": [
+          "markets"
+        ]
+      }
+    },
     "/methodologies": {
       "get": {
         "operationId": "methodologies_methodologies_get",
@@ -4797,6 +7002,118 @@
         "summary": "Options Expiry",
         "tags": [
           "monitoring"
+        ]
+      }
+    },
+    "/onboarding/readiness": {
+      "get": {
+        "operationId": "onboarding_readiness_onboarding_readiness_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Onboarding Readiness Onboarding Readiness Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Onboarding Readiness",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/stages/{stage}": {
+      "put": {
+        "operationId": "update_stage_onboarding_stages__stage__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingStageUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Update Stage Onboarding Stages  Stage  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Stage",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/state": {
+      "get": {
+        "operationId": "onboarding_state_onboarding_state_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Onboarding State Onboarding State Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Onboarding State",
+        "tags": [
+          "onboarding"
         ]
       }
     },
@@ -6331,6 +8648,62 @@
         ]
       }
     },
+    "/portfolio/options": {
+      "get": {
+        "description": "Portfolio-level options risk (\u00a711): net Greeks + expiry/assignment exposure.\n\nComputed from held option positions and persisted as an option_risk_snapshot.\nReports exclusions honestly rather than assuming coverage.",
+        "operationId": "portfolio_options_portfolio_options_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Portfolio Options Portfolio Options Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Portfolio Options",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
     "/portfolio/performance": {
       "get": {
         "operationId": "performance_portfolio_performance_get",
@@ -7696,6 +10069,69 @@
         ]
       }
     },
+    "/reports/monthly": {
+      "post": {
+        "description": "Monthly investment review (\u00a722): performance, risk, allocation, process analytics.",
+        "operationId": "monthly_review_reports_monthly_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Monthly Review",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
     "/reports/risk": {
       "post": {
         "operationId": "risk_report_reports_risk_post",
@@ -7804,6 +10240,62 @@
           }
         ],
         "summary": "Stock Report",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/reports/trade-plan/{plan_id}": {
+      "post": {
+        "description": "Trade-plan report (\u00a722): thesis, action, sizing, scenarios, readiness, decision.",
+        "operationId": "trade_plan_report_reports_trade_plan__plan_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trade Plan Report",
         "tags": [
           "reports"
         ]
@@ -8066,6 +10558,220 @@
         ]
       }
     },
+    "/research/notes": {
+      "get": {
+        "operationId": "list_research_notes_research_notes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "instrument_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Instrument Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Research Notes Research Notes Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Research Notes",
+        "tags": [
+          "research"
+        ]
+      },
+      "post": {
+        "operationId": "create_research_note_research_notes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchNoteCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Create Research Note Research Notes Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Research Note",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/research/notes/{note_id}": {
+      "get": {
+        "operationId": "get_research_note_research_notes__note_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Research Note Research Notes  Note Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Research Note",
+        "tags": [
+          "research"
+        ]
+      },
+      "patch": {
+        "operationId": "update_research_note_research_notes__note_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Update Research Note Research Notes  Note Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Research Note",
+        "tags": [
+          "research"
+        ]
+      }
+    },
     "/research/queue": {
       "get": {
         "operationId": "research_queue_research_queue_get",
@@ -8118,6 +10824,350 @@
         "summary": "Research Queue",
         "tags": [
           "research"
+        ]
+      }
+    },
+    "/screeners": {
+      "get": {
+        "operationId": "list_screens_screeners_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Screens Screeners Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Screens",
+        "tags": [
+          "screener"
+        ]
+      },
+      "post": {
+        "operationId": "create_screen_screeners_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenDefinitionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Create Screen Screeners Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Screen",
+        "tags": [
+          "screener"
+        ]
+      }
+    },
+    "/screeners/results/{result_id}/promote": {
+      "post": {
+        "description": "Promote a candidate to the research queue or watchlist. Never a buy action.",
+        "operationId": "promote_result_screeners_results__result_id__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "result_id",
+            "required": true,
+            "schema": {
+              "title": "Result Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target",
+            "required": false,
+            "schema": {
+              "default": "research_queue",
+              "title": "Target",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Promote Result Screeners Results  Result Id  Promote Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Promote Result",
+        "tags": [
+          "screener"
+        ]
+      }
+    },
+    "/screeners/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_endpoint_screeners_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Run Endpoint Screeners Runs  Run Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Run Endpoint",
+        "tags": [
+          "screener"
+        ]
+      }
+    },
+    "/screeners/{screen_id}": {
+      "patch": {
+        "operationId": "update_screen_screeners__screen_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "screen_id",
+            "required": true,
+            "schema": {
+              "title": "Screen Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenDefinitionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Update Screen Screeners  Screen Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Screen",
+        "tags": [
+          "screener"
+        ]
+      }
+    },
+    "/screeners/{screen_id}/run": {
+      "post": {
+        "operationId": "run_screen_endpoint_screeners__screen_id__run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "screen_id",
+            "required": true,
+            "schema": {
+              "title": "Screen Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Run Screen Endpoint Screeners  Screen Id  Run Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run Screen Endpoint",
+        "tags": [
+          "screener"
         ]
       }
     },
@@ -8812,6 +11862,462 @@
         "summary": "Xbrl Facts",
         "tags": [
           "stocks"
+        ]
+      }
+    },
+    "/trade-plans": {
+      "get": {
+        "operationId": "list_plans_trade_plans_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Plans Trade Plans Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Plans",
+        "tags": [
+          "trade-plans"
+        ]
+      },
+      "post": {
+        "operationId": "create_plan_trade_plans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradePlanCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Create Plan Trade Plans Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Plan",
+        "tags": [
+          "trade-plans"
+        ]
+      }
+    },
+    "/trade-plans/{plan_id}": {
+      "get": {
+        "operationId": "get_plan_trade_plans__plan_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Plan Trade Plans  Plan Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Plan",
+        "tags": [
+          "trade-plans"
+        ]
+      },
+      "patch": {
+        "operationId": "update_plan_trade_plans__plan_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradePlanUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Update Plan Trade Plans  Plan Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Plan",
+        "tags": [
+          "trade-plans"
+        ]
+      }
+    },
+    "/trade-plans/{plan_id}/approve": {
+      "post": {
+        "description": "Approve for MANUAL consideration only. This never transmits anything to a broker.",
+        "operationId": "approve_plan_trade_plans__plan_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Approve Plan Trade Plans  Plan Id  Approve Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Plan",
+        "tags": [
+          "trade-plans"
+        ]
+      }
+    },
+    "/trade-plans/{plan_id}/defer": {
+      "post": {
+        "operationId": "defer_plan_trade_plans__plan_id__defer_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Defer Plan Trade Plans  Plan Id  Defer Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Defer Plan",
+        "tags": [
+          "trade-plans"
+        ]
+      }
+    },
+    "/trade-plans/{plan_id}/evaluate": {
+      "post": {
+        "description": "Compute sizing + the pre-trade checklist. Never generates an order.",
+        "operationId": "evaluate_plan_trade_plans__plan_id__evaluate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Evaluate Plan Trade Plans  Plan Id  Evaluate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Evaluate Plan",
+        "tags": [
+          "trade-plans"
+        ]
+      }
+    },
+    "/trade-plans/{plan_id}/match-execution": {
+      "post": {
+        "description": "Match imported broker executions to this plan (\u00a79.4). Read-only; no orders.",
+        "operationId": "match_execution_trade_plans__plan_id__match_execution_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Match Execution Trade Plans  Plan Id  Match Execution Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Match Execution",
+        "tags": [
+          "trade-plans"
+        ]
+      }
+    },
+    "/trade-plans/{plan_id}/reject": {
+      "post": {
+        "operationId": "reject_plan_trade_plans__plan_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Reject Plan Trade Plans  Plan Id  Reject Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject Plan",
+        "tags": [
+          "trade-plans"
         ]
       }
     },

@@ -713,6 +713,200 @@ export async function getTaxLots(accountId?: string): Promise<Record<string, unk
   return requireJson(`/portfolio/tax-lots${query}`);
 }
 
+export async function searchInstruments(
+  q: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ q });
+  if (accountId) params.set("account_id", accountId);
+  return requireJson(`/instruments/search?${params.toString()}`);
+}
+
+export async function getInstrumentOverview(
+  instrumentId: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/instruments/${encodeURIComponent(instrumentId)}/overview${query}`);
+}
+
+// --- Trade Plans (§9) -------------------------------------------------------
+
+export async function listTradePlans(
+  accountId: string,
+  status?: string,
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ account_id: accountId });
+  if (status) params.set("status", status);
+  return requireJson(`/trade-plans?${params.toString()}`);
+}
+
+export async function createTradePlan(
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function getTradePlan(planId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}`);
+}
+
+export async function updateTradePlan(
+  planId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function evaluateTradePlan(
+  planId: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}/evaluate${query}`, {
+    method: "POST",
+  });
+}
+
+export async function transitionTradePlan(
+  planId: string,
+  action: "approve" | "reject" | "defer",
+): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}/${action}`, { method: "POST" });
+}
+
+export async function matchTradePlanExecution(planId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}/match-execution`, { method: "POST" });
+}
+
+// --- Trade Journal (§10) ----------------------------------------------------
+
+export async function listJournal(accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/journal?account_id=${encodeURIComponent(accountId)}`);
+}
+
+export async function createJournalEntry(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return requireJson(`/journal`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function updateJournalEntry(
+  entryId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/journal/${encodeURIComponent(entryId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function addJournalReview(
+  entryId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/journal/${encodeURIComponent(entryId)}/review`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getJournalAnalytics(accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/journal/analytics?account_id=${encodeURIComponent(accountId)}`);
+}
+
+// --- Markets (§7) -----------------------------------------------------------
+
+export async function getMarketOverview(): Promise<Record<string, unknown>> {
+  return requireJson(`/markets/overview`);
+}
+
+export async function getMarketRegime(): Promise<Record<string, unknown>> {
+  return requireJson(`/markets/regime`);
+}
+
+export async function getMarketCalendar(): Promise<Record<string, unknown>> {
+  return requireJson(`/markets/calendar`);
+}
+
+// --- Screener (§8.2) --------------------------------------------------------
+
+export async function listScreeners(accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/screeners?account_id=${encodeURIComponent(accountId)}`);
+}
+
+export async function createScreener(
+  accountId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/screeners?account_id=${encodeURIComponent(accountId)}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function runScreener(screenId: string, accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/screeners/${encodeURIComponent(screenId)}/run?account_id=${encodeURIComponent(accountId)}`, {
+    method: "POST",
+  });
+}
+
+export async function promoteScreenResult(resultId: string, accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(
+    `/screeners/results/${encodeURIComponent(resultId)}/promote?account_id=${encodeURIComponent(accountId)}`,
+    { method: "POST" },
+  );
+}
+
+// --- Research notes + compare (§8.3/§8.5) -----------------------------------
+
+export async function listResearchNotes(
+  accountId: string,
+  instrumentId?: string,
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ account_id: accountId });
+  if (instrumentId) params.set("instrument_id", instrumentId);
+  return requireJson(`/research/notes?${params.toString()}`);
+}
+
+export async function createResearchNote(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return requireJson(`/research/notes`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function compareCandidates(
+  leftCandidateId: string,
+  rightCandidateId: string,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/research/compare`, {
+    method: "POST",
+    body: JSON.stringify({ left_candidate_id: leftCandidateId, right_candidate_id: rightCandidateId }),
+  });
+}
+
+// --- Onboarding state machine (§21) -----------------------------------------
+
+export async function getOnboardingState(): Promise<Record<string, unknown>> {
+  return requireJson(`/onboarding/state`);
+}
+
+export async function updateOnboardingStage(
+  stage: string,
+  status: string,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/onboarding/stages/${encodeURIComponent(stage)}`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
+  });
+}
+
+// --- Reports (§22) ----------------------------------------------------------
+
+export async function getMonthlyReview(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : "";
+  return requireJson(`/reports/monthly${query}`, { method: "POST" });
+}
+
 export async function runTaxReconciliation(
   accountId?: string,
   taxYear?: number,

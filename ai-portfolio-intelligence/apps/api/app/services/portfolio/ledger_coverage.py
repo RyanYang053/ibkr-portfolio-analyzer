@@ -13,6 +13,7 @@ from app.schemas.domain import Transaction
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 _FILE_LOCK = Lock()
+_STATE_NAMESPACE = "ledger_coverage"
 
 EXTERNAL_INFLOW_ACTIONS = frozenset({"deposit", "contribution", "transfer_in"})
 EXTERNAL_OUTFLOW_ACTIONS = frozenset({"withdrawal", "distribution", "transfer_out"})
@@ -55,6 +56,15 @@ def save_ledger_coverage(coverage: TransactionLedgerCoverage) -> TransactionLedg
         upsert_coverage(coverage)
         return coverage
 
+    if settings.persistence_backend == "sqlite":
+        # P0.2 / §16.1: keep ledger coverage in SQLite (backed up), not a raw JSON file.
+        from app.db.state_store import get_state_store
+
+        get_state_store().write_json(
+            _STATE_NAMESPACE, coverage.account_id, coverage.model_dump(mode="json")
+        )
+        return coverage
+
     os.makedirs(DATA_DIR, exist_ok=True)
     with _FILE_LOCK:
         fd, temporary_path = tempfile.mkstemp(prefix="ledger_coverage_", suffix=".tmp", dir=DATA_DIR)
@@ -79,6 +89,12 @@ def load_ledger_coverage(account_id: str) -> Optional[TransactionLedgerCoverage]
         stored = read_coverage(account_id)
         if stored is not None:
             return TransactionLedgerCoverage(**stored)
+
+    if settings.persistence_backend == "sqlite":
+        from app.db.state_store import get_state_store
+
+        stored = get_state_store().read_json(_STATE_NAMESPACE, account_id, default=None)
+        return TransactionLedgerCoverage(**stored) if stored else None
 
     path = _coverage_path(account_id)
     if not os.path.exists(path):

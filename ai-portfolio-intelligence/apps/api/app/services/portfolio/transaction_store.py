@@ -66,6 +66,9 @@ def _transaction_key(txn: Transaction) -> str:
     ).hexdigest()
 
 
+_STATE_NAMESPACE = "transaction_ledger"
+
+
 def load_transactions(account_id: str) -> list[Transaction]:
     if settings.persistence_backend == "postgres":
         from app.db.ledger_transaction_repo import read_transactions
@@ -73,6 +76,14 @@ def load_transactions(account_id: str) -> list[Transaction]:
         stored = read_transactions(account_id)
         if stored is not None:
             return [Transaction(**item) for item in stored]
+
+    if settings.persistence_backend == "sqlite":
+        # P0.2 / §16.1: transactions are canonical financial state — persist to SQLite
+        # (via the state store), not a raw JSON file outside the backup scope.
+        from app.db.state_store import get_state_store
+
+        stored = get_state_store().read_json(_STATE_NAMESPACE, account_id, default=None)
+        return [Transaction(**item) for item in (stored or [])]
 
     path = _transactions_path(account_id)
     if not __import__("os").path.exists(path):
@@ -102,6 +113,12 @@ def save_transactions(account_id: str, transactions: list[Transaction]) -> list[
         from app.db.ledger_transaction_repo import replace_transactions
 
         replace_transactions(account_id, merged)
+    elif settings.persistence_backend == "sqlite":
+        from app.db.state_store import get_state_store
+
+        get_state_store().write_json(
+            _STATE_NAMESPACE, account_id, [item.model_dump(mode="json") for item in merged]
+        )
     else:
         _atomic_write(_transactions_path(account_id), [item.model_dump(mode="json") for item in merged])
     return merged
@@ -161,6 +178,24 @@ def sync_transactions(
         imported_sections.append("mock_flex_cash_ledger")
 
     merged = save_transactions(account_id, execution_rows + flex_rows)
+    # Persist any corporate actions parsed from the imported ledger (§17).
+    try:
+        import hashlib
+
+        from app.db.reference_data_repo import save_corporate_action
+        from app.services.portfolio.corporate_actions import parse_corporate_action
+        from app.services.portfolio.instrument_identity import instrument_key_from_row
+
+        for txn in merged:
+            action = parse_corporate_action(txn)
+            if action is None:
+                continue
+            iid = instrument_key_from_row({"symbol": txn.symbol, "con_id": txn.con_id})
+            key = f"{iid}:{txn.action}:{txn.event_timestamp.isoformat()}"
+            action_id = "ca_" + hashlib.sha256(key.encode()).hexdigest()[:16]
+            save_corporate_action(action_id, iid, str(txn.action), txn.model_dump(mode="json"))
+    except Exception:  # noqa: BLE001 — reference persistence must not break the sync
+        pass
     flex_period_start = flex_result.report_period_start if flex_result is not None else None
     flex_period_end = flex_result.report_period_end if flex_result is not None else None
 

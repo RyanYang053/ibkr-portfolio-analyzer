@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 PRIORITY_ORDER = {"critical": 0, "high": 1, "routine": 2, "low": 3}
 
 

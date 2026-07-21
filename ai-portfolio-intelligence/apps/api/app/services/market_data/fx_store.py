@@ -52,7 +52,17 @@ def _yahoo_pair_symbol(from_curr: str, to_curr: str) -> str:
     return f"{from_curr.upper()}{to_curr.upper()}=X"
 
 
+_STATE_NAMESPACE = "fx_rate_history"
+_STATE_KEY = "store"
+
+
 def _load_store() -> dict[str, dict[str, float]]:
+    if settings.persistence_backend == "sqlite":
+        # P0.2 / §16.1: FX rate history is canonical data — keep it in SQLite (backed up).
+        from app.db.state_store import get_state_store
+
+        raw = get_state_store().read_json(_STATE_NAMESPACE, _STATE_KEY, default=None)
+        return raw if isinstance(raw, dict) else {}
     if not os.path.exists(FX_STORE_FILE):
         return {}
     with _FILE_LOCK, open(FX_STORE_FILE, "r", encoding="utf-8") as handle:
@@ -61,6 +71,11 @@ def _load_store() -> dict[str, dict[str, float]]:
 
 
 def _save_store(store: dict[str, dict[str, float]]) -> None:
+    if settings.persistence_backend == "sqlite":
+        from app.db.state_store import get_state_store
+
+        get_state_store().write_json(_STATE_NAMESPACE, _STATE_KEY, store)
+        return
     os.makedirs(DATA_DIR, exist_ok=True)
     with _FILE_LOCK:
         fd, temporary_path = tempfile.mkstemp(prefix="fx_rates_", suffix=".tmp", dir=DATA_DIR)

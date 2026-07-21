@@ -44,8 +44,9 @@ def test_run_golden_fixtures_script(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(settings, "persistence_backend", "json")
 
-    from scripts.run_golden_fixtures import main
     import sys
+
+    from scripts.run_golden_fixtures import main
 
     digest = tmp_path / "golden.sha256"
     argv = ["run_golden_fixtures.py", "--digest-out", str(digest), "--json-out", str(tmp_path / "out.json")]
@@ -64,3 +65,39 @@ def test_release_manifest_requires_distinct_gates() -> None:
     assert compute_tests_verified(partial) is True
     partial["financial_golden_master"] = "failure"
     assert compute_tests_verified(partial) is False
+
+
+def test_release_manifest_carries_p0_9_evidence_fields(monkeypatch) -> None:
+    """P0.9: the manifest must carry build env, lock hashes, gate conclusions, and
+    installer/signing/notarization evidence."""
+    monkeypatch.setenv("GIT_SHA", "deadbeefcafe")
+    from scripts.write_release_manifest import REQUIRED_GATES, build_manifest
+
+    gates = {gate: "success" for gate in REQUIRED_GATES}
+    manifest = build_manifest(gates=gates, signing={"identity": "Test", "verified": True})
+
+    assert manifest["commit_sha"] == "deadbeefcafe"
+    assert manifest["gate_conclusions"]["all_required_passed"] is True
+
+    env = manifest["build_environment"]
+    assert env["os"] and env["arch"] and env["python_version"]
+    assert "toolchain" in env
+
+    locks = manifest["dependency_lock_hashes"]
+    # package-lock.json and Cargo.lock exist in the repo, so their hashes must be present.
+    assert locks["package-lock.json"]
+    assert locks["apps/desktop/src-tauri/Cargo.lock"]
+
+    assert manifest["signing"] == {"identity": "Test", "verified": True}
+    assert manifest["notarization"]["status"] == "not_captured"
+    assert isinstance(manifest["installer_artifacts"], list)
+
+
+def test_release_manifest_gate_conclusions_flag_missing() -> None:
+    from scripts.write_release_manifest import build_manifest
+
+    manifest = build_manifest(gates={"api_pytest_suite": "success"})
+    conclusions = manifest["gate_conclusions"]["conclusions"]
+    assert conclusions["api_pytest_suite"] == "success"
+    assert conclusions["no_trading_guards"] == "missing"
+    assert manifest["gate_conclusions"]["all_required_passed"] is False

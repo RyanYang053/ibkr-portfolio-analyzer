@@ -366,8 +366,12 @@ function TaxLotsPanel({
     setReconNote(null);
     try {
       const result = await runTaxReconciliation(accountId);
+      // P0.6: run_id and status live in the nested `run` object, not the top level.
+      const run = (result.run ?? {}) as Record<string, unknown>;
+      const runId = String(run.run_id ?? "unknown");
+      const status = String(run.status ?? "unknown");
       setReconNote(
-        `Reconciliation run ${String(result.run_id || result.status || "completed")} · order generated: never`,
+        `Reconciliation run ${runId} · status ${status} · order generated: never`,
       );
     } catch (err) {
       setReconNote(err instanceof Error ? err.message : "Reconciliation failed");

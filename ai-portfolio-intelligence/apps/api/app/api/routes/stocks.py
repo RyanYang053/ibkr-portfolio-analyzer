@@ -247,9 +247,21 @@ def chart(
     i_val = interval_map.get(range.upper(), "1d")
     allow_mock = is_demo
     try:
-        return MockMarketDataProvider(allow_mock=allow_mock).get_chart_data(symbol, r_val, i_val)
+        bars = MockMarketDataProvider(allow_mock=allow_mock).get_chart_data(symbol, r_val, i_val)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Chart data not found for {symbol.upper()}: {exc}") from exc
+    # Persist the fetched OHLC into the canonical price_bars table (§17).
+    try:
+        from app.db.instruments_repository import resolve_instrument
+        from app.db.reference_data_repo import save_price_bars
+
+        instrument = resolve_instrument(symbol=symbol.upper(), con_id=None)
+        rows = bars if isinstance(bars, list) else (bars.get("bars") if isinstance(bars, dict) else None)
+        if rows:
+            save_price_bars(instrument.instrument_id, i_val, rows)
+    except Exception:  # noqa: BLE001 — persistence must not break the chart read
+        pass
+    return bars
 
 
 @router.get("/{symbol}/valuation")

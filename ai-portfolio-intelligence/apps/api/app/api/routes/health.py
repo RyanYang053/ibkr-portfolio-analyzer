@@ -75,6 +75,35 @@ def _postgres_ready() -> tuple[bool, str]:
         return False, "postgres_unavailable"
 
 
+def _sqlite_ready() -> tuple[bool, str]:
+    """Desktop SQLite readiness: integrity + required canonical tables present.
+
+    Plan P0.1: readiness must reflect a broken/missing schema instead of reporting
+    "ready". Postgres/JSON backends short-circuit (checked elsewhere / not applicable).
+    """
+    if settings.persistence_backend != "sqlite":
+        return True, "not_required"
+    try:
+        from sqlalchemy import inspect, text
+
+        from app.db.session import SessionLocal, engine
+
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+            row = session.execute(text("PRAGMA integrity_check")).fetchone()
+        integrity = row[0] if row else "unknown"
+        if integrity != "ok":
+            return False, "integrity_check_failed"
+        required = {"decision_packets", "evidence_records", "financial_plans", "monitoring_events"}
+        present = set(inspect(engine).get_table_names())
+        missing = sorted(required - present)
+        if missing:
+            return False, f"missing_tables:{','.join(missing)}"
+        return True, "available"
+    except Exception:
+        return False, "sqlite_check_failed"
+
+
 def _alembic_ready() -> tuple[bool, str]:
     if settings.persistence_backend != "postgres":
         return True, "not_required"
@@ -187,6 +216,11 @@ def health_ready() -> dict[str, object]:
     if not postgres_ok:
         failures.append("postgres")
 
+    sqlite_ok, sqlite_detail = _sqlite_ready()
+    checks["sqlite"] = {"ok": sqlite_ok, "detail": _safe_detail(sqlite_detail)}
+    if settings.persistence_backend == "sqlite" and not sqlite_ok:
+        failures.append("sqlite")
+
     alembic_ok, alembic_detail = _alembic_ready()
     checks["alembic"] = {"ok": alembic_ok, "detail": _safe_detail(alembic_detail)}
     if settings.persistence_backend == "postgres" and not alembic_ok:
@@ -228,12 +262,14 @@ def health_ready() -> dict[str, object]:
 @router.get("/health/dependencies")
 def health_dependencies() -> dict[str, object]:
     postgres_ok, postgres_detail = _postgres_ready()
+    sqlite_ok, sqlite_detail = _sqlite_ready()
     alembic_ok, alembic_detail = _alembic_ready()
     broker_ok, broker_detail = _broker_ready()
     governance_ok, governance_detail = _governance_tables_ready()
     scheduler_ok, scheduler_detail = _scheduler_ready()
     return {
         "postgres": {"ok": postgres_ok, "detail": _safe_detail(postgres_detail)},
+        "sqlite": {"ok": sqlite_ok, "detail": _safe_detail(sqlite_detail)},
         "alembic": {"ok": alembic_ok, "detail": _safe_detail(alembic_detail)},
         "governance_tables": {"ok": governance_ok, "detail": _safe_detail(governance_detail)},
         "scheduler": {"ok": scheduler_ok, "detail": _safe_detail(scheduler_detail)},

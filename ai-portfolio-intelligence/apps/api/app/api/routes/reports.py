@@ -169,3 +169,62 @@ def risk_report(
 ):
     summary, positions = _data(adapter, account_id, principal)
     return {"report_type": "risk", "risk": analyze_portfolio_risk(summary, positions)}
+
+
+def _maybe_html(report: dict, fmt: str):
+    if fmt == "html":
+        from fastapi.responses import HTMLResponse
+
+        from app.services.reports.builders import render_report_html
+
+        return HTMLResponse(content=render_report_html(report))
+    return report
+
+
+@router.post("/monthly")
+def monthly_review(
+    account_id: Optional[str] = None,
+    format: str = "json",
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    """Monthly investment review (§22): performance, risk, allocation, process analytics."""
+    summary, positions = _data(adapter, account_id, principal)
+    risk_obj = analyze_portfolio_risk(summary, positions)
+    risk = risk_obj.model_dump() if hasattr(risk_obj, "model_dump") else dict(risk_obj)
+    journal_analytics = None
+    try:
+        from app.db.journal_repo import list_journal_entries
+        from app.services.journal.analytics import compute_process_analytics
+
+        active_id = resolve_authorized_account_id(account_id, adapter, principal)
+        journal_analytics = compute_process_analytics(list_journal_entries(active_id))
+    except Exception:  # noqa: BLE001
+        journal_analytics = None
+
+    from app.services.reports.builders import build_monthly_review
+
+    report = build_monthly_review(
+        account_id=str(getattr(summary, "account_id", account_id) or account_id or "default"),
+        as_of=utc_now().isoformat(),
+        summary=summary,
+        risk=risk,
+        journal_analytics=journal_analytics,
+    )
+    return _maybe_html(report, format)
+
+
+@router.post("/trade-plan/{plan_id}")
+def trade_plan_report(
+    plan_id: str,
+    format: str = "json",
+    principal: Principal = Depends(get_current_principal),
+):
+    """Trade-plan report (§22): thesis, action, sizing, scenarios, readiness, decision."""
+    from app.db.trade_plan_repo import get_trade_plan
+    from app.services.reports.builders import build_trade_plan_report
+
+    plan = get_trade_plan(plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Unknown trade plan: {plan_id}")
+    return _maybe_html(build_trade_plan_report(plan), format)

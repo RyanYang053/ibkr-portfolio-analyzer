@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppLink as Link } from "@/components/AppLink";
 import { Disclaimer } from "@/components/Disclaimer";
+import { DegradedStateBanner } from "@/components/DegradedStateBanner";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { getResearchChangeFeed, getResearchQueue } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
@@ -15,7 +16,8 @@ function ResearchContent() {
     () =>
       Promise.all([
         getResearchQueue(accountId),
-        getResearchChangeFeed(accountId).catch(() => ({ changes: [] })),
+        // P0.7 / §15.3: tag a failed change-feed fetch as degraded rather than empty.
+        getResearchChangeFeed(accountId).catch(() => ({ changes: [], __degraded: true })),
       ]),
     [accountId],
   );
@@ -23,13 +25,15 @@ function ResearchContent() {
   if (error) return <PageErrorBanner message={error} />;
 
   const [queuePayload, changePayload] = data ?? [{ queue: [], catalysts: [] }, { changes: [] }];
-  const queue = Array.isArray(queuePayload?.queue)
-    ? (queuePayload.queue as Array<Record<string, unknown>>)
-    : Array.isArray(queuePayload?.items)
-      ? (queuePayload.items as Array<Record<string, unknown>>)
+  const changeFeedDegraded = Boolean((changePayload as { __degraded?: boolean }).__degraded);
+  const qp = (queuePayload ?? {}) as Record<string, unknown>;
+  const queue = Array.isArray(qp.queue)
+    ? (qp.queue as Array<Record<string, unknown>>)
+    : Array.isArray(qp.items)
+      ? (qp.items as Array<Record<string, unknown>>)
       : [];
-  const catalysts = Array.isArray(queuePayload?.catalysts)
-    ? (queuePayload.catalysts as Array<Record<string, unknown>>)
+  const catalysts = Array.isArray(qp.catalysts)
+    ? (qp.catalysts as Array<Record<string, unknown>>)
     : [];
   const changes = Array.isArray(changePayload?.changes)
     ? (changePayload.changes as Array<Record<string, unknown>>)
@@ -66,7 +70,9 @@ function ResearchContent() {
         <div className="rounded-md border border-line bg-white p-4">
           <h3 className="mb-3 font-semibold">Change feed</h3>
           <div className="grid gap-2 text-sm">
-            {changes.length === 0 ? (
+            {changeFeedDegraded ? (
+              <DegradedStateBanner message="Change feed unavailable — the request failed. This is not a confirmation that nothing changed." />
+            ) : changes.length === 0 ? (
               <p className="text-zinc-600">No material changes detected.</p>
             ) : (
               changes.slice(0, 20).map((row, idx) => (
@@ -105,9 +111,20 @@ function ResearchContent() {
           )}
         </div>
       </section>
-      <Link className="text-sm text-accent hover:underline" href="/watchlist">
-        Open watchlist
-      </Link>
+      <div className="flex flex-wrap gap-4">
+        <Link className="text-sm text-accent hover:underline" href="/research/screener">
+          Open screener
+        </Link>
+        <Link className="text-sm text-accent hover:underline" href="/research/notes">
+          Research notes
+        </Link>
+        <Link className="text-sm text-accent hover:underline" href="/research/compare">
+          Compare candidates
+        </Link>
+        <Link className="text-sm text-accent hover:underline" href="/watchlist">
+          Open watchlist
+        </Link>
+      </div>
     </div>
   );
 }

@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 from app.core.product_contract import (
     ACTION_LABEL_TO_OUTCOME,
-    DecisionOutcome,
     HUMAN_REVIEW_REQUIRED,
     ORDER_GENERATED_DEFAULT,
+    DecisionOutcome,
 )
 from app.core.product_scope import DECISION_DISCLAIMER
 

@@ -45,20 +45,40 @@ def evaluate_historical_decision(
     methodology_version: str,
     policy_version: str,
     outcome: str | None = None,
+    corporate_actions_complete: bool = True,
+    required_evidence_types: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    """Replay a decision using only evidence available at as_of."""
+    """Replay a decision using only evidence available at as_of.
+
+    Fails closed (plan §15.4) on every replay condition: missing availability or
+    future leakage, missing critical evidence, an explicit required source missing,
+    incomplete corporate-action adjustment, or an unknown methodology version.
+    """
     if as_of.tzinfo is None:
         as_of = as_of.replace(tzinfo=timezone.utc)
     usable, rejected = filter_usable_evidence(evidence, as_of=as_of)
     available = usable
-    missing_critical = not any(
-        e.get("evidence_type") in {"position_snapshot", "portfolio_risk_run", "fundamental_snapshot"}
-        for e in available
+    available_types = {e.get("evidence_type") for e in available}
+    missing_critical = not (
+        available_types & {"position_snapshot", "portfolio_risk_run", "fundamental_snapshot"}
     )
+
+    replay_blocked_reasons: list[str] = []
+    if rejected:
+        replay_blocked_reasons.append("point_in_time_rejection")
+    if missing_critical:
+        replay_blocked_reasons.append("missing_critical_evidence")
+    if required_evidence_types:
+        missing_required = [t for t in required_evidence_types if t not in available_types]
+        if missing_required:
+            replay_blocked_reasons.append(f"missing_required_sources:{','.join(missing_required)}")
+    if not corporate_actions_complete:
+        replay_blocked_reasons.append("corporate_action_adjustment_incomplete")
+    if not methodology_version or str(methodology_version).strip().lower() in {"", "unknown"}:
+        replay_blocked_reasons.append("unknown_methodology_version")
     resolved = outcome
-    if missing_critical or rejected:
-        if missing_critical:
-            resolved = DecisionOutcome.DATA_INSUFFICIENT.value
+    if replay_blocked_reasons:
+        resolved = DecisionOutcome.DATA_INSUFFICIENT.value
     return {
         "as_of": as_of.isoformat(),
         "methodology_version": methodology_version,
@@ -67,6 +87,8 @@ def evaluate_historical_decision(
         "excluded_future_count": len(rejected),
         "rejected": rejected[:20],
         "outcome": resolved or DecisionOutcome.MONITOR.value,
+        "replay_blocked_reasons": replay_blocked_reasons,
+        "fail_closed": bool(replay_blocked_reasons),
         "no_trade_baseline": True,
         "order_generated": False,
         "look_ahead_forbidden": True,
