@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.account_deps import resolve_authorized_account_id, resolve_authorized_account_ids
+from app.api.account_deps import resolve_authorized_account_ids, resolve_portfolio_scope_id
 from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import (
     data_provider_not_configured_error,
@@ -36,7 +36,7 @@ def _authorized_position(
     account_id: Optional[str] = None,
     con_id: Optional[int] = None,
 ):
-    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    active_id = resolve_portfolio_scope_id(account_id, adapter, principal)
     position = find_portfolio_position(symbol, adapter, active_id, con_id)
     if position is None:
         raise HTTPException(status_code=404, detail="Position not found in accessible account")
@@ -93,8 +93,25 @@ def _resolve_position(
     account_id: Optional[str] = None,
     con_id: Optional[int] = None,
 ):
-    if account_id is not None or con_id is not None:
+    # Consolidated / unspecified scope: search all accounts, then watchlist research.
+    # Important: UI always passes account_id=all after AccountSwitcher; that must not
+    # hard-fail research when IB is down or the symbol is watchlist-only.
+    consolidated = account_id in (None, "all", "default")
+    if con_id is not None and not consolidated:
         return _authorized_position(symbol, adapter, principal, account_id, con_id)
+    if account_id is not None and not consolidated:
+        try:
+            return _authorized_position(symbol, adapter, principal, account_id, con_id)
+        except HTTPException as exc:
+            # Access denial must not fall through to watchlist research.
+            if exc.status_code in {403, 401}:
+                raise
+            if exc.status_code not in {404, 422, 503}:
+                raise
+        except Exception:
+            pass
+        return _research_position(symbol, principal)
+
     try:
         for active_id in resolve_authorized_account_ids(adapter, principal, "all"):
             position = find_portfolio_position(symbol, adapter, active_id, con_id)
@@ -115,15 +132,18 @@ def _is_held(
     account_id: Optional[str] = None,
 ) -> bool:
     try:
-        if account_id is not None:
-            active_id = resolve_authorized_account_id(account_id, adapter, principal)
+        if account_id is not None and account_id not in {"all", "default"}:
+            active_id = resolve_portfolio_scope_id(account_id, adapter, principal)
             if is_symbol_held(symbol, adapter, active_id):
                 return True
-        for active_id in resolve_authorized_account_ids(adapter, principal, "all"):
-            if is_symbol_held(symbol, adapter, active_id):
-                return True
-    except HTTPException:
-        raise
+            # Specific account miss: still allow watchlist research below.
+        else:
+            for active_id in resolve_authorized_account_ids(adapter, principal, "all"):
+                if is_symbol_held(symbol, adapter, active_id):
+                    return True
+    except HTTPException as exc:
+        if exc.status_code not in {403, 404, 422, 503}:
+            raise
     except Exception:
         pass
 
@@ -173,12 +193,18 @@ def technicals(
     allow_mock = is_demo
     provider = MockMarketDataProvider(allow_mock=allow_mock)
     try:
-        bars = provider.get_chart_data(symbol.upper(), "1y", "1d")
+        # 1y Yahoo ranges often return <252 trading days after null filtering.
+        # Request 2y so SMA-200 / 52-week metrics have enough closes.
+        bars = provider.get_chart_data(symbol.upper(), "2y", "1d")
+        if len([item for item in bars if item.get("close") is not None]) < 252:
+            bars = provider.get_chart_data(symbol.upper(), "5y", "1d")
         closes = [float(item["close"]) for item in bars if item.get("close") is not None]
         from app.services.technicals.indicators import calculate_technical_indicators_from_bars
 
         if len(closes) < 252:
-            raise RuntimeError("At least 252 daily closes are required")
+            raise RuntimeError(
+                f"At least 252 daily closes are required (received {len(closes)})"
+            )
         indicators = calculate_technical_indicators_from_bars(symbol.upper(), bars)
         historical_prices = closes[-30:]
         has_volume = any(bar.get("volume") not in (None, 0) for bar in bars)
@@ -321,7 +347,7 @@ def score(
     position = _resolve_position(symbol, adapter, principal, account_id, con_id)
     result = score_stock(position)
     if is_portfolio_position(position):
-        active_id = resolve_authorized_account_id(account_id or position.account_id, adapter, principal)
+        active_id = resolve_portfolio_scope_id(account_id or position.account_id, adapter, principal)
         return gate_professional_response(adapter, principal, active_id, result)
     return result
 
@@ -346,14 +372,24 @@ def analysis(
             prov["cached_data"] = True
             cached["provenance"] = prov
     score = score_stock(position)
+    from app.services.ai.report_generator import _attach_authoritative_decision, _decision_packet_for_position
+
+    packet = _decision_packet_for_position(
+        position,
+        account_id or position.account_id or "default",
+    )
+    score_rec = build_recommendation(position).model_dump()
     payload = {
         "position": position.model_dump(),
         "score": score.model_dump(),
-        "recommendation": build_recommendation(position).model_dump(),
+        # Evidence only — Decision Packet is authoritative.
+        "score_interpretation": score_rec,
         "last_ai_report": cached,
+        "order_generated": False,
     }
+    payload = _attach_authoritative_decision(payload, packet)
     if is_portfolio_position(position):
-        active_id = resolve_authorized_account_id(account_id or position.account_id, adapter, principal)
+        active_id = resolve_portfolio_scope_id(account_id or position.account_id, adapter, principal)
         return gate_professional_response(adapter, principal, active_id, payload)
     return payload
 
@@ -366,7 +402,7 @@ def options_strategy(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    position = _authorized_position(symbol, adapter, principal, account_id, con_id)
+    position = _resolve_position(symbol, adapter, principal, account_id, con_id)
     is_demo = demo_mode_enabled()
     allow_mock = is_demo
     provider = MockMarketDataProvider(allow_mock=allow_mock)
@@ -385,11 +421,19 @@ def options_strategy(
         pass
 
     try:
-        active_id = resolve_authorized_account_id(account_id, adapter, principal)
-        summary_data = adapter.get_account_summary(active_id)
+        from app.api.routes.portfolio import _resolve_account_data
+
+        summary_data, _positions = _resolve_account_data(adapter, account_id, principal)
         cash_available = summary_data.cash
+        active_id = summary_data.account_id
         accounts = adapter.get_accounts()
-        account_type = next((acct.account_type for acct in accounts if acct.id == active_id), "Margin")
+        if summary_data.account_id == "all":
+            account_type = "Margin"
+        else:
+            account_type = next(
+                (acct.account_type for acct in accounts if acct.id == summary_data.account_id),
+                "Margin",
+            )
     except HTTPException:
         raise
     except Exception as exc:

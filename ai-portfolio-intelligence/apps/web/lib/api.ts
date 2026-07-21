@@ -3,6 +3,8 @@ import type {
   AIStockReport,
   Alert,
   BrokerStatus,
+  DecisionPacket,
+  DecisionQueueResponse,
   PortfolioOptimizationProposal,
   PortfolioRisk,
   PortfolioSummary,
@@ -89,13 +91,59 @@ export class ApiError extends Error {
   }
 }
 
-async function requireJson<T>(path: string, init?: RequestInit): Promise<T> {
+export async function requireJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method || "GET").toUpperCase();
+  const useCache = method === "GET" && typeof window !== "undefined" && !init?.cache;
+  if (useCache) {
+    const cached = readGetCache<T>(path);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
   const response = await apiFetch(path, init);
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
     throw new ApiError(response.status, detail);
   }
-  return response.json() as Promise<T>;
+  const data = (await response.json()) as T;
+  if (useCache) {
+    writeGetCache(path, data);
+  }
+  return data;
+}
+
+type CacheEntry = { expiresAt: number; data: unknown };
+const GET_CACHE = new Map<string, CacheEntry>();
+const GET_CACHE_TTL_MS = 45_000;
+
+function readGetCache<T>(path: string): T | undefined {
+  const entry = GET_CACHE.get(path);
+  if (!entry) {
+    return undefined;
+  }
+  if (Date.now() > entry.expiresAt) {
+    GET_CACHE.delete(path);
+    return undefined;
+  }
+  return entry.data as T;
+}
+
+function writeGetCache(path: string, data: unknown): void {
+  GET_CACHE.set(path, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
+}
+
+/** Drop short-lived GET cache (e.g. after account switch or broker reconnect). */
+export function invalidateApiGetCache(prefix?: string): void {
+  if (!prefix) {
+    GET_CACHE.clear();
+    return;
+  }
+  for (const key of GET_CACHE.keys()) {
+    if (key.startsWith(prefix)) {
+      GET_CACHE.delete(key);
+    }
+  }
 }
 
 export function extractApiMessage(detail: unknown): string | null {
@@ -130,11 +178,29 @@ export function formatApiError(error: unknown): string {
   if (error instanceof ApiError) {
     const message = extractApiMessage(error.detail);
     if (message) {
+      if (
+        message.includes("account_id is required") ||
+        (typeof error.detail === "object" &&
+          error.detail !== null &&
+          (error.detail as { detail?: { code?: string } }).detail?.code ===
+            "ACCOUNT_SELECTION_REQUIRED")
+      ) {
+        return "Multiple IBKR accounts found. Use Active Account in the sidebar (or Consolidated View), then refresh.";
+      }
       return message;
     }
     if (error.status === 503) return "Broker or data provider is not configured.";
     if (error.status === 401) return "Authentication is required.";
-    if (error.status === 422) return "Account selection is required for this view.";
+    if (error.status === 422) {
+      const code =
+        typeof error.detail === "object" &&
+        error.detail !== null &&
+        (error.detail as { detail?: { code?: string }; code?: string }).detail?.code;
+      if (code === "ACCOUNT_CONTEXT_UNAVAILABLE") {
+        return "Broker account context unavailable. Confirm IBKR Gateway is connected, then retry.";
+      }
+      return "Multiple IBKR accounts found. Use Active Account in the sidebar (or Consolidated View), then refresh.";
+    }
     return `Request failed (${error.status}).`;
   }
   return "Request failed.";
@@ -182,7 +248,15 @@ export async function getHoldingAnalysis(
   symbol: string,
   accountId?: string,
   conId?: number | null,
-): Promise<{ position: Position; recommendation: Recommendation; score: { final_score: number | null; interpretation: string; sub_scores: Record<string, number> }; last_ai_report?: AIStockReport | null }> {
+): Promise<{
+  position: Position;
+  recommendation?: Recommendation;
+  score_interpretation?: Recommendation;
+  authoritative_outcome?: string;
+  outcome?: string;
+  score: { final_score: number | null; interpretation: string; sub_scores: Record<string, number> };
+  last_ai_report?: AIStockReport | null;
+}> {
   const query = buildHoldingQuery(accountId, conId);
   return requireJson(`/stocks/${symbol}/analysis${query}`);
 }
@@ -197,6 +271,9 @@ export async function getWatchlist() {
 }
 
 export async function getAuditLogs() {
+  if (DESKTOP_MODE) {
+    return requireJson("/desktop/audit-logs");
+  }
   return requireJson("/admin/audit-logs");
 }
 
@@ -453,6 +530,147 @@ export async function getDecisionCenter(accountId?: string): Promise<Record<stri
   return requireJson(`/portfolio/decision-center${query}`);
 }
 
+export async function getDecisionQueue(accountId?: string): Promise<DecisionQueueResponse> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/decisions/queue${query}`);
+}
+
+export async function getDecisionPacket(decisionId: string): Promise<DecisionPacket> {
+  return requireJson(`/decisions/${encodeURIComponent(decisionId)}`);
+}
+
+export async function respondToDecision(
+  decisionId: string,
+  response: string,
+  extras?: { intended_weight?: number; reasoning?: string },
+): Promise<Record<string, unknown>> {
+  return requireJson(`/decisions/${encodeURIComponent(decisionId)}/respond`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      decision_id: decisionId,
+      response,
+      ...(extras || {}),
+    }),
+  });
+}
+
+export async function getFinancialPlan(planId = "default"): Promise<Record<string, unknown>> {
+  return requireJson(`/planning/plan?plan_id=${encodeURIComponent(planId)}`);
+}
+
+export async function getResearchQueue(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/research/queue${query}`);
+}
+
+export async function getResearchChangeFeed(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/research/change-feed${query}`);
+}
+
+export async function getMonitoringEvents(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/monitoring/events${query}`);
+}
+
+export async function acknowledgeMonitoringEvent(
+  eventId: string,
+  note?: string,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/monitoring/events/${encodeURIComponent(eventId)}/acknowledge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+}
+
+export async function resolveMonitoringEvent(
+  eventId: string,
+  note?: string,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/monitoring/events/${encodeURIComponent(eventId)}/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+}
+
+export async function snoozeMonitoringEvent(
+  eventId: string,
+  snoozeUntil: string,
+  note?: string,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/monitoring/events/${encodeURIComponent(eventId)}/snooze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ snooze_until: snoozeUntil, note }),
+  });
+}
+
+export async function getMonitoringNotifications(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/monitoring/notifications${query}`);
+}
+
+export async function flushMonitoringNotifications(): Promise<Record<string, unknown>> {
+  return requireJson(`/monitoring/notifications/flush`, { method: "POST" });
+}
+
+export async function getOptionsExpiryCalendar(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/monitoring/options-expiry${query}`);
+}
+
+export async function createDesktopBackup(passphrase?: string): Promise<Record<string, unknown>> {
+  return requireJson(`/desktop/backup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: "manual", passphrase }),
+  });
+}
+
+export async function verifyDesktopBackupRestore(
+  encryptedPath: string,
+  passphrase: string,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/desktop/backup/verify-restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ encrypted_path: encryptedPath, passphrase }),
+  });
+}
+
+export async function exportDesktopArchive(): Promise<Record<string, unknown>> {
+  return requireJson(`/desktop/export`, { method: "POST" });
+}
+
+export async function getDataHealth(): Promise<Record<string, unknown>> {
+  return requireJson(`/data-health`);
+}
+
+export async function getMethodologies(): Promise<Record<string, unknown>> {
+  return requireJson(`/methodologies`);
+}
+
+export async function approveMethodology(body: {
+  methodology_id: string;
+  version: string;
+  approver?: string;
+  notes?: string;
+}): Promise<Record<string, unknown>> {
+  return requireJson(`/methodologies/approvals`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getConstructionScenarios(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/construction/scenarios${query}`);
+}
+
 export async function getHoldingDecision(
   instrumentKey: string,
   accountId?: string,
@@ -480,6 +698,44 @@ export async function putHoldingThesis(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
+}
+
+export async function getStockValuation(
+  symbol: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/stocks/${encodeURIComponent(symbol)}/valuation${query}`);
+}
+
+export async function getTaxLots(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/portfolio/tax-lots${query}`);
+}
+
+export async function runTaxReconciliation(
+  accountId?: string,
+  taxYear?: number,
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams();
+  if (accountId) params.set("account_id", accountId);
+  if (taxYear != null) params.set("tax_year", String(taxYear));
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return requireJson(`/portfolio/tax-reconciliation${query}`, { method: "POST" });
+}
+
+export async function getPlanFeasibility(planId = "default"): Promise<Record<string, unknown>> {
+  return requireJson(`/planning/feasibility?plan_id=${encodeURIComponent(planId)}`);
+}
+
+export async function getReplacementUniverse(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/construction/replacement-universe${query}`);
+}
+
+export async function evaluateMonitoring(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/monitoring/evaluate${query}`, { method: "POST" });
 }
 
 

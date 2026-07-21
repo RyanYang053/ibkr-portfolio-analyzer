@@ -1,0 +1,17 @@
+{
+  "methodology_id": "options_american_pricer",
+  "inputs": {
+    "spot": 100.0,
+    "strike": 100.0,
+    "t": 1.0,
+    "r": 0.05,
+    "q": 0.02,
+    "sigma": 0.20,
+    "steps": 100,
+    "option_type": "put"
+  },
+  "expected": {
+    "price": 6.651030317156419,
+    "tol_rel": 0.02
+  }
+}

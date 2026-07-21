@@ -202,6 +202,10 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
             _set_in_cache("accounts", res)
             return res
 
+    def list_cached_accounts(self) -> list[BrokerAccount]:
+        cached = _get_from_cache("accounts", max_age=300.0)
+        return list(cached) if cached is not None else []
+
     def get_account_summary(self, account_id: str) -> AccountSummary:
         cached = _get_from_cache(f"summary:{account_id}", max_age=5.0)
         if cached is not None:
@@ -362,10 +366,17 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                 market_value_base = market_value * rate
                 weight = round(market_value_base / total_value * 100, 2)
                 
+                import math
+
                 unrealized_pnl = float(getattr(item, "unrealizedPNL", 0) or 0)
-                if unrealized_pnl == 0.0 and market_price > 0 and price_source == "ibkr_portfolio":
-                    unrealized_pnl = round((market_price - avg_cost) * quantity, 2)
-                if sec_type in {"OPT", "FOP", "FUT"} and price_source != "ibkr_portfolio":
+                if math.isnan(unrealized_pnl):
+                    unrealized_pnl = 0.0
+                # IB portfolio() stream is often empty in read-only Gateway/TWS mode, so we
+                # fall back to positions()+Yahoo. That path has avg_cost/price but not PnL.
+                if unrealized_pnl == 0.0 and market_price > 0 and avg_cost != 0 and quantity != 0:
+                    contract_mult = multiplier if multiplier > 0 else 1.0
+                    unrealized_pnl = round((market_price - avg_cost) * quantity * contract_mult, 2)
+                if sec_type in {"OPT", "FOP", "FUT"} and price_source == "missing":
                     unrealized_pnl = 0.0
                 
                 positions.append(
@@ -395,6 +406,8 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
                         price_source=price_source,
                     )
                 )
+            # Prefer IB account-summary UnrealizedPnL when present; otherwise cache-derived
+            # totals stay consistent with per-ticker profit shown in the UI.
             _set_in_cache(f"positions:{account_id}", positions)
             return positions
 
@@ -503,29 +516,31 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
         raise NotImplementedError("IBKR latest-price lookup needs contract discovery; portfolio positions already include market price.")
 
     def health_check(self) -> dict[str, str]:
+        """Return configured socket info without opening an ib_insync session.
+
+        A full IB handshake can hang for tens of seconds when TWS/Gateway is up
+        but IB server farms are broken; Settings must stay responsive.
+        """
+        import socket
+
         config = get_runtime_ibkr_config()
+        host = str(config["host"])
+        port = int(config["port"])
+        base = {
+            "mode": "ibkr_readonly",
+            "host": host,
+            "port": str(port),
+            "client_id": str(config["client_id"]),
+            "account_id": str(config.get("account_id") or ""),
+            "trading": "disabled",
+        }
         try:
-            with self._connect() as ib:
-                return {
-                    "status": "connected" if ib.isConnected() else "not_connected",
-                    "mode": "ibkr_readonly",
-                    "host": str(config["host"]),
-                    "port": str(config["port"]),
-                    "client_id": str(config["client_id"]),
-                    "account_id": str(config.get("account_id") or ""),
-                    "trading": "disabled",
-                }
-        except Exception as exc:
-            return {
-                "status": "not_connected",
-                "mode": "ibkr_readonly",
-                "host": str(config["host"]),
-                "port": str(config["port"]),
-                "client_id": str(config["client_id"]),
-                "account_id": str(config.get("account_id") or ""),
-                "error": str(exc),
-                "trading": "disabled",
-            }
+            with socket.create_connection((host, port), timeout=1.5):
+                base["status"] = "reachable"
+        except OSError as exc:
+            base["status"] = "not_connected"
+            base["error"] = str(exc)
+        return base
 
     def _connect(self):
         _ensure_sync_event_loop()
@@ -537,16 +552,16 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
         config = get_runtime_ibkr_config()
         client_id = allocate_readonly_client_id(config["client_id"])
         ib = IB()
+        # Keep this tight: Settings/status paths no longer use _connect, but
+        # portfolio sync still must not freeze the API worker for half a minute.
         ib.connect(
             host=config["host"],
             port=config["port"],
             clientId=client_id,
-            timeout=8,
+            timeout=3,
             readonly=True,
             account=config.get("account_id") or "",
         )
-        # Give ib_insync background event loop time to sync positions and summaries from TWS/Gateway
-        ib.sleep(1.0)
         return _IBConnection(ib)
 
     def _account_ids(self, ib) -> list[str]:

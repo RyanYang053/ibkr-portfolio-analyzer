@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import settings
 
 _FILE_LOCK = Lock()
+_SQLITE_TABLE_READY = False
 
 
 class StateStoreError(RuntimeError):
@@ -47,6 +48,10 @@ class StateStore(ABC):
     @abstractmethod
     def delete(self, namespace: str, record_key: str) -> None:
         raise NotImplementedError
+
+    def list_keys(self, namespace: str) -> list[str]:
+        """Optional listing; default empty."""
+        return []
 
 
 class JsonStateStore(StateStore):
@@ -113,7 +118,12 @@ class JsonStateStore(StateStore):
             path.unlink()
 
 
-class PostgresStateStore(StateStore):
+class SqlStateStore(StateStore):
+    """Canonical namespaced JSON state for sqlite and postgres."""
+
+    def __init__(self) -> None:
+        ensure_sql_state_table()
+
     def read_json(self, namespace: str, record_key: str, default: Any = None) -> Any:
         from app.db.session import SessionLocal
         from app.models.professional_state import ProfessionalStateRecord
@@ -133,29 +143,36 @@ class PostgresStateStore(StateStore):
                 return json.loads(row.payload_json)
             except json.JSONDecodeError as exc:
                 raise StateCorruptionError(
-                    f"Corrupted postgres state for {namespace}/{record_key}"
+                    f"Corrupted SQL state for {namespace}/{record_key}"
                 ) from exc
 
     def write_json(self, namespace: str, record_key: str, payload: Any) -> None:
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-
         from app.db.session import SessionLocal
         from app.models.professional_state import ProfessionalStateRecord
 
         now = datetime.now(timezone.utc)
         payload_text = json.dumps(payload)
         with SessionLocal() as session:
-            stmt = pg_insert(ProfessionalStateRecord).values(
-                namespace=namespace,
-                record_key=record_key,
-                payload_json=payload_text,
-                updated_at=now,
+            row = (
+                session.query(ProfessionalStateRecord)
+                .filter(
+                    ProfessionalStateRecord.namespace == namespace,
+                    ProfessionalStateRecord.record_key == record_key,
+                )
+                .one_or_none()
             )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["namespace", "record_key"],
-                set_={"payload_json": payload_text, "updated_at": now},
-            )
-            session.execute(stmt)
+            if row is None:
+                session.add(
+                    ProfessionalStateRecord(
+                        namespace=namespace,
+                        record_key=record_key,
+                        payload_json=payload_text,
+                        updated_at=now,
+                    )
+                )
+            else:
+                row.payload_json = payload_text
+                row.updated_at = now
             session.commit()
 
     def delete(self, namespace: str, record_key: str) -> None:
@@ -169,15 +186,62 @@ class PostgresStateStore(StateStore):
             ).delete()
             session.commit()
 
+    def list_keys(self, namespace: str) -> list[str]:
+        from app.db.session import SessionLocal
+        from app.models.professional_state import ProfessionalStateRecord
+
+        with SessionLocal() as session:
+            rows = (
+                session.query(ProfessionalStateRecord.record_key)
+                .filter(ProfessionalStateRecord.namespace == namespace)
+                .all()
+            )
+            return [str(r[0]) for r in rows]
+
+
+# Backward-compatible alias
+PostgresStateStore = SqlStateStore
+
+
+def ensure_sql_state_table() -> None:
+    """Create professional_state_records when using sqlite without full Alembic."""
+    global _SQLITE_TABLE_READY
+    if _SQLITE_TABLE_READY:
+        return
+    if settings.persistence_backend not in {"sqlite", "postgres"}:
+        return
+    try:
+        from app.db.session import engine
+        from app.models.professional_state import ProfessionalStateRecord
+
+        ProfessionalStateRecord.__table__.create(bind=engine, checkfirst=True)
+        _SQLITE_TABLE_READY = True
+    except SQLAlchemyError:
+        # Table may already exist via Alembic; reads/writes will surface real errors.
+        _SQLITE_TABLE_READY = True
+
 
 def get_state_store() -> StateStore:
-    if settings.persistence_backend == "postgres":
-        return PostgresStateStore()
+    if settings.persistence_backend in {"postgres", "sqlite"}:
+        return SqlStateStore()
     return JsonStateStore()
 
 
 def postgres_available() -> bool:
     if settings.persistence_backend != "postgres":
+        return False
+    try:
+        from app.db.session import SessionLocal
+
+        with SessionLocal() as session:
+            session.connection()
+        return True
+    except SQLAlchemyError:
+        return False
+
+
+def sql_persistence_available() -> bool:
+    if settings.persistence_backend not in {"postgres", "sqlite"}:
         return False
     try:
         from app.db.session import SessionLocal

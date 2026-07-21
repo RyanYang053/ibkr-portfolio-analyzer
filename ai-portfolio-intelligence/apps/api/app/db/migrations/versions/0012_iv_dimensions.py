@@ -20,20 +20,20 @@ def upgrade() -> None:
     op.add_column("iv_observations", sa.Column("moneyness", sa.Float()))
     op.add_column("iv_observations", sa.Column("quote_timestamp", sa.DateTime(timezone=True)))
 
-    op.drop_constraint("uq_iv_observations_symbol_date_source", "iv_observations", type_="unique")
-    op.create_unique_constraint(
-        "uq_iv_observations_symbol_date_source",
-        "iv_observations",
-        ["symbol", "observation_date", "source", "option_right", "days_to_expiry"],
-    )
+    with op.batch_alter_table("iv_observations") as batch_op:
+        batch_op.drop_constraint("uq_iv_observations_symbol_date_source", type_="unique")
+        batch_op.create_unique_constraint(
+            "uq_iv_observations_symbol_date_source",
+            ["symbol", "observation_date", "source", "option_right", "days_to_expiry"],
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("uq_iv_observations_symbol_date_source", "iv_observations", type_="unique")
-    op.create_unique_constraint(
-        "uq_iv_observations_symbol_date_source",
-        "iv_observations",
-        ["symbol", "observation_date", "source"],
-    )
+    with op.batch_alter_table("iv_observations") as batch_op:
+        batch_op.drop_constraint("uq_iv_observations_symbol_date_source", type_="unique")
+        batch_op.create_unique_constraint(
+            "uq_iv_observations_symbol_date_source",
+            ["symbol", "observation_date", "source"],
+        )
     for column in ("quote_timestamp", "moneyness", "delta", "days_to_expiry", "option_right"):
         op.drop_column("iv_observations", column)

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink as Link } from "@/components/AppLink";
 import type { Position } from "@/lib/types";
 
 function positionRowKey(position: Position): string {

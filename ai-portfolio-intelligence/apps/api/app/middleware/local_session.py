@@ -29,6 +29,10 @@ class LocalSessionMiddleware(BaseHTTPMiddleware):
         self.runtime = runtime
 
     async def dispatch(self, request: Request, call_next):
+        # CORS preflight must not require the session header; browsers omit it.
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         if request.url.path in PUBLIC_PATHS:
             return await call_next(request)
 

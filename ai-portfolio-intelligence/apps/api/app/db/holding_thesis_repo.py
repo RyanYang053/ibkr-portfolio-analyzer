@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.db.postgres_guard import require_postgres_persistence, require_postgres_read
+from app.db.sql_dialect import json_cast
 from app.db.state_store import get_state_store, postgres_available
 
 NAMESPACE = "holding_theses"
@@ -166,11 +167,11 @@ def put_thesis(
                     }
                     session.execute(
                         sql_text(
-                            """
+                            f"""
                             INSERT INTO holding_theses (
                                 account_id, instrument_key, current_version, updated_at, payload_json
                             ) VALUES (
-                                :account_id, :instrument_key, :current_version, :updated_at, CAST(:payload_json AS jsonb)
+                                :account_id, :instrument_key, :current_version, :updated_at, {json_cast("payload_json")}
                             )
                             ON CONFLICT (account_id, instrument_key)
                             DO UPDATE SET
@@ -189,12 +190,12 @@ def put_thesis(
                     )
                     session.execute(
                         sql_text(
-                            """
+                            f"""
                             INSERT INTO holding_thesis_versions (
                                 account_id, instrument_key, version, thesis_text, author, created_at, payload_json
                             ) VALUES (
                                 :account_id, :instrument_key, :version, :thesis_text, :author, :created_at,
-                                CAST(:payload_json AS jsonb)
+                                {json_cast("payload_json")}
                             )
                             """
                         ),

@@ -1,22 +1,19 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+
+import { desktopReplace, isDesktopLocal } from "@/lib/desktop-navigation";
 
 import LoginForm from "./LoginForm";
 
-const desktopLocal = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local";
-
 export default function Page() {
-  const router = useRouter();
-
   useEffect(() => {
-    if (desktopLocal) {
-      router.replace("/");
+    if (isDesktopLocal) {
+      desktopReplace("/");
     }
-  }, [router]);
+  }, []);
 
-  if (desktopLocal) {
+  if (isDesktopLocal) {
     return (
       <main className="mx-auto max-w-md px-6 py-16 text-sm text-zinc-600">
         Opening Portfolio Analyzer. No sign-in is required on desktop.

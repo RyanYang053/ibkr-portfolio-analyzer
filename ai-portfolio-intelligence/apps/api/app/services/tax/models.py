@@ -8,7 +8,10 @@ from typing import Literal
 
 class TaxLotMethod(str, Enum):
     FIFO = "fifo"
+    LIFO = "lifo"
+    HIFO = "hifo"
     SPECIFIC_ID = "specific_id"
+    TAX_LOSS_HARVEST = "tax_loss_harvest"
     ACB = "acb"
 
 
@@ -39,6 +42,7 @@ class RealizedTaxLot:
     method: TaxLotMethod = TaxLotMethod.FIFO
     jurisdiction: Literal["US", "CA", "OTHER"] = "US"
     methodology_status: str = "experimental"
+    wash_sale_disallowed_loss: float = 0.0
 
 
 @dataclass(frozen=True)

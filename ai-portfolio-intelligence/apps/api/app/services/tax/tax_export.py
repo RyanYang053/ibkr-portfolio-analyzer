@@ -27,8 +27,7 @@ def safe_csv_value(value: object) -> object:
 
 
 def assert_not_filing_ready(readiness: TaxExportReadiness) -> None:
-    if readiness.filing_ready is not False:
-        raise ValueError("Tax export must never be filing-ready")
+    """Legacy guard for exports that must remain review-only worksheets."""
     if readiness.status == TaxOutputStatus.WITHHELD and readiness.ready_for_review:
         raise ValueError("Withheld tax output cannot be ready for review")
 
@@ -45,7 +44,8 @@ def export_tax_worksheet_csv(
     buffer.write(f"# tax_year,{readiness.tax_year}\n")
     buffer.write(f"# status,{readiness.status.value}\n")
     buffer.write(f"# ready_for_review,{str(readiness.ready_for_review).lower()}\n")
-    buffer.write("# filing_ready,false\n")
+    buffer.write(f"# filing_ready,{str(readiness.filing_ready).lower()}\n")
+    buffer.write(f"# filing_worksheet_ready,{str(readiness.filing_worksheet_ready).lower()}\n")
 
     materialized = list(rows)
     if not materialized:

@@ -61,10 +61,24 @@ jobs:
           pip install pyinstaller keyring
 
       - name: Run complete API suite
+        id: api_pytest
         working-directory: ai-portfolio-intelligence/apps/api
         run: python -m pytest tests -q --ignore=tests/test_postgres_repos.py
 
+      - name: Financial golden master
+        id: financial_golden
+        working-directory: ai-portfolio-intelligence/apps/api
+        run: |
+          python -m pytest tests -q -m golden --ignore=tests/test_postgres_repos.py
+          python scripts/run_golden_fixtures.py --digest-out tests/fixtures/golden.sha256
+
+      - name: Point-in-time validation
+        id: point_in_time
+        working-directory: ai-portfolio-intelligence/apps/api
+        run: python -m pytest tests/decision_center/test_pit_in_orchestrator.py tests/validation -q
+
       - name: Verify no-trading boundary
+        id: no_trading
         working-directory: ai-portfolio-intelligence/apps/api
         run: python -m pytest tests/test_no_trading_guardrails.py tests/test_decision_never_generates_orders.py -q
 
@@ -81,12 +95,48 @@ jobs:
         run: npm run web:lint
 
       - name: Web typecheck
+        id: web_typecheck
         run: npm run web:typecheck
 
       - name: Static desktop export
         run: python scripts/prepare-tauri-binaries.py --no-require-sidecar --in-place
         env:
           NEXT_PUBLIC_DEPLOYMENT_MODE: desktop_local
+
+      - name: Write honest validate gate conclusions
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          # Each gate records the step outcome from the preceding named steps.
+          # GitHub Actions fails the job if any prior step failed, so reaching
+          # this step means all listed gates succeeded.
+          gates = {
+              "api_pytest_suite": "success",
+              "financial_golden_master": "success",
+              "point_in_time": "success",
+              "no_trading_guards": "success",
+              "web_typecheck": "success",
+          }
+          out = Path("ai-portfolio-intelligence/dist-ci")
+          out.mkdir(parents=True, exist_ok=True)
+          (out / "validate-gates.json").write_text(json.dumps(gates, indent=2) + "\n", encoding="utf-8")
+          golden = Path("ai-portfolio-intelligence/apps/api/tests/fixtures/golden.sha256")
+          if golden.exists():
+              (out / "golden.sha256").write_text(golden.read_text(encoding="utf-8"), encoding="utf-8")
+          print(json.dumps(gates, indent=2))
+          PY
+
+      - name: Upload validate gate attestations
+        uses: actions/upload-artifact@v4
+        with:
+          name: validate-gates-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            ai-portfolio-intelligence/dist-ci/validate-gates.json
+            ai-portfolio-intelligence/dist-ci/golden.sha256
+            ai-portfolio-intelligence/apps/api/tests/fixtures/golden.sha256
 
   package:
     needs: validate
@@ -279,7 +329,7 @@ jobs:
           APP=$(find apps/desktop/src-tauri/target -type d -name 'Portfolio Analyzer.app' | head -n 1)
           test -n "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
-          spctl --assess --type execute --verbose=2 "$APP" || true
+          spctl --assess --type execute --verbose=2 "$APP"
           # Stapled ticket is required for offline Gatekeeper trust after notarization.
           xcrun stapler validate "$APP"
 
@@ -322,7 +372,7 @@ jobs:
             ai-portfolio-intelligence/apps/desktop/src-tauri/target/release/bundle/**
 
   publish-draft-release:
-    needs: package
+    needs: [validate, package]
     if: startsWith(github.ref, 'refs/tags/desktop-v')
     runs-on: ubuntu-22.04
     permissions:
@@ -336,6 +386,12 @@ jobs:
           path: release-artifacts
           pattern: portfolio-analyzer-*
           merge-multiple: false
+
+      - name: Download validate gate attestations
+        uses: actions/download-artifact@v4
+        with:
+          name: validate-gates-${{ github.sha }}
+          path: validate-gates
 
       - name: Collect installer files
         run: |
@@ -355,6 +411,72 @@ jobs:
           ls -la dist
           test "$(find dist -type f ! -name SHA256SUMS.txt | wc -l)" -gt 0
 
+      - name: Generate SBOM for API package
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp
+          /tmp/syft packages dir:ai-portfolio-intelligence/apps/api -o cyclonedx-json > dist/api-sbom.cdx.json
+          shasum -a 256 dist/api-sbom.cdx.json | awk '{print $1}' > dist/api-sbom.sha256
+
+      - name: Write release manifest with tests_verified
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, "ai-portfolio-intelligence/apps/api")
+          from scripts.write_decision_os_release_manifest import build_release_manifest, write_release_manifest
+
+          gates_path = Path("validate-gates/validate-gates.json")
+          if not gates_path.exists():
+              # Artifact layout may nest one directory.
+              matches = list(Path("validate-gates").rglob("validate-gates.json"))
+              gates_path = matches[0] if matches else gates_path
+          gates = json.loads(gates_path.read_text(encoding="utf-8"))
+          package = os.environ.get("PACKAGE_RESULT", "missing")
+          required = {
+              "api_pytest_suite": gates.get("api_pytest_suite", "missing"),
+              "financial_golden_master": gates.get("financial_golden_master", "missing"),
+              "point_in_time": gates.get("point_in_time", "missing"),
+              "no_trading_guards": gates.get("no_trading_guards", "missing"),
+              "web_typecheck": gates.get("web_typecheck", "missing"),
+              "desktop_build": package,
+          }
+          golden = ""
+          for candidate in (
+              Path("validate-gates/golden.sha256"),
+              *Path("validate-gates").rglob("golden.sha256"),
+          ):
+              if candidate.is_file():
+                  golden = candidate.read_text(encoding="utf-8").strip()
+                  break
+          sbom = Path("dist/api-sbom.sha256").read_text().strip() if Path("dist/api-sbom.sha256").exists() else ""
+          artifact = ""
+          sums = Path("dist/SHA256SUMS.txt")
+          if sums.exists():
+              artifact = sums.read_text().split()[0] if sums.read_text().strip() else ""
+          manifest = build_release_manifest(
+              commit_sha=os.environ["COMMIT_SHA"],
+              branch=os.environ["BRANCH"],
+              workflow_run_id=os.environ["RUN_ID"],
+              required_jobs=required,
+              sbom_sha256=sbom,
+              desktop_artifact_sha256=artifact,
+              database_schema_revision="0036_backup_and_audit_integrity",
+              golden_fixture_sha256=golden,
+          )
+          if not manifest["tests_verified"]:
+              raise SystemExit(
+                  f"tests_verified is false; required_jobs={json.dumps(required)}"
+              )
+          write_release_manifest(Path("dist/release-manifest.json"), manifest)
+          print(json.dumps(manifest, indent=2))
+          PY
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -367,8 +489,9 @@ jobs:
           body: |
             Exact-SHA installers for `${{ github.sha }}`.
 
-            Includes DMG / NSIS / AppImage / DEB artifacts, SHA256SUMS, packaged
-            sidecar smoke, and Tauri application launch smoke from CI.
+            Includes DMG / NSIS / AppImage / DEB artifacts, SHA256SUMS, SBOM,
+            release-manifest (`tests_verified` from required job conclusions),
+            packaged sidecar smoke, and Tauri application launch smoke from CI.
 
             macOS and Windows artifacts are signed when repository signing secrets
             are configured. Linux artifacts include SHA256SUMS for integrity checks.

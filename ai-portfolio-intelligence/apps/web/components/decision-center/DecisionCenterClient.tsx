@@ -10,7 +10,13 @@ type HoldingRow = {
   instrument_key?: string;
   symbol?: string;
   action?: string;
+  outcome?: string;
   valuation_status?: string;
+  priority?: string;
+  confidence_status?: string;
+  blockers?: string[];
+  gates?: Array<{ gate_id?: string; passed?: boolean; severity?: string; blockers?: string[] }>;
+  implementation_status?: string;
 };
 
 export function DecisionCenterClient({
@@ -51,6 +57,11 @@ export function DecisionCenterClient({
         symbol={selectedRow?.symbol}
         instrumentKey={selected || undefined}
         action={selectedRow?.action}
+        outcome={selectedRow?.outcome}
+        priority={selectedRow?.priority}
+        confidenceStatus={selectedRow?.confidence_status}
+        blockers={selectedRow?.blockers}
+        gates={selectedRow?.gates}
         lenses={lenses}
         accountId={accountId}
       />

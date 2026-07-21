@@ -12,9 +12,17 @@ class Settings(BaseSettings):
     environment: str = "development"
     deployment_mode: DeploymentMode = DeploymentMode.DEVELOPMENT
     database_url: str = "postgresql+psycopg://portfolio:portfolio@postgres:5432/portfolio"
-    persistence_backend: Literal["json", "postgres"] = "json"
+    persistence_backend: Literal["json", "sqlite", "postgres"] = "json"
     jwt_secret: str = "dev-only-change-me"
-    cors_origins: list[str] = ["http://localhost:3000", "tauri://localhost", "https://tauri.localhost"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "tauri://localhost",
+        "https://tauri.localhost",
+        "http://tauri.localhost",
+        "https://asset.localhost",
+        "http://asset.localhost",
+        "asset://localhost",
+    ]
     broker_mode: str = "ibkr_readonly"
     local_api_host: str | None = None
     local_api_port: int | None = None
@@ -110,8 +118,11 @@ def validate_production_settings() -> None:
             database_url=settings.database_url,
             persistence_backend=settings.persistence_backend,
         )
-        if settings.persistence_backend != "json":
-            raise RuntimeError("Desktop v1 supports only the audited JSON state backend")
+        if settings.persistence_backend not in {"json", "sqlite"}:
+            raise RuntimeError("Desktop persistence must be json or sqlite")
+        if settings.persistence_backend == "sqlite":
+            if not str(settings.database_url).startswith("sqlite"):
+                raise RuntimeError("SQLite desktop mode requires a sqlite database_url")
         if not settings.local_session_token or len(settings.local_session_token) < 43:
             raise RuntimeError("LOCAL_SESSION_TOKEN is required for DESKTOP_LOCAL mode")
         return
@@ -121,8 +132,8 @@ def validate_production_settings() -> None:
     weak_secrets = {"", "change-me", "dev-only-change-me"}
     if settings.jwt_secret in weak_secrets:
         raise RuntimeError("A strong JWT_SECRET is required outside development")
-    if settings.persistence_backend != "postgres":
-        raise RuntimeError("PERSISTENCE_BACKEND=postgres is required outside development")
+    if settings.persistence_backend not in {"postgres", "sqlite"}:
+        raise RuntimeError("PERSISTENCE_BACKEND=postgres or sqlite is required outside development")
     if not settings.bootstrap_token:
         raise RuntimeError("BOOTSTRAP_TOKEN is required outside development when bootstrapping owners")
     if not settings.sec_edgar_user_agent or "example.com" in settings.sec_edgar_user_agent:

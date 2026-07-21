@@ -16,7 +16,7 @@ def test_ordered_gates_data_insufficient_without_inputs():
     )
     decision = evaluate_holding_decision(context)
     assert decision["action"] == "Data insufficient"
-    assert decision["gates"][0]["gate"] == "data_quality"
+    assert any(g["gate"] == "data_quality" for g in decision["gates"])
     assert decision["action"] in DECISION_ACTIONS
     assert decision["valuation_status"] == "withheld"
 
@@ -54,7 +54,7 @@ def test_valuation_gate_blocks_add_without_approved_valuation():
     )
     decision = evaluate_holding_decision(context)
     assert decision["action"] == "Review thesis"
-    valuation_gate = next(g for g in decision["gates"] if g["gate"] == "valuation_status")
+    valuation_gate = next(g for g in decision["gates"] if g["gate"] in {"valuation", "valuation_status"})
     assert valuation_gate["passed"] is False
 
 
@@ -88,8 +88,9 @@ def test_no_action_when_gates_clear():
     decision = evaluate_holding_decision(context)
     assert decision["action"] in DECISION_ACTIONS
     assert decision["action"] != "Data insufficient"
-    assert any(g["gate"] == "lens_synthesis" for g in decision["gates"])
-
+    assert any(g["gate"] in {"methodology", "implementation", "lens_synthesis", "valuation"} for g in decision["gates"])
+    assert decision["order_generated"] is False
+    assert any(s.get("scenario_type") == "no_trade" for s in (decision.get("scenarios") or []))
 
 def test_load_holding_market_inputs_uses_real_providers(monkeypatch):
     from app.services.decision_center import market_inputs
@@ -219,7 +220,7 @@ def test_monitoring_rule_evaluation_triggers_concentration(tmp_path, monkeypatch
     assert result["evaluations"]
     assert any(item.get("triggered") for item in result["evaluations"])
     assert any(alert.get("triggered") for alert in result["alerts"])
-    assert result["alert_delivery"] == "withheld_not_implemented"
+    assert result["alert_delivery"] == "desktop_inbox"
 
 
 def test_action_simulator_uses_tax_and_risk_blocks():

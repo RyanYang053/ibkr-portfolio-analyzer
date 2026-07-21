@@ -19,6 +19,8 @@ from app.services.fundamentals.providers import get_fundamental_provider
 from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.provenance import build_report_provenance
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
+from app.core.product_contract import DecisionOutcome
+from app.services.decision_center.ai_outcome_enforcement import enforce_authoritative_outcome
 from app.services.scoring.decision_engine import build_recommendation
 from app.services.scoring.stock_score import score_stock
 from app.services.technicals.indicators import calculate_technical_indicators
@@ -26,6 +28,38 @@ from app.services.technicals.indicators import calculate_technical_indicators
 
 def _derive_provenance(positions: list[Position], *, web_grounded: bool = False) -> Provenance:
     return build_report_provenance(positions, web_grounded=web_grounded)
+
+
+def _decision_packet_for_position(position: Position, account_id: str) -> dict[str, Any]:
+    """Authoritative Decision Center packet for AI/report surfaces."""
+    from app.services.decision_center.holding_decision import evaluate_holding_decision
+    from app.services.decision_center.holding_evidence import build_decision_context_for_position
+
+    context = build_decision_context_for_position(position, account_id=account_id)
+    return evaluate_holding_decision(context)
+
+
+def _attach_authoritative_decision(payload: dict[str, Any], packet: dict[str, Any]) -> dict[str, Any]:
+    outcome = DecisionOutcome(packet.get("outcome") or DecisionOutcome.DATA_INSUFFICIENT.value)
+    enforced = enforce_authoritative_outcome(
+        payload,
+        decision_id=str(packet.get("decision_id") or "dec_pending"),
+        outcome=outcome,
+        blockers=list(packet.get("blockers") or []),
+        evidence_ids=[e.get("evidence_id") for e in (packet.get("evidence") or []) if isinstance(e, dict)],
+        packet_digest=packet.get("packet_sha256"),
+    )
+    # Keep score interpretation as evidence only — never as competing authority.
+    enforced["score_interpretation"] = payload.get("score_interpretation") or payload.get("action")
+    enforced["decision_packet"] = {
+        "decision_id": packet.get("decision_id"),
+        "outcome": packet.get("outcome"),
+        "action": packet.get("action"),
+        "blockers": packet.get("blockers") or [],
+        "implementation_status": packet.get("implementation_status"),
+        "order_generated": False,
+    }
+    return enforced
 
 
 def generate_daily_portfolio_memo(
@@ -46,6 +80,10 @@ def generate_daily_portfolio_memo(
     if not detractors:
         detractors = [position.symbol for position in sorted(positions, key=lambda p: p.unrealized_pnl)[:3]]
     recommendations = [build_recommendation(position) for position in positions[:5]]
+    decision_packets = [
+        _decision_packet_for_position(position, summary.account_id or "default")
+        for position in positions[:5]
+    ]
 
     provenance = _derive_provenance(positions)
 
@@ -91,19 +129,43 @@ def generate_daily_portfolio_memo(
         "largest_detractors": detractors,
         "contributor_basis": "period_unrealized_pnl_change" if len(history) >= 2 else "current_unrealized_pnl_snapshot",
         "risk_alerts": [alert.model_dump() for alert in risk.alerts],
-        "holdings_to_watch": [item.symbol for item in recommendations if item.action in {"Watch", "Trim Review", "Exit Review"}],
-        "possible_add_zones": [item.add_zone for item in recommendations if item.action in {"Strong Add", "Add"} and item.add_zone],
-        "possible_trim_review_zones": [item.trim_review_zone for item in recommendations if item.action == "Trim Review" and item.trim_review_zone],
+        "score_interpretations": [
+            {"symbol": item.symbol, "score_interpretation": item.action, "score": item.score}
+            for item in recommendations
+        ],
+        "decision_packets": [
+            {
+                "symbol": pkt.get("symbol"),
+                "decision_id": pkt.get("decision_id"),
+                "outcome": pkt.get("outcome"),
+                "action": pkt.get("action"),
+                "blockers": pkt.get("blockers"),
+                "priority": pkt.get("priority"),
+            }
+            for pkt in decision_packets
+        ],
+        "holdings_to_watch": [
+            pkt.get("symbol")
+            for pkt in decision_packets
+            if pkt.get("outcome") in {"review_trim", "review_exit", "review_thesis", "data_insufficient"}
+        ],
+        "possible_add_zones": [],
+        "possible_trim_review_zones": [],
         "do_not_act_warnings": [
             "Missing research categories remain unavailable until verified providers are connected.",
             "Human review is required before any investment decision.",
             "The system does not submit orders to IBKR.",
+            "Score interpretations are evidence only; Decision Packets are authoritative.",
         ],
         "cash_deployment_view": f"Cash is {risk.cash_percent:.2f}% of portfolio value.",
         "overall_portfolio_risk": f"Risk score is {risk.risk_score:.1f}/100.",
         "calculation_run_ids": calculation_run_ids or [],
-        "provenance": provenance.model_dump()
+        "provenance": provenance.model_dump(),
+        "order_generated": False,
+        "human_review_required": True,
     }
+    if decision_packets:
+        report_json = _attach_authoritative_decision(report_json, decision_packets[0])
     
     report_json = append_compliance_disclaimer(report_json)
     
@@ -137,8 +199,10 @@ def generate_stock_research_report(
     account_id: str | None = None,
 ) -> dict[str, Any]:
     score = score_stock(position)
-    recommendation = build_recommendation(position)
-    context = _build_context(position, score, recommendation, user_id=user_id)
+    # Score interpretation is evidence only — Decision Packet is authoritative.
+    score_interpretation = build_recommendation(position)
+    packet = _decision_packet_for_position(position, account_id or position.account_id or "default")
+    context = _build_context(position, score, score_interpretation, user_id=user_id)
     gemini = client or GeminiClient()
     prompt = build_stock_analysis_prompt(position=context, score=None, recommendation=None)
 
@@ -155,7 +219,7 @@ def generate_stock_research_report(
             report.setdefault("symbol", position.symbol)
             report.setdefault("company", position.company_name)
             report.setdefault("final_score", score.final_score)
-            report.setdefault("action", recommendation.action)
+            report.setdefault("score_interpretation", score_interpretation.action)
             report.setdefault("confidence", score.confidence)
             report.setdefault("human_review_required", True)
             report.setdefault("disclaimer", DISCLAIMER)
@@ -167,7 +231,8 @@ def generate_stock_research_report(
                 "mock_fallback_data": is_mock_fallback,
                 "web_grounded_context": gemini.last_grounding_used
             }
-            sanitized = _sanitize_ai_report(report, position, score, recommendation, context, user_id=user_id)
+            sanitized = _sanitize_ai_report(report, position, score, score_interpretation, context, user_id=user_id)
+            sanitized = _attach_authoritative_decision(sanitized, packet)
             set_cached_report(
                 position.symbol,
                 sanitized,
@@ -176,7 +241,7 @@ def generate_stock_research_report(
             )
             return sanitized
         except Exception as exc:
-            fallback = _fallback_stock_report(position, score, recommendation, context, user_id=user_id)
+            fallback = _fallback_stock_report(position, score, score_interpretation, context, user_id=user_id)
             fallback["provider_error"] = str(exc)
             fallback["provenance"] = {
                 "live_portfolio_data": is_live_portfolio,
@@ -185,6 +250,7 @@ def generate_stock_research_report(
                 "mock_fallback_data": is_mock_fallback,
                 "web_grounded_context": False
             }
+            fallback = _attach_authoritative_decision(fallback, packet)
             set_cached_report(
                 position.symbol,
                 fallback,
@@ -193,7 +259,7 @@ def generate_stock_research_report(
             )
             return fallback
 
-    fallback = _fallback_stock_report(position, score, recommendation, context, user_id=user_id)
+    fallback = _fallback_stock_report(position, score, score_interpretation, context, user_id=user_id)
     fallback["provenance"] = {
         "live_portfolio_data": is_live_portfolio,
         "live_market_data": is_live_market,
@@ -201,6 +267,7 @@ def generate_stock_research_report(
         "mock_fallback_data": is_mock_fallback,
         "web_grounded_context": False
     }
+    fallback = _attach_authoritative_decision(fallback, packet)
     set_cached_report(
         position.symbol,
         fallback,
@@ -219,7 +286,31 @@ def generate_ai_portfolio_memo(
     calculation_run_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     risk = analyze_portfolio_risk(summary, positions)
-    recommendations = [build_recommendation(position) for position in positions]
+    score_interpretations = [build_recommendation(position) for position in positions]
+    decision_packets = [
+        _decision_packet_for_position(position, summary.account_id or "default")
+        for position in positions[:20]
+    ]
+    packet_by_symbol = {
+        str(pkt.get("symbol") or ""): pkt for pkt in decision_packets if pkt.get("symbol")
+    }
+    recommendations = []
+    for position, score_rec in zip(positions, score_interpretations):
+        packet = packet_by_symbol.get(position.symbol)
+        if packet:
+            recommendations.append(
+                score_rec.model_copy(
+                    update={
+                        "action": packet.get("action") or score_rec.action,
+                        "explanation": (
+                            f"Decision Center outcome: {packet.get('outcome')}. "
+                            f"Score evidence: {score_rec.action}."
+                        ),
+                    }
+                )
+            )
+        else:
+            recommendations.append(score_rec)
     gemini = client or GeminiClient()
     prompt = build_portfolio_memo_prompt(
         summary=summary,
@@ -252,6 +343,17 @@ def generate_ai_portfolio_memo(
             }
             from app.services.guardrails.engine import append_compliance_disclaimer
             report = append_compliance_disclaimer(report)
+            if decision_packets:
+                report = _attach_authoritative_decision(report, decision_packets[0])
+                report["decision_packets"] = [
+                    {
+                        "symbol": pkt.get("symbol"),
+                        "decision_id": pkt.get("decision_id"),
+                        "outcome": pkt.get("outcome"),
+                        "action": pkt.get("action"),
+                    }
+                    for pkt in decision_packets
+                ]
             from app.services.governance.decision_journal import record_journal_from_ai_report
 
             record_journal_from_ai_report(
@@ -450,10 +552,10 @@ def _sanitize_ai_report(
             "evidence_ids": ["ev_rule_engine", "ev_data_quality"]
         }
         
-    if not limits["add_zone_allowed"]:
-        report["add_zone"] = None
-    else:
-        report["add_zone"] = recommendation.add_zone
+    report["human_review_required"] = True
+    # Demote score zones to evidence; Decision Packet overwrite happens after sanitize.
+    report["score_interpretation"] = recommendation.action
+    report["add_zone"] = recommendation.add_zone if limits["add_zone_allowed"] else None
     report["hold_zone"] = recommendation.hold_zone
     report["trim_review_zone"] = recommendation.trim_review_zone
     report["exit_review_trigger"] = recommendation.exit_review_trigger
@@ -478,8 +580,7 @@ def _sanitize_ai_report(
         report[field] = _normalize_evidence_text(report.get(field), context)
     for field in ("strengths", "weaknesses", "risks", "main_evidence"):
         report[field] = _normalize_evidence_list(report.get(field), context)
-    report["human_review_required"] = True
-    
+
     return append_compliance_disclaimer(report)
 
 
@@ -616,10 +717,10 @@ def generate_options_strategy_report(
         evaluate_strategy_eligibility,
         generate_mock_options_chain,
     )
-    from app.services.scoring.decision_engine import build_recommendation
-
     gemini = client or GeminiClient()
-    rec = build_recommendation(position)
+    score_rec = build_recommendation(position)
+    packet = _decision_packet_for_position(position, position.account_id or "default")
+    authoritative_action = packet.get("action") or score_rec.action
     reporting_currency = (account_currency or settings.default_reporting_currency).upper()
     
     # 1. Determine data source and fetch chain
@@ -731,15 +832,18 @@ def generate_options_strategy_report(
                 right=atm.right,
             )
         if not settings.allow_mock_options_strategy and is_demo:
-            return _fallback_options_report(
-                position.symbol,
-                position.market_price,
-                "Gemini API key is not configured.",
-                is_live_portfolio,
-                is_live_market,
-                is_mock_fallback,
+            return _attach_authoritative_decision(
+                _fallback_options_report(
+                    position.symbol,
+                    position.market_price,
+                    "Gemini API key is not configured.",
+                    is_live_portfolio,
+                    is_live_market,
+                    is_mock_fallback,
+                ),
+                packet,
             )
-        return deterministic
+        return _attach_authoritative_decision(deterministic, packet)
 
     # 2. Build the LLM prompt using prevalidated candidates
     from app.services.options.contract_filters import OptionLiquidityPolicy
@@ -766,7 +870,7 @@ def generate_options_strategy_report(
         symbol=position.symbol,
         current_price=position.market_price,
         trend=trend_str,
-        action=rec.action,
+        action=authoritative_action,
         options_chain=chain_dict,
         options_candidates=candidates,
     )
@@ -959,7 +1063,8 @@ def generate_options_strategy_report(
                 volatility=atm_iv,
                 right=atm_contract.right,
             )
-        return {
+        return _attach_authoritative_decision(
+            {
             "symbol": position.symbol,
             "stock_price": position.market_price,
             "implied_volatility": 0.30 if is_demo else atm_iv,
@@ -976,6 +1081,7 @@ def generate_options_strategy_report(
             "isMock": is_demo,
             "quoteDelaySeconds": None if is_demo else None,
             "warnings": warnings,
+            "score_interpretation": score_rec.action,
             "provenance": {
                 "live_portfolio_data": is_live_portfolio,
                 "live_market_data": is_live_market,
@@ -985,7 +1091,9 @@ def generate_options_strategy_report(
                 "options_chain_source": chain_source if not is_demo else "Mock",
                 "quantlib_benchmark": quantlib_check,
             }
-        }
+        },
+            packet,
+        )
     except Exception as exc:
         if not is_demo:
             from fastapi import HTTPException

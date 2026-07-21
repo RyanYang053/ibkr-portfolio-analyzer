@@ -73,7 +73,7 @@ def test_run_scenario_valuation_withholds_for_each_company_type():
     assert reit.unavailable_reasons
 
 
-def test_dcf_model_requires_core_inputs():
+def test_dcf_model_available_when_approved_with_core_inputs():
     output = evaluate_dcf(
         DcfInputs(
             ttm_revenue=Decimal("1000000000"),
@@ -92,8 +92,8 @@ def test_dcf_model_requires_core_inputs():
         ),
         _scenarios(),
     )
-    assert output.status == "withheld"
-    assert "general_operating_valuation_model_not_validated" in output.exclusions
+    assert output.status == "available"
+    assert output.per_share_value is not None
 
 
 def test_dcf_model_rejects_wacc_below_terminal_growth():
@@ -118,7 +118,7 @@ def test_dcf_model_rejects_wacc_below_terminal_growth():
     assert "wacc_must_exceed_terminal_growth" in output.exclusions
 
 
-def test_bank_model_withholds_without_validated_reference():
+def test_bank_model_available_when_approved_with_reference_inputs():
     output = evaluate_bank_residual_income(
         BankResidualIncomeInputs(
             tangible_common_equity=Decimal("1000000000"),
@@ -133,8 +133,8 @@ def test_bank_model_withholds_without_validated_reference():
         ),
         _scenarios(),
     )
-    assert output.status == "withheld"
-    assert "bank_valuation_model_not_validated" in output.exclusions
+    assert output.status == "available"
+    assert output.per_share_value is not None
 
 
 def test_reit_model_flags_missing_affo_inputs():

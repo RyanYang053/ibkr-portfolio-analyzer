@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from typing import Callable, Deque, Optional
 
@@ -18,6 +18,14 @@ class _OpenLot:
     acquired_date: date
     currency: str
     con_id: int | None
+
+
+@dataclass
+class _PendingWashLoss:
+    sale_date: date
+    remaining_disallowed: float
+    remaining_quantity: float
+    realized_index: int
 
 
 def _lot_key(txn: Transaction) -> tuple[str, int | None]:
@@ -57,10 +65,26 @@ def _is_long_term(acquired: date, sold: date) -> bool:
     return sold > anniversary
 
 
-def _is_wash_sale(acquired: date, sold: date, repurchase_dates: list[date], window_days: int = 30) -> bool:
+def _acquisitions_in_window(
+    acquisitions: list[tuple[date, float]],
+    sold: date,
+    *,
+    exclude_dates: set[date],
+    window_days: int,
+) -> list[tuple[date, float]]:
     start = sold - timedelta(days=window_days)
     end = sold + timedelta(days=window_days)
-    return any(start <= repurchase <= end for repurchase in repurchase_dates if repurchase != sold)
+    return [
+        (acq_date, qty)
+        for acq_date, qty in acquisitions
+        if start <= acq_date <= end and acq_date not in exclude_dates
+    ]
+
+
+def _apply_basis_increase(lot: _OpenLot, disallowed: float, quantity: float) -> None:
+    if quantity <= 1e-12 or disallowed <= 0:
+        return
+    lot.cost_basis_per_share += disallowed / quantity
 
 
 def build_us_tax_lot_report(
@@ -76,9 +100,12 @@ def build_us_tax_lot_report(
 ) -> TaxAttributionReport:
     open_lots: dict[tuple[str, int | None], Deque[_OpenLot]] = defaultdict(deque)
     realized: list[RealizedTaxLot] = []
-    repurchase_dates: dict[tuple[str, int | None], list[date]] = defaultdict(list)
+    acquisitions: dict[tuple[str, int | None], list[tuple[date, float]]] = defaultdict(list)
+    pending_wash: dict[tuple[str, int | None], list[_PendingWashLoss]] = defaultdict(list)
     fx_status: str | None = None
     methodology_status = "experimental"
+    wash_sale_adjustments = 0
+    wash_sales_fully_adjusted = True
 
     ordered = sorted(
         (txn for txn in transactions if period_end is None or txn.trade_date <= period_end),
@@ -107,11 +134,57 @@ def build_us_tax_lot_report(
                 continue
             if status:
                 fx_status = status
-            repurchase_dates[key].append(txn.trade_date)
+            buy_qty = abs(txn.quantity)
+            cost_basis = converted
+            # IRS §1091: add previously disallowed wash-sale loss into replacement basis.
+            remaining_buy_qty = buy_qty
+            deferred_into_buy = 0.0
+            still_pending: list[_PendingWashLoss] = []
+            for pending in pending_wash[key]:
+                if remaining_buy_qty <= 1e-12:
+                    still_pending.append(pending)
+                    continue
+                if abs((txn.trade_date - pending.sale_date).days) > wash_sale_window_days:
+                    still_pending.append(pending)
+                    wash_sales_fully_adjusted = False
+                    continue
+                matched_qty = min(remaining_buy_qty, pending.remaining_quantity)
+                share = matched_qty / pending.remaining_quantity if pending.remaining_quantity > 1e-12 else 0.0
+                disallowed = pending.remaining_disallowed * share
+                deferred_into_buy += disallowed
+                remaining_buy_qty -= matched_qty
+                pending.remaining_disallowed -= disallowed
+                pending.remaining_quantity -= matched_qty
+                wash_sale_adjustments += 1
+                if pending.realized_index < len(realized):
+                    prior = realized[pending.realized_index]
+                    new_total = round((prior.tax_realized_gain_loss or 0.0) + disallowed, 2)
+                    new_st = prior.short_term_gain_loss
+                    new_lt = prior.long_term_gain_loss
+                    if (prior.short_term_gain_loss or 0.0) < 0:
+                        new_st = round((prior.short_term_gain_loss or 0.0) + disallowed, 2)
+                    elif (prior.long_term_gain_loss or 0.0) < 0:
+                        new_lt = round((prior.long_term_gain_loss or 0.0) + disallowed, 2)
+                    realized[pending.realized_index] = replace(
+                        prior,
+                        tax_realized_gain_loss=new_total,
+                        short_term_gain_loss=new_st,
+                        long_term_gain_loss=new_lt,
+                        wash_sale_disallowed_loss=round(
+                            (prior.wash_sale_disallowed_loss or 0.0) + disallowed, 2
+                        ),
+                        methodology_status="wash_sale_adjusted",
+                    )
+                if pending.remaining_quantity > 1e-9 and pending.remaining_disallowed > 1e-9:
+                    still_pending.append(pending)
+            pending_wash[key] = still_pending
+            if deferred_into_buy > 0 and buy_qty > 0:
+                cost_basis += deferred_into_buy / buy_qty
+            acquisitions[key].append((txn.trade_date, buy_qty))
             open_lots[key].append(
                 _OpenLot(
-                    quantity=abs(txn.quantity),
-                    cost_basis_per_share=converted,
+                    quantity=buy_qty,
+                    cost_basis_per_share=cost_basis,
                     acquired_date=txn.trade_date,
                     currency=reporting_currency.upper(),
                     con_id=txn.con_id,
@@ -143,19 +216,46 @@ def build_us_tax_lot_report(
         long_term = 0.0
         matched_qty = 0.0
         max_holding_days = 0
+        disallowed_total = 0.0
         wash_sale_blocked = False
+        sold_acquired_dates: set[date] = set()
 
         while remaining > 1e-9 and open_lots[key]:
-            lot = open_lots[key][0] if lot_method == TaxLotMethod.FIFO else open_lots[key][-1]
+            if lot_method == TaxLotMethod.LIFO:
+                lot = open_lots[key][-1]
+            elif lot_method == TaxLotMethod.HIFO:
+                lot = max(open_lots[key], key=lambda item: item.cost_basis_per_share)
+            else:
+                lot = open_lots[key][0]
             matched = min(remaining, lot.quantity)
             cost = matched * lot.cost_basis_per_share
             proceeds = matched * proceeds_per_share
             gain = proceeds - cost
             holding_days = (txn.trade_date - lot.acquired_date).days
             max_holding_days = max(max_holding_days, holding_days)
-            if _is_wash_sale(lot.acquired_date, txn.trade_date, repurchase_dates[key], wash_sale_window_days):
-                wash_sale_blocked = True
+            sold_acquired_dates.add(lot.acquired_date)
+
+            # Pre-sale replacement purchases in the wash window (exclude this lot's acquisition).
+            prior_replacements = _acquisitions_in_window(
+                acquisitions[key],
+                txn.trade_date,
+                exclude_dates={lot.acquired_date},
+                window_days=wash_sale_window_days,
+            )
+            if gain < 0 and prior_replacements:
+                disallowed = -gain
                 gain = 0.0
+                disallowed_total += disallowed
+                wash_sale_blocked = True
+                wash_sale_adjustments += 1
+                # Prefer adding disallowed loss into still-open replacement lots.
+                for open_lot in list(open_lots[key]):
+                    if open_lot.acquired_date == lot.acquired_date:
+                        continue
+                    if abs((open_lot.acquired_date - txn.trade_date).days) <= wash_sale_window_days:
+                        _apply_basis_increase(open_lot, disallowed, open_lot.quantity)
+                        break
+
             if _is_long_term(lot.acquired_date, txn.trade_date):
                 long_term += gain
             else:
@@ -166,16 +266,38 @@ def build_us_tax_lot_report(
             lot.quantity -= matched
             remaining -= matched
             if lot.quantity <= 1e-9:
-                if lot_method == TaxLotMethod.FIFO:
-                    open_lots[key].popleft()
-                else:
+                if lot_method == TaxLotMethod.LIFO:
                     open_lots[key].pop()
+                elif lot_method == TaxLotMethod.HIFO:
+                    open_lots[key].remove(lot)
+                else:
+                    open_lots[key].popleft()
 
         if emit_realized:
+            realized_index = len(realized)
+            economic_loss = round(total_proceeds - total_cost, 2)
+            reported_gl = round(short_term + long_term, 2)
+            # If loss remains and no prior replacement, defer until a post-sale repurchase (§1091).
+            unreplaced_loss = 0.0
+            if reported_gl < 0 and not wash_sale_blocked:
+                # May still wash on later repurchase within window.
+                unreplaced_loss = -reported_gl
+                pending_wash[key].append(
+                    _PendingWashLoss(
+                        sale_date=txn.trade_date,
+                        remaining_disallowed=unreplaced_loss,
+                        remaining_quantity=matched_qty,
+                        realized_index=realized_index,
+                    )
+                )
+            elif wash_sale_blocked and disallowed_total > 0 and matched_qty > 0:
+                # Already adjusted into open lots when possible; track residual.
+                pass
+
             realized.append(
                 RealizedTaxLot(
                     symbol=txn.symbol.upper(),
-                    tax_realized_gain_loss=round(total_proceeds - total_cost, 2),
+                    tax_realized_gain_loss=reported_gl,
                     short_term_gain_loss=round(short_term, 2),
                     long_term_gain_loss=round(long_term, 2),
                     quantity_sold=round(matched_qty, 6),
@@ -186,8 +308,21 @@ def build_us_tax_lot_report(
                     method=lot_method,
                     jurisdiction="US",
                     methodology_status="wash_sale_adjusted" if wash_sale_blocked else methodology_status,
+                    wash_sale_disallowed_loss=round(disallowed_total, 2),
                 )
             )
+            _ = economic_loss, sold_acquired_dates
+
+    # Pending wash losses still inside the observation window without a replacement
+    # mean the wash outcome is not yet fully known.
+    for pending_list in pending_wash.values():
+        for pending in pending_list:
+            if pending.remaining_disallowed <= 1e-9:
+                continue
+            last_date = max((txn.trade_date for txn in ordered), default=pending.sale_date)
+            if (last_date - pending.sale_date).days <= wash_sale_window_days:
+                wash_sales_fully_adjusted = False
+            # Else: window elapsed with no replacement — loss stands (no wash).
 
     open_rows = [
         TaxLotSnapshot(
@@ -220,6 +355,11 @@ def build_us_tax_lot_report(
         status = "missing"
         total = None
 
+    # Pending wash losses that were later adjusted via repurchase: zero remaining economic loss.
+    # Recompute totals after in-place replacements above.
+    if total is not None:
+        total = round(sum(item.tax_realized_gain_loss or 0.0 for item in realized), 2)
+
     return TaxAttributionReport(
         account_id=account_id,
         jurisdiction="US",
@@ -237,11 +377,14 @@ def build_us_tax_lot_report(
             "tax_lot_method": lot_method.value,
             "tax_labeling_jurisdiction": "US",
             "tax_compliance_status": methodology_status,
+            "wash_sale_adjustments": str(wash_sale_adjustments),
+            "wash_sales_fully_adjusted": "true" if wash_sales_fully_adjusted else "false",
             **({"fx_conversion": fx_status} if fx_status else {}),
         },
         methodology=(
-            "US tax-lot output supports FIFO/specific identification with wash-sale blocking. "
-            "Output remains decision support until reconciled to broker tax forms."
+            "US tax-lot output supports FIFO/LIFO/HIFO/specific identification with IRS §1091 "
+            "wash-sale loss deferral into replacement cost basis. "
+            "Output remains a filing worksheet until reconciled to broker tax forms."
         ),
         period_start=period_start,
         period_end=period_end,

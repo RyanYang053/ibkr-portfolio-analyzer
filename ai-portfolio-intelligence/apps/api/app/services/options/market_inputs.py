@@ -283,12 +283,62 @@ def reprice_option_scenario(
         )
 
     if exercise_style.lower() == "american":
+        try:
+            from app.services.model_governance import MethodologyNotApproved, require_methodology_status
+            from app.services.options.american_pricer import try_price_american
+
+            require_methodology_status("options_american_pricer")
+        except MethodologyNotApproved:
+            return OptionScenarioReprice(
+                None,
+                "withheld",
+                ["american_exercise_not_supported", "options_american_pricer_not_approved"],
+                "American exercise withheld; options_american_pricer not approved_for_personal_use",
+                methodology_status="withheld",
+            )
+        except Exception:
+            return OptionScenarioReprice(
+                None,
+                "withheld",
+                ["american_exercise_not_supported"],
+                "American exercise withheld; European Black-Scholes must not be used as a substitute",
+                methodology_status="withheld",
+            )
+
+        days = max((contract.expiration - date.today()).days - days_forward, 1)
+        shocked_spot = underlying_spot * (1.0 + spot_shock_pct / 100.0)
+        shocked_vol = max(implied_volatility + volatility_shock_points, 0.01)
+        right = "call" if str(contract.right).upper().startswith("C") else "put"
+        repriced, am_exclusions = try_price_american(
+            shocked_spot,
+            contract.strike,
+            days / 365.0,
+            risk_free_curve,
+            dividend_curve,
+            shocked_vol,
+            steps=100,
+            option_type=right,
+        )
+        if repriced is None:
+            return OptionScenarioReprice(
+                None,
+                "withheld",
+                exclusions + am_exclusions,
+                "American CRR pricer withheld on invalid inputs",
+                methodology_status="withheld",
+            )
+        fx = float(fx_rate) if fx_rate and fx_rate > 0 else 1.0
+        loss = float(quantity) * contract.multiplier * (repriced - current_option_mark) * fx
         return OptionScenarioReprice(
-            None,
-            "withheld",
-            ["american_exercise_not_supported"],
-            "American exercise withheld; European Black-Scholes must not be used as a substitute",
-            methodology_status="withheld",
+            loss,
+            "available",
+            exclusions,
+            (
+                "American CRR binomial repricing (options_american_pricer). "
+                "IBKR portfolio-margin engines are not claimed here."
+            ),
+            repriced_mark=repriced,
+            methodology_status="approved_for_personal_use",
         )
 
     days = max((contract.expiration - date.today()).days - days_forward, 1)

@@ -278,3 +278,83 @@ export type OptionsStrategyReport = {
 };
 
 
+export type DecisionOutcome =
+  | "data_insufficient"
+  | "monitor"
+  | "review_thesis"
+  | "review_add"
+  | "review_trim"
+  | "review_exit";
+
+export type DecisionGateResult = {
+  gate_id: string;
+  passed: boolean;
+  terminal?: boolean;
+  severity?: string;
+  status?: string;
+  blockers?: string[];
+  details?: Record<string, unknown>;
+};
+
+export type DecisionPacket = {
+  schema_version?: string;
+  decision_id: string;
+  account_id: string;
+  instrument_key: string;
+  symbol: string;
+  as_of?: string;
+  evidence_cutoff?: string;
+  outcome: DecisionOutcome | string;
+  candidate_outcome?: DecisionOutcome | string;
+  previous_outcome?: DecisionOutcome | string | null;
+  outcome_changed?: boolean;
+  change_reason_codes?: string[];
+  priority?: string;
+  confidence_status?: string;
+  implementation_status?: string;
+  gates?: DecisionGateResult[];
+  evidence?: Array<{
+    evidence_id?: string;
+    evidence_type?: string;
+    provider?: string;
+    quality_status?: string;
+    provisional?: boolean;
+  }>;
+  scenarios?: Array<{
+    scenario_id?: string;
+    scenario_type?: string;
+    proposed_weight_percent?: number | null;
+    implementation_ready?: boolean;
+    blockers?: string[];
+  }>;
+  blockers?: string[];
+  action?: string | null;
+  valuation_status?: string;
+  order_generated?: boolean;
+  requires_user_confirmation?: boolean;
+  next_review_date?: string | null;
+  user_responses?: Array<Record<string, unknown>>;
+  authoritative_outcome?: string;
+  packet_digest?: string;
+};
+
+export type DecisionQueueItem = {
+  decision_id: string;
+  instrument_key: string;
+  symbol: string;
+  outcome: string;
+  previous_outcome?: string | null;
+  priority?: string;
+  confidence_status?: string;
+  implementation_status?: string;
+  blockers?: string[];
+  gates_failed?: string[];
+  order_generated?: boolean;
+};
+
+export type DecisionQueueResponse = {
+  account_id: string;
+  queue: DecisionQueueItem[];
+  count: number;
+  order_generated?: boolean;
+};

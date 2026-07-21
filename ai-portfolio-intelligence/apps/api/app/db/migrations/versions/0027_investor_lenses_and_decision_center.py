@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
+
+from app.db.migration_types import json_document_type
 
 revision = "0027_investor_lenses_decision"
 down_revision = "0026_sec_gate_audit"
@@ -24,7 +25,7 @@ def upgrade() -> None:
         sa.Column("instrument_key", sa.String(length=128), nullable=False),
         sa.Column("current_version", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("payload_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("payload_json", json_document_type(), nullable=True),
         sa.UniqueConstraint("account_id", "instrument_key", name="uq_holding_theses_account_instrument"),
     )
     op.create_table(
@@ -36,7 +37,7 @@ def upgrade() -> None:
         sa.Column("thesis_text", sa.Text(), nullable=False),
         sa.Column("author", sa.String(length=128), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("payload_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("payload_json", json_document_type(), nullable=True),
         sa.UniqueConstraint(
             "account_id",
             "instrument_key",
@@ -64,7 +65,7 @@ def upgrade() -> None:
         sa.Column("as_of", sa.Date(), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("score", sa.Float(), nullable=True),
-        sa.Column("payload_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("payload_json", json_document_type(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index(
@@ -78,7 +79,7 @@ def upgrade() -> None:
         sa.Column("account_id", sa.String(length=64), nullable=False),
         sa.Column("instrument_key", sa.String(length=128), nullable=False),
         sa.Column("action", sa.String(length=64), nullable=False),
-        sa.Column("payload_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("payload_json", json_document_type(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_table(
@@ -90,7 +91,7 @@ def upgrade() -> None:
         sa.Column("rule_type", sa.String(length=64), nullable=False),
         sa.Column("threshold", sa.Float(), nullable=True),
         sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("payload_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("payload_json", json_document_type(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
 

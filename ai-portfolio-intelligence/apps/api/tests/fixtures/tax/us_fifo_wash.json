@@ -1,0 +1,43 @@
+{
+  "methodology_id": "tax_lot_methodology",
+  "jurisdiction": "US",
+  "method": "fifo",
+  "transactions": [
+    {
+      "account_id": "GOLDEN-US",
+      "symbol": "AAPL",
+      "trade_date": "2024-01-01",
+      "action": "buy",
+      "quantity": 100,
+      "price": 100,
+      "commission": 0,
+      "currency": "USD"
+    },
+    {
+      "account_id": "GOLDEN-US",
+      "symbol": "AAPL",
+      "trade_date": "2024-06-01",
+      "action": "sell",
+      "quantity": 100,
+      "price": 90,
+      "commission": 0,
+      "currency": "USD"
+    },
+    {
+      "account_id": "GOLDEN-US",
+      "symbol": "AAPL",
+      "trade_date": "2024-06-15",
+      "action": "buy",
+      "quantity": 100,
+      "price": 92,
+      "commission": 0,
+      "currency": "USD"
+    }
+  ],
+  "expected": {
+    "realized_gain_loss": 0.0,
+    "wash_sale_disallowed_loss": 1000.0,
+    "replacement_cost_basis_per_share": 102.0,
+    "tol_abs": 0.01
+  }
+}

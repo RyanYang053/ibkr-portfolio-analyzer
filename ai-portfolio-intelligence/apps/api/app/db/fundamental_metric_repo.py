@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.db.sql_dialect import json_cast
 from app.db.state_store import postgres_available
 
 
@@ -49,14 +50,14 @@ def persist_fundamental_metric_observation(
     with SessionLocal() as session:
         session.execute(
             text(
-                """
+                f"""
                 INSERT INTO fundamental_metric_observations (
                     symbol, metric, as_of_date, period_start, period_end,
                     value, unit, derivation, source_observation_ids,
                     source_hash, calculation_version, created_at
                 ) VALUES (
                     :symbol, :metric, :as_of_date, :period_start, :period_end,
-                    :value, :unit, :derivation, CAST(:source_observation_ids AS jsonb),
+                    :value, :unit, :derivation, {json_cast("source_observation_ids")},
                     :source_hash, :calculation_version, :created_at
                 )
                 """

@@ -1,0 +1,36 @@
+{
+  "model_id": "general_operating_dcf",
+  "inputs": {
+    "ttm_revenue": "1000000000",
+    "operating_margin": "0.20",
+    "tax_rate": "0.21",
+    "depreciation_amortization": "50000000",
+    "capex": "40000000",
+    "working_capital_change": "10000000",
+    "net_debt": "200000000",
+    "diluted_share_count": "100000000",
+    "wacc": "0.10",
+    "terminal_growth": "0.03",
+    "currency": "USD",
+    "as_of": "2025-12-31",
+    "source_ids": ["golden_fixture"]
+  },
+  "scenarios": [
+    {
+      "name": "base",
+      "assumptions": {"revenue_growth": "0.05", "terminal_growth": "0.03"}
+    },
+    {
+      "name": "bull",
+      "assumptions": {"revenue_growth": "0.08", "terminal_growth": "0.04"}
+    },
+    {
+      "name": "bear",
+      "assumptions": {"revenue_growth": "0.02", "terminal_growth": "0.02"}
+    }
+  ],
+  "expected": {
+    "base_per_share": 23.31,
+    "tol_rel": 0.02
+  }
+}

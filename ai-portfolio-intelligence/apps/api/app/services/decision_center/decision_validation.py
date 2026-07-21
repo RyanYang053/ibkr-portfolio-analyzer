@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 
+from app.core.product_contract import (
+    ACTION_LABEL_TO_OUTCOME,
+    DecisionOutcome,
+    HUMAN_REVIEW_REQUIRED,
+    ORDER_GENERATED_DEFAULT,
+)
 from app.core.product_scope import DECISION_DISCLAIMER
 
+# Re-export for existing imports.
+__all__ = [
+    "DecisionOutcome",
+    "DecisionEvidence",
+    "PersonalDecisionSupport",
+    "ACTION_TO_OUTCOME",
+    "to_personal_decision_support",
+]
 
-class DecisionOutcome(StrEnum):
-    MONITOR = "monitor"
-    REVIEW_ADD = "review_add"
-    REVIEW_REDUCE = "review_reduce"
-    REVIEW_EXIT = "review_exit"
-    THESIS_STRENGTHENING = "thesis_strengthening"
-    THESIS_WEAKENING = "thesis_weakening"
-    WITHHELD = "withheld"
+ACTION_TO_OUTCOME = ACTION_LABEL_TO_OUTCOME
 
 
 @dataclass(frozen=True)
@@ -42,16 +48,6 @@ class PersonalDecisionSupport:
             raise ValueError("Personal decision support always requires user confirmation")
 
 
-ACTION_TO_OUTCOME: dict[str, DecisionOutcome] = {
-    "No action": DecisionOutcome.MONITOR,
-    "Review add": DecisionOutcome.REVIEW_ADD,
-    "Review trim": DecisionOutcome.REVIEW_REDUCE,
-    "Review exit": DecisionOutcome.REVIEW_EXIT,
-    "Review thesis": DecisionOutcome.THESIS_WEAKENING,
-    "Data insufficient": DecisionOutcome.WITHHELD,
-}
-
-
 def to_personal_decision_support(
     *,
     action: str,
@@ -60,13 +56,13 @@ def to_personal_decision_support(
     blockers: tuple[str, ...] = (),
     scenario_only: bool = False,
 ) -> PersonalDecisionSupport:
-    outcome = ACTION_TO_OUTCOME.get(action, DecisionOutcome.WITHHELD)
+    outcome = ACTION_TO_OUTCOME.get(action, DecisionOutcome.DATA_INSUFFICIENT)
     return PersonalDecisionSupport(
         outcome=outcome,
         evidence=evidence,
         assumptions=assumptions,
         blockers=blockers,
         scenario_only=scenario_only,
-        requires_user_confirmation=True,
-        order_generated=False,
+        requires_user_confirmation=HUMAN_REVIEW_REQUIRED,
+        order_generated=ORDER_GENERATED_DEFAULT,
     )

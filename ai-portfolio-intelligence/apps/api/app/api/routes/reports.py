@@ -10,7 +10,6 @@ from app.services.ai.report_generator import generate_daily_portfolio_memo
 from app.services.broker.base import BrokerAdapter
 from app.services.data_quality.validation import validate_and_gate_snapshot
 from app.services.risk.portfolio_risk import analyze_portfolio_risk
-from app.services.scoring.decision_engine import build_recommendation
 from app.services.tenant_scope import tenant_user_id
 
 router = APIRouter(
@@ -145,10 +144,20 @@ def stock_report(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    _summary, positions = _data(adapter, account_id, principal)
+    summary, positions = _data(adapter, account_id, principal)
     for position in positions:
         if position.symbol == symbol.upper():
-            return {"symbol": symbol.upper(), "recommendation": build_recommendation(position)}
+            from app.services.ai.report_generator import _attach_authoritative_decision, _decision_packet_for_position
+            from app.services.scoring.decision_engine import build_recommendation
+
+            packet = _decision_packet_for_position(position, summary.account_id or "default")
+            score_evidence = build_recommendation(position).model_dump()
+            payload = {
+                "symbol": symbol.upper(),
+                "score_interpretation": score_evidence,
+                "order_generated": False,
+            }
+            return _attach_authoritative_decision(payload, packet)
     return {"status": "not_found"}
 
 

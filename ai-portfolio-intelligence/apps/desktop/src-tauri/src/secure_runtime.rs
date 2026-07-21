@@ -27,9 +27,18 @@ pub fn create_runtime() -> Result<DesktopRuntime, Box<dyn std::error::Error>> {
 }
 
 pub fn build_runtime_injection(runtime: &DesktopRuntime) -> String {
+    // Persist into sessionStorage so full-page MPA navigations can restore the
+    // loopback API base before React mounts (avoids "Starting local API…" flash).
     format!(
         r#"{{"apiBaseUrl":"http://{}:{}","sessionToken":"{}"}}"#,
         runtime.host, runtime.port, runtime.session_token
+    )
+}
+
+pub fn build_initialization_script(runtime: &DesktopRuntime) -> String {
+    let injection = build_runtime_injection(runtime);
+    format!(
+        r#"(function(){{var r={injection};Object.defineProperty(window,'__DESKTOP_RUNTIME__',{{value:r,writable:false,configurable:true}});try{{sessionStorage.setItem('__DESKTOP_RUNTIME__',JSON.stringify(r));}}catch(e){{}}}})();"#
     )
 }
 

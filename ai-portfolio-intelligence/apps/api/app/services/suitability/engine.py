@@ -98,13 +98,18 @@ def check_recommendation_suitability(profile: InvestorProfile, rec: Recommendati
     """Verify if a recommendation aligns with suitability policy."""
     warnings = []
     
-    if rec.action in ("Strong Add", "Add"):
+    if rec.action in (
+        "Strong Add",
+        "Add",
+        "High heuristic score",
+        "Supportive score",
+    ):
         # Check if the symbol is in restrictions
         if rec.symbol in profile.restrictions:
-            warnings.append(f"Adding {rec.symbol} violates explicit investment restriction list.")
+            warnings.append(f"High-score interpretation for {rec.symbol} conflicts with restriction list.")
         
         # Low risk profile filter
-        if profile.risk_tolerance == "Low" and rec.score < 50:
-            warnings.append(f"Adding lower-scored asset {rec.symbol} is unsuitable for low risk tolerance.")
+        if profile.risk_tolerance == "Low" and rec.score is not None and rec.score < 50:
+            warnings.append(f"Lower-scored asset {rec.symbol} may be unsuitable for low risk tolerance.")
             
     return warnings

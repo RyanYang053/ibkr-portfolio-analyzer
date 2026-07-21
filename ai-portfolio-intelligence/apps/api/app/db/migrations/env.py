@@ -28,7 +28,7 @@ def _ensure_alembic_version_table(connection) -> None:
                 ")"
             )
         )
-    else:
+    elif connection.dialect.name == "postgresql":
         connection.execute(
             text("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)")
         )

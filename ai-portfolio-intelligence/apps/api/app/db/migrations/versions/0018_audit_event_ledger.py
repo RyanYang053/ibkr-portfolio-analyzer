@@ -6,7 +6,14 @@ Create Date: 2026-07-10
 """
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
+
+from app.db.migration_types import (
+    inet_column_type,
+    json_document_type,
+    json_server_default_empty_object,
+    uuid_column_type,
+    uuid_server_default,
+)
 
 revision = "0018_audit_event_ledger"
 down_revision = "0017_edgar_fact_lineage"
@@ -17,7 +24,7 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "audit_events",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("actor_type", sa.String(length=32), nullable=False),
         sa.Column("actor_id", sa.String(length=320), nullable=False),
@@ -26,12 +33,17 @@ def upgrade() -> None:
         sa.Column("action", sa.String(length=128), nullable=False),
         sa.Column("object_type", sa.String(length=64), nullable=False),
         sa.Column("object_id", sa.String(length=256), nullable=True),
-        sa.Column("request_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("source_ip", postgresql.INET(), nullable=True),
+        sa.Column("request_id", uuid_column_type(), nullable=True),
+        sa.Column("source_ip", inet_column_type(), nullable=True),
         sa.Column("outcome", sa.String(length=32), nullable=False),
-        sa.Column("before_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("after_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("metadata_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column("before_json", json_document_type(), nullable=True),
+        sa.Column("after_json", json_document_type(), nullable=True),
+        sa.Column(
+            "metadata_json",
+            json_document_type(),
+            nullable=False,
+            server_default=json_server_default_empty_object(),
+        ),
     )
     op.create_index("ix_audit_events_occurred_at", "audit_events", ["occurred_at"])
     op.create_index("ix_audit_events_tenant_id", "audit_events", ["tenant_id"])

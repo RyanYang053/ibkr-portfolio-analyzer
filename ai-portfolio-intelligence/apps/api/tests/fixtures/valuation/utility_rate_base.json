@@ -1,0 +1,32 @@
+{
+  "model_id": "utility_rate_base",
+  "inputs": {
+    "rate_base": "20000000000",
+    "allowed_roe": "0.095",
+    "equity_capitalization": "0.45",
+    "regulatory_lag_years": "0.5",
+    "capex": "1500000000",
+    "debt_financing": "800000000",
+    "debt_cost": "0.045",
+    "payout_ratio": "0.65",
+    "share_count": "500000000",
+    "currency": "USD",
+    "as_of": "2025-12-31",
+    "source_ids": ["golden_fixture"]
+  },
+  "scenarios": [
+    {"name": "base", "assumptions": {}},
+    {
+      "name": "bull",
+      "assumptions": {"allowed_roe": "0.10", "payout_ratio": "0.70"}
+    },
+    {
+      "name": "bear",
+      "assumptions": {"allowed_roe": "0.09", "payout_ratio": "0.60"}
+    }
+  ],
+  "expected": {
+    "per_share": 18.29925,
+    "tol_rel": 0.02
+  }
+}

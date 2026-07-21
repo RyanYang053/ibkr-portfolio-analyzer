@@ -10,6 +10,7 @@ import { TargetPolicyForm } from "@/components/TargetPolicyForm";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { getAIStatus, getBrokerStatus, getScheduleSettings } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { useState } from "react";
 
 const DESKTOP_MODE = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local";
 
@@ -93,12 +94,120 @@ export default function SettingsPage() {
       </section>
 
       <section className="rounded-md border border-line bg-white p-4">
+        <h3 className="text-lg font-semibold">Desktop backup</h3>
+        <p className="mt-2 text-sm text-zinc-700">
+          Create a local zip backup of personal state. Optional passphrase writes an encrypted PAEB1
+          envelope. Flex tokens stay in the OS keychain and are not included.
+        </p>
+        <DesktopBackupPanel />
+      </section>
+
+      <section className="rounded-md border border-line bg-white p-4">
         <h3 className="text-lg font-semibold">No-Trading Policy Acknowledgement</h3>
         <p className="mt-2 text-sm text-zinc-700">
           This product is a read-only portfolio analyst. It does not place, modify, cancel, route,
           schedule, or automate broker orders.
         </p>
       </section>
+    </div>
+  );
+}
+
+function DesktopBackupPanel() {
+  const [passphrase, setPassphrase] = useState("");
+  const [encryptedPath, setEncryptedPath] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function runBackup() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { createDesktopBackup, exportDesktopArchive } = await import("@/lib/api");
+      if (passphrase.trim()) {
+        const result = await createDesktopBackup(passphrase.trim());
+        const encrypted = String(result.encrypted_path || "");
+        if (encrypted) setEncryptedPath(encrypted);
+        setMessage(
+          `Backup written: ${String(result.backup_path || "")}` +
+            (encrypted ? ` · encrypted: ${encrypted}` : ""),
+        );
+      } else {
+        const result = await createDesktopBackup();
+        setMessage(`Backup written: ${String(result.backup_path || "")}`);
+      }
+      await exportDesktopArchive().catch(() => null);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Backup failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runVerify() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { verifyDesktopBackupRestore } = await import("@/lib/api");
+      if (!encryptedPath.trim() || !passphrase.trim()) {
+        setMessage("Encrypted path and passphrase are required to verify restore.");
+        return;
+      }
+      const result = await verifyDesktopBackupRestore(encryptedPath.trim(), passphrase.trim());
+      setMessage(
+        result.ok
+          ? `Verify-restore succeeded (${String(result.bytes || 0)} bytes). Live data was not overwritten.`
+          : "Verify-restore did not succeed.",
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Verify-restore failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 grid gap-2 text-sm">
+      <label className="grid gap-1">
+        <span className="text-zinc-600">Optional encryption passphrase</span>
+        <input
+          type="password"
+          className="rounded-md border border-line px-3 py-2"
+          value={passphrase}
+          onChange={(e) => setPassphrase(e.target.value)}
+          placeholder="Leave blank for zip-only backup"
+          autoComplete="new-password"
+        />
+      </label>
+      <label className="grid gap-1">
+        <span className="text-zinc-600">Encrypted backup path (for verify-restore)</span>
+        <input
+          type="text"
+          className="rounded-md border border-line px-3 py-2 font-mono text-xs"
+          value={encryptedPath}
+          onChange={(e) => setEncryptedPath(e.target.value)}
+          placeholder="/path/to/portfolio-backup-….zip.paeb1"
+        />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="w-fit rounded-md border border-line px-3 py-2 hover:bg-panel disabled:opacity-50"
+          onClick={runBackup}
+          disabled={busy}
+        >
+          {busy ? "Working…" : "Create backup"}
+        </button>
+        <button
+          type="button"
+          className="w-fit rounded-md border border-line px-3 py-2 hover:bg-panel disabled:opacity-50"
+          onClick={runVerify}
+          disabled={busy}
+        >
+          Verify restore (no overwrite)
+        </button>
+      </div>
+      {message ? <p className="text-zinc-600">{message}</p> : null}
     </div>
   );
 }

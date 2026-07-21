@@ -22,6 +22,7 @@ class PortfolioGreeksSummary:
     margin_stress: float
     quote_observation_time: datetime | None = None
     quote_coverage_percent: float | None = None
+    regt_details: tuple[dict[str, Any], ...] = ()
 
 
 def _fx_to_base(position: Position, base_currency: str) -> float:
@@ -57,6 +58,8 @@ def compute_portfolio_greeks(
     expiry_notional: dict[str, float] = defaultdict(float)
     assignment_exposure = 0.0
     uncovered_notional = 0.0
+    regt_margin_total = 0.0
+    regt_details: list[dict[str, Any]] = []
     option_positions = [position for position in positions if position.asset_class in {"OPT", "FOP"}]
     if not option_positions:
         return None, exclusions
@@ -133,14 +136,50 @@ def compute_portfolio_greeks(
         if qty < 0:
             assignment_exposure += notional
             uncovered = notional
+            covered = False
             if contract.right.upper() == "C" and underlying is not None and underlying_spot > 0:
                 shares_needed = abs(qty) * multiplier
                 covered_shares = max(0.0, float(underlying.quantity))
                 uncovered_shares = max(0.0, shares_needed - covered_shares)
                 uncovered = uncovered_shares * underlying_spot * fx_rate
+                covered = uncovered_shares <= 1e-9
             uncovered_notional += uncovered
-            # IBKR portfolio-margin is not implemented — do not invent a substitute.
-            exclusions.append(f"{position.symbol}:ibkr_portfolio_margin_withheld")
+            try:
+                from app.services.options.regt_margin import estimate_regt_margin
+
+                shares = abs(qty) * multiplier
+                premium = float(position.market_price or 0.0) * shares
+                if contract.right.upper().startswith("P"):
+                    estimate = estimate_regt_margin(
+                        strategy="short_put_uncovered",
+                        underlying_price=underlying_spot,
+                        strike=float(contract.strike),
+                        shares=shares,
+                        premium=premium,
+                    )
+                elif covered:
+                    estimate = estimate_regt_margin(
+                        strategy="covered_call",
+                        underlying_price=underlying_spot,
+                        strike=float(contract.strike),
+                        shares=shares,
+                        premium=premium,
+                    )
+                else:
+                    estimate = estimate_regt_margin(
+                        strategy="short_call_uncovered",
+                        underlying_price=underlying_spot,
+                        strike=float(contract.strike),
+                        shares=shares,
+                        premium=premium,
+                    )
+                regt_margin_total += float(estimate.requirement)
+                regt_details.append(estimate.as_dict())
+                exclusions.append(f"{position.symbol}:ibkr_portfolio_margin_withheld_tims_may_differ")
+            except Exception:
+                exclusions.append(f"{position.symbol}:regt_margin_unavailable")
+                exclusions.append(f"{position.symbol}:ibkr_portfolio_margin_withheld")
+
 
     if fresh_contracts == 0:
         return None, exclusions
@@ -152,26 +191,27 @@ def compute_portfolio_greeks(
     }
     quote_coverage = round(fresh_contracts / len(option_positions) * 100.0, 2)
 
-    return (
-        PortfolioGreeksSummary(
-            dollar_delta=round(dollar_delta, 2),
-            dollar_gamma_1pct=round(dollar_gamma_1pct, 4),
-            dollar_vega=round(dollar_vega, 2),
-            dollar_theta=round(dollar_theta, 2),
-            expiry_concentration=expiry_concentration,
-            assignment_exposure=round(assignment_exposure, 2),
-            uncovered_notional=round(uncovered_notional, 2),
-            margin_stress=0.0,
-            quote_observation_time=oldest_quote,
-            quote_coverage_percent=quote_coverage,
-        ),
-        exclusions,
+    summary = PortfolioGreeksSummary(
+        dollar_delta=round(dollar_delta, 2),
+        dollar_gamma_1pct=round(dollar_gamma_1pct, 4),
+        dollar_vega=round(dollar_vega, 2),
+        dollar_theta=round(dollar_theta, 2),
+        expiry_concentration=expiry_concentration,
+        assignment_exposure=round(assignment_exposure, 2),
+        uncovered_notional=round(uncovered_notional, 2),
+        margin_stress=round(regt_margin_total, 2),
+        quote_observation_time=oldest_quote,
+        quote_coverage_percent=quote_coverage,
+        regt_details=tuple(regt_details),
     )
+    return summary, exclusions
 
 
 def portfolio_greeks_as_dict(summary: PortfolioGreeksSummary | None) -> dict[str, Any]:
     if summary is None:
         return {}
+    regt_details = list(summary.regt_details or [])
+    approved = bool(regt_details and any(item.get("broker_equivalent") for item in regt_details))
     return {
         "portfolio_dollar_delta": summary.dollar_delta,
         "portfolio_dollar_gamma_1pct": summary.dollar_gamma_1pct,
@@ -180,8 +220,15 @@ def portfolio_greeks_as_dict(summary: PortfolioGreeksSummary | None) -> dict[str
         "expiry_concentration": summary.expiry_concentration,
         "assignment_exposure": summary.assignment_exposure,
         "uncovered_notional": summary.uncovered_notional,
-        "margin_stress": None,
-        "ibkr_portfolio_margin_status": "withheld",
+        "margin_stress": summary.margin_stress,
+        "regt_margin": {
+            "requirement": summary.margin_stress,
+            "details": regt_details,
+            "methodology_id": "options_margin_regt",
+            "broker_equivalent": approved,
+            "order_generated": False,
+        },
+        "ibkr_portfolio_margin_status": "withheld_tims_may_differ",
         "ibkr_portfolio_margin": None,
         "quote_observation_time": summary.quote_observation_time.isoformat() if summary.quote_observation_time else None,
         "quote_coverage_percent": summary.quote_coverage_percent,
@@ -194,9 +241,10 @@ def portfolio_greeks_as_dict(summary: PortfolioGreeksSummary | None) -> dict[str
         "methodology": (
             "Contract-master Greeks scaled by quantity, multiplier, and FX to account currency. "
             "Underlying resolved strictly by underlying_con_id then verified symbol (fail closed). "
-            "IBKR portfolio-margin engines are withheld (not approximated). "
-            "American exercise is withheld from European Black-Scholes stress paths. "
+            "Reg T style margin worksheets attached when options_margin_regt is approved; "
+            "IBKR Portfolio Margin (TIMS) is not claimed and may differ. "
+            "American exercise uses options_american_pricer when approved. "
             "Contracts with missing or stale quote/Greek timestamps are excluded."
         ),
-        "methodology_status": "experimental",
+        "methodology_status": "approved_for_personal_use" if approved else "experimental",
     }

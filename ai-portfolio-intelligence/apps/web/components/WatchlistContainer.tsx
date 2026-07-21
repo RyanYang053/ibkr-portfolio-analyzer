@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { AppLink as Link } from "@/components/AppLink";
 import { Plus, Trash2, Eye, TrendingUp, AlertTriangle, X, Check } from "lucide-react";
 import { addWatchlistItem, deleteWatchlistItem, getWatchlist } from "@/lib/api";
 

@@ -6,7 +6,8 @@ Create Date: 2026-07-10
 """
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
+
+from app.db.migration_types import uuid_column_type, uuid_server_default
 
 revision = "0016_position_snapshot_lineage"
 down_revision = "0015_daily_position_fx_lineage"
@@ -17,7 +18,7 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "portfolio_snapshots",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("account_id", sa.String(length=64), nullable=False),
         sa.Column("business_date", sa.Date(), nullable=False),
         sa.Column("observed_at", sa.DateTime(timezone=True), nullable=False),
@@ -38,8 +39,8 @@ def upgrade() -> None:
 
     op.create_table(
         "position_snapshot_rows",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("portfolio_snapshot_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("portfolio_snapshots.id"), nullable=False),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
+        sa.Column("portfolio_snapshot_id", uuid_column_type(), sa.ForeignKey("portfolio_snapshots.id"), nullable=False),
         sa.Column("account_id", sa.String(length=64), nullable=False),
         sa.Column("instrument_key", sa.String(length=256), nullable=False),
         sa.Column("con_id", sa.BigInteger(), nullable=True),
@@ -62,7 +63,7 @@ def upgrade() -> None:
     op.create_table(
         "calculation_run_snapshots",
         sa.Column("calculation_run_id", sa.String(length=36), sa.ForeignKey("calculation_runs.id"), primary_key=True),
-        sa.Column("portfolio_snapshot_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("portfolio_snapshots.id"), primary_key=True),
+        sa.Column("portfolio_snapshot_id", uuid_column_type(), sa.ForeignKey("portfolio_snapshots.id"), primary_key=True),
     )
     op.create_table(
         "calculation_run_transaction_batches",

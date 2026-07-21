@@ -33,11 +33,27 @@ def fetch_live_options_chain(symbol: str, current_price: float, *, max_expiratio
     if current_price <= 0:
         raise RuntimeError(f"Cannot fetch options chain without a positive underlying price for {symbol.upper()}")
 
-    url = f"https://query2.finance.yahoo.com/v7/finance/options/{symbol.upper()}"
-    response = request_with_retry(url, timeout=6.0, max_attempts=3)
-    payload = response.json()
-    result = (payload.get("optionChain", {}).get("result") or [None])[0]
+    # query2 often fails; prefer query1 then fall back.
+    last_error: Exception | None = None
+    result = None
+    url = ""
+    for host in (
+        "https://query1.finance.yahoo.com/v7/finance/options",
+        "https://query2.finance.yahoo.com/v7/finance/options",
+    ):
+        url = f"{host}/{symbol.upper()}"
+        try:
+            response = request_with_retry(url, timeout=8.0, max_attempts=3)
+            payload = response.json()
+            result = (payload.get("optionChain", {}).get("result") or [None])[0]
+            if result:
+                break
+        except Exception as exc:
+            last_error = exc
+            result = None
     if not result:
+        if last_error is not None:
+            raise RuntimeError(f"Live options chain unavailable for {symbol.upper()}") from last_error
         raise RuntimeError(f"Live options chain unavailable for {symbol.upper()}")
 
     expirations = [int(value) for value in result.get("expirationDates") or []]
@@ -48,7 +64,7 @@ def fetch_live_options_chain(symbol: str, current_price: float, *, max_expiratio
     r = 0.045
     for expiration_ts in expirations[:max_expirations]:
         detail_url = f"{url}?date={expiration_ts}"
-        detail_response = request_with_retry(detail_url, timeout=6.0, max_attempts=3)
+        detail_response = request_with_retry(detail_url, timeout=8.0, max_attempts=3)
         detail = (detail_response.json().get("optionChain", {}).get("result") or [None])[0]
         if not detail:
             continue

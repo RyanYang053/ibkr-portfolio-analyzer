@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.db.postgres_guard import require_postgres_persistence
+from app.db.sql_dialect import json_cast
 from app.db.state_store import postgres_available
 
 _CORE_DIR = __import__("os").path.dirname(__import__("os").path.abspath(__file__))
@@ -162,7 +163,7 @@ def insert_audit_event(
         event_hash = _compute_event_hash(previous_event_hash, canonical_json)
         session.execute(
             text(
-                """
+                f"""
                 INSERT INTO audit_events (
                     occurred_at,
                     actor_type,
@@ -192,9 +193,9 @@ def insert_audit_event(
                     :request_id,
                     :source_ip,
                     :outcome,
-                    CAST(:before_json AS JSONB),
-                    CAST(:after_json AS JSONB),
-                    CAST(:metadata_json AS JSONB),
+                    {json_cast("before_json")},
+                    {json_cast("after_json")},
+                    {json_cast("metadata_json")},
                     :previous_event_hash,
                     :event_hash
                 )

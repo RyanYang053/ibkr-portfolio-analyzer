@@ -48,17 +48,17 @@ export function HoldingInteractiveChart({ symbol }: { symbol: string }) {
     );
   }
 
-  // Calculate scales
+  // Calculate scales — prefer OHLC when present; fall back to close-only Yahoo bars.
   const margin = { top: 15, right: 15, bottom: 25, left: 45 };
   const width = 500;
   const height = 180;
 
-  const highs = data.map((d) => d.high);
-  const lows = data.map((d) => d.low);
+  const highs = data.map((d) => (d.high != null ? d.high : d.close));
+  const lows = data.map((d) => (d.low != null ? d.low : d.close));
 
   const minVal = Math.min(...lows) * 0.99;
   const maxVal = Math.max(...highs) * 1.01;
-  const valRange = maxVal - minVal;
+  const valRange = maxVal - minVal || 1;
 
   const getX = (index: number) => {
     return margin.left + (index / (data.length - 1)) * (width - margin.left - margin.right);

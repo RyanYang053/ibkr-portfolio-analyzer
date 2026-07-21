@@ -1,31 +1,53 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { Activity, Bell, ClipboardList, LayoutDashboard, Scale, Settings, ShieldCheck, Star, Search } from "lucide-react";
+import {
+  Activity,
+  Bell,
+  BookOpen,
+  ClipboardList,
+  HeartPulse,
+  History,
+  LayoutDashboard,
+  Scale,
+  Settings,
+  ShieldCheck,
+  Star,
+  Search,
+  Target,
+  Telescope,
+} from "lucide-react";
+import { AppLink } from "@/components/AppLink";
 import { BrokerStatusBadge } from "@/components/BrokerStatusBadge";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
+import { useAppRouter } from "@/lib/use-app-router";
 
 const items = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/decisions", label: "Decisions", icon: Scale },
+  { href: "/plan", label: "Plan", icon: Target },
+  { href: "/research", label: "Research", icon: Telescope },
+  { href: "/monitoring", label: "Monitoring", icon: HeartPulse },
   { href: "/portfolio", label: "Portfolio", icon: ClipboardList },
+  { href: "/portfolio/construction", label: "Construction", icon: BookOpen },
   { href: "/risk", label: "Risk Center", icon: ShieldCheck },
-  { href: "/decision-center", label: "Decision Center", icon: Scale },
+  { href: "/history", label: "History", icon: History },
+  { href: "/data-health", label: "Data Health", icon: Activity },
+  { href: "/methodologies", label: "Methodologies", icon: Bell },
   { href: "/watchlist", label: "Watchlist", icon: Star },
   { href: "/reports", label: "Reports", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/audit", label: "Audit", icon: Bell }
 ];
 
 export function Nav() {
   const [query, setQuery] = useState("");
-  const router = useRouter();
+  const router = useAppRouter();
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
-    router.push(`/holdings/detail?symbol=${encodeURIComponent(query.trim().toUpperCase())}`);
+    const symbol = query.trim().toUpperCase();
+    router.push(`/holdings/${encodeURIComponent(symbol)}`);
     setQuery("");
   }
 
@@ -53,10 +75,10 @@ export function Nav() {
         {items.map((item) => {
           const Icon = item.icon;
           return (
-            <Link key={item.href} className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-panel transition-colors" href={item.href}>
+            <AppLink key={item.href} className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-panel transition-colors" href={item.href}>
               <Icon size={17} aria-hidden />
               {item.label}
-            </Link>
+            </AppLink>
           );
         })}
       </nav>

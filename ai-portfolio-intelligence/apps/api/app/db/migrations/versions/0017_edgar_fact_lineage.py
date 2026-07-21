@@ -6,7 +6,8 @@ Create Date: 2026-07-10
 """
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
+
+from app.db.migration_types import uuid_column_type, uuid_server_default
 
 revision = "0017_edgar_fact_lineage"
 down_revision = "0016_position_snapshot_lineage"
@@ -17,7 +18,7 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "sec_ticker_map_cache",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("cache_key", sa.String(length=64), nullable=False),
         sa.Column("payload_json", sa.Text(), nullable=False),
         sa.Column("cached_at", sa.DateTime(timezone=True), nullable=False),
@@ -26,7 +27,7 @@ def upgrade() -> None:
 
     op.create_table(
         "sec_company_facts",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("symbol", sa.String(length=32), nullable=False),
         sa.Column("cik", sa.String(length=16), nullable=False),
         sa.Column("entity_name", sa.String(length=256), nullable=False, server_default=""),
@@ -39,7 +40,7 @@ def upgrade() -> None:
 
     op.create_table(
         "sec_fact_observations",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("symbol", sa.String(length=32), nullable=False),
         sa.Column("cik", sa.String(length=16), nullable=False),
         sa.Column("concept", sa.String(length=128), nullable=False),

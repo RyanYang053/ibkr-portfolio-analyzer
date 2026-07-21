@@ -11,17 +11,15 @@ DISCLAIMER = (
     "suggestion before making investment decisions outside the platform."
 )
 
+# Score-interpretation labels only — never authoritative Decision Center outcomes.
 ActionCategory = Literal[
-    "Strong Add",
-    "Add",
     "High heuristic score",
-    "Moderate heuristic score",
-    "Low heuristic score",
-    "Hold",
-    "Watch",
-    "Trim Review",
-    "Exit Review",
-    "Avoid",
+    "Supportive score",
+    "Mixed score",
+    "Weak score",
+    "High risk score",
+    "Moderate heuristic score",  # legacy alias
+    "Low heuristic score",  # legacy alias
     "Data Insufficient",
 ]
 

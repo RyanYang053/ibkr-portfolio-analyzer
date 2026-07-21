@@ -33,7 +33,8 @@ export function OptionsStrategyDashboard({ initialData, symbol, accountId, conId
         }
       } catch (err: any) {
         if (active) {
-          setError(err.message || "An error occurred");
+          const { formatApiError } = await import("@/lib/api");
+          setError(formatApiError(err) || err?.message || "An error occurred");
           setLoading(false);
         }
       }
@@ -93,7 +94,8 @@ export function OptionsStrategyDashboard({ initialData, symbol, accountId, conId
         <AlertTriangle className="h-8 w-8 text-zinc-400 mx-auto mb-2" />
         <p className="text-sm font-semibold text-zinc-800">No option strategies generated</p>
         <p className="text-xs text-zinc-500 mt-1">
-          {error || "Please ensure Gemini is configured and active to generate options strategies."}
+          {error ||
+            "Live options quotes were unavailable. Check IBKR market data permissions for options, then retry."}
         </p>
       </div>
     );

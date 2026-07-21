@@ -15,6 +15,23 @@ class TaxOutputStatus(StrEnum):
     WITHHELD = "withheld"
 
 
+def _tax_methodology_approved() -> bool:
+    try:
+        from app.db.methodology_repo import load_methodology_registry
+
+        record = next(
+            (
+                item
+                for item in load_methodology_registry()
+                if item.methodology_id == "tax_lot_methodology"
+            ),
+            None,
+        )
+        return bool(record and record.approval_status in {"approved", "approved_for_personal_use"})
+    except Exception:
+        return False
+
+
 @dataclass(frozen=True)
 class TaxExportReadiness:
     ready_for_review: bool
@@ -24,11 +41,22 @@ class TaxExportReadiness:
     source_statement_ids: tuple[str, ...]
     status: TaxOutputStatus
     disclaimer: str = TAX_DISCLAIMER
+    wash_sales_fully_adjusted: bool = True
+    methodology_approved_for_personal_use: bool = False
 
     @property
     def filing_ready(self) -> bool:
-        """Never expose filing-ready as True for this product."""
-        return False
+        """Filing worksheet ready when reconciled, methodology approved, and wash sales adjusted."""
+        return (
+            self.status == TaxOutputStatus.RECONCILED_ESTIMATE
+            and self.methodology_approved_for_personal_use
+            and not self.unresolved_items
+            and self.wash_sales_fully_adjusted
+        )
+
+    @property
+    def filing_worksheet_ready(self) -> bool:
+        return self.filing_ready
 
     @property
     def tax_export_ready(self) -> bool:
@@ -45,6 +73,8 @@ def evaluate_tax_export_readiness(
     unresolved_superficial_loss_cases: tuple[str, ...] = (),
     source_statement_ids: tuple[str, ...] = (),
     withheld: bool = False,
+    wash_sales_fully_adjusted: bool = True,
+    methodology_approved_for_personal_use: bool | None = None,
 ) -> TaxExportReadiness:
     unresolved: list[str] = list(unresolved_superficial_loss_cases)
     if not lots_reconciled:
@@ -53,6 +83,14 @@ def evaluate_tax_export_readiness(
         unresolved.append("transactions_not_reconciled")
     if not corporate_actions_reviewed:
         unresolved.append("corporate_actions_unreviewed")
+    if not wash_sales_fully_adjusted:
+        unresolved.append("wash_sales_not_fully_adjusted")
+
+    approved = (
+        _tax_methodology_approved()
+        if methodology_approved_for_personal_use is None
+        else bool(methodology_approved_for_personal_use)
+    )
 
     if withheld:
         status = TaxOutputStatus.WITHHELD
@@ -74,4 +112,6 @@ def evaluate_tax_export_readiness(
         unresolved_items=tuple(unresolved),
         source_statement_ids=source_statement_ids,
         status=status,
+        wash_sales_fully_adjusted=wash_sales_fully_adjusted,
+        methodology_approved_for_personal_use=approved,
     )

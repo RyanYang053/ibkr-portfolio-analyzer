@@ -200,7 +200,7 @@ def run_scenario_valuation(
 ) -> ScenarioValuationResult:
     company_type = _company_type_from_sector(sector, stock_type)
     if market_price is None or market_price <= 0:
-        return ScenarioValuationResult(
+        result = ScenarioValuationResult(
             symbol=snapshot.symbol,
             company_type=company_type,
             valuation_status="unavailable",
@@ -215,6 +215,74 @@ def run_scenario_valuation(
             data_quality={"inputs": snapshot.source},
             unavailable_reasons=["market_price_unavailable", f"{company_type}_valuation_model_not_validated"],
         )
+        persist_valuation_run(result)
+        return result
 
     output = _evaluate_model(snapshot, company_type, market_price=market_price)
-    return _output_to_result(snapshot, company_type, output, market_price=market_price)
+    result = _output_to_result(snapshot, company_type, output, market_price=market_price)
+    persist_valuation_run(result)
+    return result
+
+
+def _methodology_id_for_company_type(company_type: str) -> str:
+    return {
+        "bank": "bank_residual_income",
+        "reit": "reit_nav_affo",
+        "utility": "utility_rate_base",
+        "general_operating": "general_operating_dcf",
+    }.get(company_type, "general_operating_dcf")
+
+
+def _live_methodology_status(company_type: str) -> str:
+    methodology_id = _methodology_id_for_company_type(company_type)
+    try:
+        from app.db.methodology_repo import load_methodology_registry
+
+        record = next(
+            (item for item in load_methodology_registry() if item.methodology_id == methodology_id),
+            None,
+        )
+        if record is not None:
+            return record.approval_status
+    except Exception:
+        pass
+    return "experimental"
+
+
+def persist_valuation_run(result: ScenarioValuationResult) -> None:
+    """Persist latest valuation status for Decision Center lookups.
+
+    methodology_status mirrors live registry approval (e.g. approved_for_personal_use).
+    """
+    try:
+        from datetime import datetime, timezone
+
+        from app.db.state_store import get_state_store
+
+        methodology_status = _live_methodology_status(result.company_type)
+        status = result.valuation_status
+        if status == "available":
+            stored_status = (
+                "approved_for_personal_use"
+                if methodology_status == "approved_for_personal_use"
+                else "available"
+            )
+        elif status in {"approved", "approved_for_personal_use"}:
+            stored_status = status
+        else:
+            stored_status = "withheld"
+        store = get_state_store()
+        payload = {
+            "symbol": result.symbol,
+            "status": stored_status,
+            "valuation_status": result.valuation_status,
+            "company_type": result.company_type,
+            "methodology": result.methodology,
+            "fair_value_mid": result.fair_value_mid,
+            "unavailable_reasons": list(result.unavailable_reasons),
+            "methodology_status": methodology_status,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+        }
+        store.write_json("valuation_runs", f"latest:{result.symbol.upper()}", payload)
+    except Exception:
+        pass

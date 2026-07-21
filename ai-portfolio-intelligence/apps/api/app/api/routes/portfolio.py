@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.account_deps import resolve_authorized_account_id, resolve_authorized_account_ids
+from app.api.account_deps import resolve_authorized_account_id, resolve_settings_account_id, resolve_authorized_account_ids
 from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.core.audit import log_audit_action
@@ -177,12 +177,26 @@ def _resolve_account_data(
             if account_id == "all":
                 summary = summary.model_copy(update={"account_id": "all"})
                 positions = [position.model_copy(update={"account_id": "all"}) for position in positions]
-            return summary, positions
-        return _get_consolidated_summary_and_positions(adapter, allowed_ids)
+            return _backfill_unrealized_from_positions(summary, positions), positions
+        summary, positions = _get_consolidated_summary_and_positions(adapter, allowed_ids)
+        return _backfill_unrealized_from_positions(summary, positions), positions
     except HTTPException:
         raise
     except Exception as exc:
         raise broker_not_configured_error(exc) from exc
+
+
+def _backfill_unrealized_from_positions(
+    summary: AccountSummary,
+    positions: list[Position],
+) -> AccountSummary:
+    """When IB account-summary UnrealizedPnL is blank/0, derive from position rows."""
+    if abs(summary.total_unrealized_pnl) > 1e-9 or not positions:
+        return summary
+    derived = round(sum(float(position.unrealized_pnl or 0.0) for position in positions), 2)
+    if abs(derived) <= 1e-9:
+        return summary
+    return summary.model_copy(update={"total_unrealized_pnl": derived})
 
 
 @router.get("/summary")
@@ -528,7 +542,7 @@ def get_profile(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    active_id = resolve_settings_account_id(account_id, adapter, principal)
     from app.services.suitability.engine import get_investor_profile
 
     return get_investor_profile(active_id, user_id=tenant_user_id(principal))
@@ -541,7 +555,7 @@ def update_profile(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    active_id = resolve_settings_account_id(account_id, adapter, principal)
     from app.services.suitability.engine import save_investor_profile
 
     save_investor_profile(profile, active_id, user_id=tenant_user_id(principal))
@@ -562,7 +576,7 @@ def get_policy(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    active_id = resolve_settings_account_id(account_id, adapter, principal)
     from app.services.policy.engine import get_portfolio_policy
 
     return get_portfolio_policy(active_id, user_id=tenant_user_id(principal))
@@ -575,7 +589,7 @@ def update_policy(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    active_id = resolve_settings_account_id(account_id, adapter, principal)
     from app.services.policy.engine import save_portfolio_policy
 
     save_portfolio_policy(policy, active_id, user_id=tenant_user_id(principal))
@@ -718,6 +732,55 @@ def tax_lot_attribution(
         fx_resolver=make_transaction_fx_resolver(),
     )
     return prepare_professional_response(result, account_summary, account_positions, validation, methodology_id="tax_lot_methodology")
+
+
+@router.post("/tax-reconciliation")
+def tax_reconciliation(
+    account_id: Optional[str] = None,
+    tax_year: Optional[int] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    from app.services.portfolio.account_scope import require_single_account_id
+    from app.services.portfolio.transaction_store import get_transactions, sync_transactions
+    from app.services.tax.reconciliation_service import run_tax_reconciliation
+
+    account_summary, _positions = _resolve_account_data(adapter, account_id, principal)
+    active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
+    transactions = get_transactions(active_id)
+    if not transactions:
+        sync_transactions(adapter, active_id)
+        transactions = get_transactions(active_id)
+    return run_tax_reconciliation(
+        account_id=active_id,
+        tax_year=tax_year,
+        transactions=transactions,
+    )
+
+
+@router.get("/tax-reconciliation")
+def list_tax_reconciliation(
+    account_id: Optional[str] = None,
+    tax_year: Optional[int] = None,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+):
+    from app.db.tax_reconciliation_repo import latest_tax_reconciliation_run, list_tax_reconciliation_runs
+    from app.services.portfolio.account_scope import require_single_account_id
+
+    account_summary, _positions = _resolve_account_data(adapter, account_id, principal)
+    active_id = require_single_account_id(account_id, account_summary.account_id, adapter)
+    if tax_year is not None:
+        return {
+            "account_id": active_id,
+            "latest": latest_tax_reconciliation_run(active_id, int(tax_year)),
+            "order_generated": False,
+        }
+    return {
+        "account_id": active_id,
+        "runs": list_tax_reconciliation_runs(active_id),
+        "order_generated": False,
+    }
 
 
 @router.get("/rebalance-proposal")

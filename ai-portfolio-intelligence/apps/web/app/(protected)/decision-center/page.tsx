@@ -32,7 +32,8 @@ function DecisionCenterContent() {
         <p className="text-sm font-semibold uppercase tracking-wide text-accent">Decision support</p>
         <h2 className="text-3xl font-semibold">Decision Center</h2>
         <p className="mt-1 max-w-3xl text-sm text-zinc-600">
-          Ordered deterministic gates and investor lenses for holding review. Valuation stays withheld.
+          Ordered deterministic gates and investor lenses for holding review. Valuation may be
+          approved_for_personal_use when golden fixtures pass; Review Add still requires packet gates.
         </p>
       </div>
       <Disclaimer />

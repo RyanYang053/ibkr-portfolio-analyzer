@@ -141,10 +141,15 @@ def build_manifest(
         "certification": cert,
         "approval_status": {
             "all_experimental_or_approved": all(
-                str(item.get("approval_status") or "") in {"experimental", "approved"}
+                str(item.get("approval_status") or "")
+                in {"experimental", "approved", "approved_for_personal_use"}
                 for item in approvals
             ),
-            "approved_count": sum(1 for item in approvals if item.get("approval_status") == "approved"),
+            "approved_count": sum(
+                1
+                for item in approvals
+                if item.get("approval_status") in {"approved", "approved_for_personal_use"}
+            ),
             "experimental_count": sum(
                 1 for item in approvals if item.get("approval_status") == "experimental"
             ),

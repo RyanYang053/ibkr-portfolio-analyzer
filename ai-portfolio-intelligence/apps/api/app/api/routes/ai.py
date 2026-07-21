@@ -7,7 +7,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.account_deps import resolve_authorized_account_id
+from app.api.account_deps import resolve_authorized_account_id, resolve_portfolio_scope_id
 from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
 from app.core.audit import log_audit_action
@@ -216,7 +216,7 @@ def analyze_stock(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
-    active_id = resolve_authorized_account_id(account_id, adapter, principal)
+    active_id = resolve_portfolio_scope_id(account_id, adapter, principal)
     try:
         position = find_portfolio_position(symbol, adapter, active_id, con_id)
     except HTTPException:
@@ -247,12 +247,12 @@ def analyze_portfolio(
     adapter: BrokerAdapter = Depends(get_broker_adapter),
     principal: Principal = Depends(get_current_principal),
 ):
+    from app.api.routes.portfolio import _resolve_account_data
     from app.services.data_quality.validation import validate_and_gate_snapshot
 
     try:
-        active_id = resolve_authorized_account_id(account_id, adapter, principal)
-        summary = adapter.get_account_summary(active_id)
-        positions = adapter.get_positions(active_id)
+        summary, positions = _resolve_account_data(adapter, account_id, principal)
+        active_id = summary.account_id
         validate_and_gate_snapshot(summary, positions)
         from app.core.config import settings
         from app.services.analytics.run_collector import collect_portfolio_calculation_run_ids

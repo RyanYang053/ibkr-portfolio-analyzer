@@ -13,12 +13,19 @@ from app.api.routes import (
     analysis,
     broker,
     chat,
+    construction,
+    data_health,
     decision_center,
+    decisions,
     desktop,
     health,
+    methodologies,
+    monitoring,
+    planning,
     pnl,
     portfolio,
     reports,
+    research,
     stocks,
     watchlist,
 )
@@ -75,18 +82,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Middleware is LIFO: last added runs first on the request.
 app.add_middleware(RequestContextMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"],
-)
 
 _local_runtime = load_local_runtime_from_env()
 if _local_runtime is not None:
     app.add_middleware(LocalSessionMiddleware, runtime=_local_runtime)
+
+# CORS must be outermost so OPTIONS preflight never hits the session gate.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 app.include_router(health.router)
 app.include_router(desktop.router)
@@ -99,6 +109,13 @@ app.include_router(ai.router)
 app.include_router(broker.router)
 app.include_router(portfolio.router)
 app.include_router(decision_center.router)
+app.include_router(decisions.router)
+app.include_router(planning.router)
+app.include_router(construction.router)
+app.include_router(research.router)
+app.include_router(monitoring.router)
+app.include_router(data_health.router)
+app.include_router(methodologies.router)
 app.include_router(stocks.router)
 app.include_router(analysis.router)
 app.include_router(reports.router)

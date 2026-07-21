@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Plug, Save } from "lucide-react";
-import { configureBrokerReadonly, getBrokerStatus } from "@/lib/api";
+import { configureBrokerReadonly, getAccounts, getBrokerStatus } from "@/lib/api";
+import { useAppRouter } from "@/lib/use-app-router";
 
 type IBKRConfigFormProps = {
   defaultMode?: string;
@@ -27,6 +28,8 @@ export function IBKRConfigForm({
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [discoveredAccounts, setDiscoveredAccounts] = useState<string[]>([]);
+  const router = useAppRouter();
 
   useEffect(() => {
     setMode(defaultMode);
@@ -52,6 +55,7 @@ export function IBKRConfigForm({
     setIsSaving(true);
     setError(null);
     setStatus(null);
+    setDiscoveredAccounts([]);
     try {
       const response = await configureBrokerReadonly({
         mode,
@@ -61,10 +65,43 @@ export function IBKRConfigForm({
         account_id: accountId || undefined
       });
       if (response.mode === "mock_ibkr_readonly") {
-        setStatus("Switched to Demo/Simulation Mode. Now refresh Portfolio.");
-      } else {
-        setStatus(`IBKR read-only settings saved for ${response.host}:${response.port}. Now refresh Portfolio.`);
+        setStatus("Switched to Demo/Simulation Mode. Open Portfolio to view mock holdings.");
+        return;
       }
+
+      let ids: string[] = [];
+      try {
+        const accounts = await getAccounts();
+        ids = (accounts || []).map((item: { id: string }) => String(item.id));
+        setDiscoveredAccounts(ids);
+      } catch {
+        // Discovery can fail while TWS farms are down; settings are still saved.
+      }
+
+      if (ids.length === 1 && !accountId) {
+        await configureBrokerReadonly({
+          mode,
+          host,
+          port: Number(port),
+          client_id: Number(clientId),
+          account_id: ids[0],
+        });
+        setAccountId(ids[0]);
+        setStatus(`IBKR settings saved. Using account ${ids[0]}. Open Portfolio to refresh.`);
+        router.push(`/portfolio/?account_id=${encodeURIComponent(ids[0])}`);
+        return;
+      }
+
+      if (ids.length > 1) {
+        setStatus(
+          `IBKR settings saved for ${response.host}:${response.port}. ` +
+            `Detected ${ids.length} accounts (${ids.join(", ")}). ` +
+            `Pick an Account ID below (or use Active Account → Consolidated View), save again, then open Portfolio.`,
+        );
+        return;
+      }
+
+      setStatus(`IBKR read-only settings saved for ${response.host}:${response.port}. Open Portfolio to refresh.`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Could not configure IBKR");
     } finally {
@@ -109,7 +146,27 @@ export function IBKRConfigForm({
           </label>
           <label className="grid gap-1 text-sm">
             Account ID (optional)
-            <input className="rounded-md border border-line px-3 py-2" value={accountId} onChange={(event) => setAccountId(event.target.value)} placeholder="Leave blank to auto-detect" />
+            {discoveredAccounts.length > 0 ? (
+              <select
+                className="rounded-md border border-line px-3 py-2 bg-white"
+                value={accountId}
+                onChange={(event) => setAccountId(event.target.value)}
+              >
+                <option value="">Consolidated / pick later in sidebar</option>
+                {discoveredAccounts.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="rounded-md border border-line px-3 py-2"
+                value={accountId}
+                onChange={(event) => setAccountId(event.target.value)}
+                placeholder="Leave blank to auto-detect"
+              />
+            )}
           </label>
         </div>
       )}

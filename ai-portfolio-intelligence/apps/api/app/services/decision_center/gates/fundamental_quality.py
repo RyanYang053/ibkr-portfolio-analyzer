@@ -1,0 +1,1 @@
+from app.services.decision_center.gates.remaining import FundamentalQualityGate as FundamentalQualityGate

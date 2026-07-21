@@ -26,8 +26,10 @@ def assert_deployment_network_policy(
         return
 
     assert_loopback_bind(bind_host)
-    if persistence_backend != "json":
-        raise RuntimeError("DESKTOP_LOCAL persistence must be json")
+    if persistence_backend not in {"json", "sqlite"}:
+        raise RuntimeError("DESKTOP_LOCAL persistence must be json or sqlite")
+    if "postgres" in database_url.lower() and persistence_backend == "sqlite":
+        raise RuntimeError("SQLite desktop mode cannot use a postgres database_url")
 
 
 def is_loopback_client(host: str | None) -> bool:

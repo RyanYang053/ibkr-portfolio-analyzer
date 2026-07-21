@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { formatApiError } from "./api";
 
@@ -11,14 +11,30 @@ export function useClientResource<T>(
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const hasDataRef = useRef(false);
+  const depsKey = JSON.stringify(deps);
+  const prevDepsKey = useRef(depsKey);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    const scopeChanged = prevDepsKey.current !== depsKey;
+    prevDepsKey.current = depsKey;
+
+    if (scopeChanged) {
+      hasDataRef.current = false;
+      setData(null);
+      setError(null);
+    }
+
+    // Keep previous content visible while revalidating the same scope.
+    if (!hasDataRef.current) {
+      setLoading(true);
+    }
 
     loader()
       .then((value) => {
         if (!cancelled) {
+          hasDataRef.current = true;
           setData(value);
           setError(null);
         }
@@ -26,7 +42,9 @@ export function useClientResource<T>(
       .catch((err) => {
         if (!cancelled) {
           setError(formatApiError(err));
-          setData(null);
+          if (!hasDataRef.current) {
+            setData(null);
+          }
         }
       })
       .finally(() => {
@@ -39,7 +57,7 @@ export function useClientResource<T>(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [depsKey]);
 
   return { data, error, loading };
 }

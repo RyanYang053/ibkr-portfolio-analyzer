@@ -5,7 +5,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.account_deps import resolve_authorized_account_id
 from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import get_broker_adapter
 from app.services.broker.base import BrokerAdapter
@@ -50,11 +49,13 @@ class MonitoringRuleRequest(BaseModel):
     note: str | None = None
 
 
-def _snapshot(adapter: BrokerAdapter, account_id: str):
-    summary = adapter.get_account_summary(account_id)
-    positions = adapter.get_positions(account_id)
+def _snapshot(adapter: BrokerAdapter, principal: Principal, account_id: str | None):
+    """Load summary/positions for a single account or consolidated `all` scope."""
+    from app.api.routes.portfolio import _resolve_account_data
+
+    summary, positions = _resolve_account_data(adapter, account_id, principal)
     validation = validate_and_gate_snapshot(summary, positions)
-    return summary, positions, validation
+    return summary.account_id, summary, positions, validation
 
 
 def _position_payload(position) -> dict[str, Any]:
@@ -68,6 +69,7 @@ def _position_payload(position) -> dict[str, Any]:
         "market_value": float(position.market_value),
         "quantity": float(position.quantity),
         "con_id": position.con_id,
+        "account_id": getattr(position, "account_id", None),
     }
 
 
@@ -77,13 +79,13 @@ def decision_center_overview(
     principal: Principal = Depends(get_current_principal),
     account_id: str | None = None,
 ) -> dict[str, Any]:
-    resolved = resolve_authorized_account_id(adapter, principal, account_id)
-    summary, positions, validation = _snapshot(adapter, resolved)
+    from concurrent.futures import ThreadPoolExecutor
+
+    resolved, summary, positions, validation = _snapshot(adapter, principal, account_id)
     cached_risk = load_account_risk_bundle(account_id=resolved, positions=positions, summary=summary)
-    holdings = []
-    for position in positions:
-        if position.asset_class in {"OPT", "FOP", "CASH"}:
-            continue
+    equity_positions = [p for p in positions if p.asset_class not in {"OPT", "FOP", "CASH"}]
+
+    def _holding_row(position):
         payload = _position_payload(position)
         thesis = get_thesis(resolved, payload["instrument_key"]) or {}
         market = load_holding_market_inputs(
@@ -93,16 +95,21 @@ def decision_center_overview(
             summary=summary,
             cached_risk=cached_risk,
         )
-        holdings.append(
-            {
-                **payload,
-                "position": payload,
-                "thesis": thesis,
-                "fundamentals": market["fundamentals"],
-                "risk_metrics": market["risk_metrics"],
-                "factor_exposures": market["factor_exposures"],
-            }
-        )
+        return {
+            **payload,
+            "position": payload,
+            "thesis": thesis,
+            "fundamentals": market["fundamentals"],
+            "risk_metrics": market["risk_metrics"],
+            "factor_exposures": market["factor_exposures"],
+        }
+
+    workers = min(8, max(1, len(equity_positions)))
+    if equity_positions:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            holdings = list(pool.map(_holding_row, equity_positions))
+    else:
+        holdings = []
     matrix = build_portfolio_decision_matrix(account_id=resolved, holdings=holdings)
     return prepare_professional_response(
         matrix,
@@ -120,8 +127,7 @@ def holding_decision(
     principal: Principal = Depends(get_current_principal),
     account_id: str | None = None,
 ) -> dict[str, Any]:
-    resolved = resolve_authorized_account_id(adapter, principal, account_id)
-    summary, positions, validation = _snapshot(adapter, resolved)
+    resolved, summary, positions, validation = _snapshot(adapter, principal, account_id)
     position = _find_position(positions, instrument_key)
     if position is None:
         raise HTTPException(status_code=404, detail="holding_not_found")
@@ -165,8 +171,7 @@ def holding_lenses(
     principal: Principal = Depends(get_current_principal),
     account_id: str | None = None,
 ) -> dict[str, Any]:
-    resolved = resolve_authorized_account_id(adapter, principal, account_id)
-    summary, positions, validation = _snapshot(adapter, resolved)
+    resolved, summary, positions, validation = _snapshot(adapter, principal, account_id)
     position = _find_position(positions, instrument_key)
     if position is None:
         raise HTTPException(status_code=404, detail="holding_not_found")
@@ -215,8 +220,7 @@ def get_holding_thesis(
     principal: Principal = Depends(get_current_principal),
     account_id: str | None = None,
 ) -> dict[str, Any]:
-    resolved = resolve_authorized_account_id(adapter, principal, account_id)
-    summary, positions, validation = _snapshot(adapter, resolved)
+    resolved, summary, positions, validation = _snapshot(adapter, principal, account_id)
     thesis = get_thesis(resolved, instrument_key) or {
         "account_id": resolved,
         "instrument_key": instrument_key,
@@ -240,8 +244,7 @@ def put_holding_thesis(
     principal: Principal = Depends(get_current_principal),
     account_id: str | None = None,
 ) -> dict[str, Any]:
-    resolved = resolve_authorized_account_id(adapter, principal, account_id)
-    summary, positions, validation = _snapshot(adapter, resolved)
+    resolved, summary, positions, validation = _snapshot(adapter, principal, account_id)
     saved = put_thesis(resolved, instrument_key, text=body.text, author=body.author)
     return prepare_professional_response(
         saved,
@@ -260,8 +263,7 @@ def simulate_holding(
     principal: Principal = Depends(get_current_principal),
     account_id: str | None = None,
 ) -> dict[str, Any]:
-    resolved = resolve_authorized_account_id(adapter, principal, account_id)
-    summary, positions, validation = _snapshot(adapter, resolved)
+    resolved, summary, positions, validation = _snapshot(adapter, principal, account_id)
     position = _find_position(positions, instrument_key)
     weight = float(getattr(position, "portfolio_weight", 0) or 0) if position else 0.0
     market = load_holding_market_inputs(
@@ -314,8 +316,7 @@ def get_decision_monitoring(
     principal: Principal = Depends(get_current_principal),
     account_id: str | None = None,
 ) -> dict[str, Any]:
-    resolved = resolve_authorized_account_id(adapter, principal, account_id)
-    summary, positions, validation = _snapshot(adapter, resolved)
+    resolved, summary, positions, validation = _snapshot(adapter, principal, account_id)
     holdings = []
     theses: dict[str, dict[str, Any]] = {}
     for position in positions:
@@ -359,8 +360,7 @@ def post_decision_monitoring(
     principal: Principal = Depends(get_current_principal),
     account_id: str | None = None,
 ) -> dict[str, Any]:
-    resolved = resolve_authorized_account_id(adapter, principal, account_id)
-    summary, positions, validation = _snapshot(adapter, resolved)
+    resolved, summary, positions, validation = _snapshot(adapter, principal, account_id)
     rule = create_monitoring_rule(
         resolved,
         instrument_key=body.instrument_key,

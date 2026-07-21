@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from app.api.account_deps import resolve_authorized_account_ids
 from app.api.auth_deps import Principal
 from app.schemas.domain import AccountSummary, Position
 from app.services.broker.base import BrokerAdapter
@@ -23,11 +22,10 @@ def load_portfolio_snapshot(
     principal: Principal,
     account_id: Optional[str] = None,
 ) -> tuple[str, AccountSummary, list[Position]]:
-    allowed_ids = resolve_authorized_account_ids(adapter, principal, account_id)
-    active_id = allowed_ids[0]
-    summary = adapter.get_account_summary(active_id)
-    positions = adapter.get_positions(active_id)
-    return active_id, summary, positions
+    from app.api.routes.portfolio import _resolve_account_data
+
+    summary, positions = _resolve_account_data(adapter, account_id, principal)
+    return summary.account_id, summary, positions
 
 
 def gate_professional_response(

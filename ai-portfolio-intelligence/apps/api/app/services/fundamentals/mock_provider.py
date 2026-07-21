@@ -78,6 +78,10 @@ class MockFundamentalProvider:
 
                     pe_forward = stats.get("forwardPE", {}).get("raw")
                     ev_sales = stats.get("enterpriseToRevenue", {}).get("raw")
+                    # Yahoo financialData.returnOnEquity is the live ROE used by quality lenses.
+                    return_on_equity = findata.get("returnOnEquity", {}).get("raw")
+                    if return_on_equity is None:
+                        return_on_equity = stats.get("returnOnEquity", {}).get("raw")
                     most_recent_quarter = stats.get("mostRecentQuarter", {}).get("raw")
                     from datetime import date as date_type
                     from datetime import datetime, timezone
@@ -99,14 +103,19 @@ class MockFundamentalProvider:
                         if filing_date is None or candidate > filing_date:
                             filing_date = candidate
 
-                    # Compute FCF yield
+                    # Compute FCF yield from free cash flow / market cap.
                     fcf_yield = None
                     shares = stats.get("sharesOutstanding", {}).get("raw")
                     price = findata.get("currentPrice", {}).get("raw")
-                    if fcf and shares and price:
-                        mcap = shares * price
-                        if mcap > 0:
-                            fcf_yield = fcf / mcap
+                    market_cap = stats.get("marketCap", {}).get("raw")
+                    if fcf:
+                        mcap = None
+                        if market_cap:
+                            mcap = float(market_cap)
+                        elif shares and price:
+                            mcap = float(shares) * float(price)
+                        if mcap and mcap > 0:
+                            fcf_yield = float(fcf) / mcap
                     required = [revenue_growth, gross_margin, operating_margin, fcf, cash, total_debt, most_recent_quarter]
                     if any(value is None for value in required):
                         raise RuntimeError(f"Live fundamental data incomplete for {symbol.upper()}")
@@ -132,6 +141,7 @@ class MockFundamentalProvider:
                             pe_forward=float(pe_forward) if pe_forward is not None else None,
                             ev_sales=float(ev_sales) if ev_sales is not None else None,
                             fcf_yield=float(fcf_yield) if fcf_yield is not None else None,
+                            return_on_equity=float(return_on_equity) if return_on_equity is not None else None,
                             source="live_yahoo_finance",
                         ),
                         sector,

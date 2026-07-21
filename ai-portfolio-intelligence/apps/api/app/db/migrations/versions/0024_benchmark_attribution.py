@@ -6,7 +6,8 @@ Create Date: 2026-07-10
 """
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
+
+from app.db.migration_types import timestamp_now_default, uuid_column_type, uuid_server_default
 
 revision = "0024_benchmark_attribution"
 down_revision = "0023_methodology_governance"
@@ -22,11 +23,11 @@ def upgrade() -> None:
         sa.Column("currency", sa.String(length=8), nullable=False),
         sa.Column("source", sa.String(length=128), nullable=False),
         sa.Column("as_of_date", sa.Date(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=timestamp_now_default()),
     )
     op.create_table(
         "benchmark_constituent_weights",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("benchmark_id", sa.String(length=64), sa.ForeignKey("benchmark_definitions.benchmark_id"), nullable=False),
         sa.Column("constituent_key", sa.String(length=128), nullable=False),
         sa.Column("sector", sa.String(length=64), nullable=True),
@@ -34,7 +35,7 @@ def upgrade() -> None:
         sa.Column("effective_date", sa.Date(), nullable=False),
         sa.Column("source", sa.String(length=128), nullable=False),
         sa.Column("as_of_date", sa.Date(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=timestamp_now_default()),
     )
     op.create_index(
         "ix_benchmark_constituent_weights_benchmark_effective",
@@ -43,7 +44,7 @@ def upgrade() -> None:
     )
     op.create_table(
         "security_classifications",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("symbol", sa.String(length=32), nullable=False),
         sa.Column("con_id", sa.BigInteger(), nullable=True),
         sa.Column("sector", sa.String(length=64), nullable=False),
@@ -52,7 +53,7 @@ def upgrade() -> None:
         sa.Column("effective_date", sa.Date(), nullable=False),
         sa.Column("source", sa.String(length=128), nullable=False),
         sa.Column("as_of_date", sa.Date(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=timestamp_now_default()),
     )
     op.create_index(
         "ix_security_classifications_symbol_effective",
@@ -61,7 +62,7 @@ def upgrade() -> None:
     )
     op.create_table(
         "daily_security_returns",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("account_id", sa.String(length=64), nullable=False),
         sa.Column("symbol", sa.String(length=32), nullable=False),
         sa.Column("con_id", sa.BigInteger(), nullable=True),
@@ -72,7 +73,7 @@ def upgrade() -> None:
         sa.Column("fx_return", sa.Numeric(18, 8), nullable=True),
         sa.Column("source", sa.String(length=128), nullable=False),
         sa.Column("as_of_date", sa.Date(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=timestamp_now_default()),
     )
     op.create_index(
         "ix_daily_security_returns_account_date",
@@ -81,7 +82,7 @@ def upgrade() -> None:
     )
     op.create_table(
         "daily_portfolio_weights",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("account_id", sa.String(length=64), nullable=False),
         sa.Column("weight_date", sa.Date(), nullable=False),
         sa.Column("constituent_key", sa.String(length=128), nullable=False),
@@ -89,7 +90,7 @@ def upgrade() -> None:
         sa.Column("weight", sa.Numeric(18, 8), nullable=False),
         sa.Column("source", sa.String(length=128), nullable=False),
         sa.Column("as_of_date", sa.Date(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=timestamp_now_default()),
     )
     op.create_index(
         "ix_daily_portfolio_weights_account_date",
@@ -98,7 +99,7 @@ def upgrade() -> None:
     )
     op.create_table(
         "daily_attribution_contributions",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", uuid_column_type(), primary_key=True, server_default=uuid_server_default()),
         sa.Column("account_id", sa.String(length=64), nullable=False),
         sa.Column("contribution_date", sa.Date(), nullable=False),
         sa.Column("security_contribution", sa.Numeric(18, 8), nullable=False, server_default="0"),
@@ -113,7 +114,7 @@ def upgrade() -> None:
         sa.Column("benchmark_return", sa.Numeric(18, 8), nullable=True),
         sa.Column("source", sa.String(length=128), nullable=False),
         sa.Column("as_of_date", sa.Date(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=timestamp_now_default()),
     )
     op.create_index(
         "ix_daily_attribution_contributions_account_date",

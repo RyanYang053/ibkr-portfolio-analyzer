@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.db.postgres_guard import require_postgres_persistence
+from app.db.sql_dialect import json_cast
 from app.db.state_store import postgres_available
 
 
@@ -159,7 +160,7 @@ def upsert_methodology_version(record: MethodologyVersion) -> None:
         )
         session.execute(
             text(
-                """
+                f"""
                 INSERT INTO methodology_versions (
                     methodology_id, version, effective_at, code_sha, status, owner,
                     validator, approver, approved_at, fixture_version, data_version,
@@ -168,7 +169,7 @@ def upsert_methodology_version(record: MethodologyVersion) -> None:
                 ) VALUES (
                     :methodology_id, :version, :effective_at, :code_sha, :status, :owner,
                     :validator, :approver, :approved_at, :fixture_version, :data_version,
-                    CAST(:tolerance_json AS jsonb), :artifact_sha256, CAST(:known_limitations_json AS jsonb),
+                    {json_cast("tolerance_json")}, :artifact_sha256, {json_cast("known_limitations_json")},
                     :rollback_version, :supersedes_version
                 )
                 ON CONFLICT ON CONSTRAINT uq_methodology_versions_identity

@@ -1,0 +1,30 @@
+{
+  "model_id": "reit_nav_affo",
+  "inputs": {
+    "property_noi": "500000000",
+    "cap_rate": "0.06",
+    "net_debt": "2000000000",
+    "preferred_equity": "100000000",
+    "share_count": "200000000",
+    "affo_per_share": "2.50",
+    "justified_affo_multiple": "16",
+    "currency": "USD",
+    "as_of": "2025-12-31",
+    "source_ids": ["golden_fixture"]
+  },
+  "scenarios": [
+    {"name": "base", "assumptions": {}},
+    {
+      "name": "bull",
+      "assumptions": {"cap_rate": "0.05", "justified_affo_multiple": "18"}
+    },
+    {
+      "name": "bear",
+      "assumptions": {"cap_rate": "0.07", "justified_affo_multiple": "14"}
+    }
+  ],
+  "expected": {
+    "per_share": 35.583333333333336,
+    "tol_rel": 0.02
+  }
+}

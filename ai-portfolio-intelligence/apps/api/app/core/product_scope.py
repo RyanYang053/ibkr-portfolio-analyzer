@@ -8,20 +8,20 @@ from enum import StrEnum
 class ProductCapability(StrEnum):
     PERSONAL_ACCOUNTING = "personal_accounting"
     TAX_DECISION_SUPPORT = "tax_decision_support"
+    TAX_FILING_WORKSHEET = "tax_filing_worksheet"
     PROXY_ATTRIBUTION = "proxy_attribution"
     PERSONAL_DECISION_SUPPORT = "personal_decision_support"
     BROKER_REPORTED_MARGIN = "broker_reported_margin"
+    OPTIONS_REGT_MARGIN = "options_regt_margin"
 
 
 PROHIBITED_CLAIMS: frozenset[str] = frozenset(
     {
         "institutional accounting",
         "official books and records",
-        "filing-ready tax",
         "CRA certified",
         "registered investment advice",
         "official Brinson attribution",
-        "broker-equivalent margin",
         "guaranteed recommendation",
     }
 )
@@ -47,9 +47,9 @@ ACCOUNTING_DISCLAIMER = (
 )
 
 TAX_DISCLAIMER = (
-    "This report is a tax reconciliation aid and not a filed tax return. "
-    "Verify the results using CRA-certified tax software or a qualified "
-    "tax professional before filing."
+    "Filing worksheets are available when tax_lot_methodology is approved_for_personal_use "
+    "and lots are reconciled. This is not a filed tax return — have a qualified tax "
+    "professional review before filing."
 )
 
 ATTRIBUTION_DISCLAIMER = (
@@ -64,9 +64,9 @@ DECISION_DISCLAIMER = (
 )
 
 MARGIN_DISCLAIMER = (
-    "Current margin figures are broker-reported. Internal stress scenarios "
-    "are estimates and may differ materially from IBKR liquidation or "
-    "portfolio-margin calculations."
+    "Reg T style margin worksheets are available when options_margin_regt is "
+    "approved_for_personal_use. Broker-reported figures and IBKR Portfolio Margin "
+    "(TIMS) may differ; confirm requirements with your broker before liquidation decisions."
 )
 
 PRODUCT_SCOPE_SUMMARY = (

@@ -192,11 +192,11 @@ def test_performance_attribution():
 
 
 def test_guardrails_and_compliance():
-    # Suitability warning should trigger trim override
+    # Suitability warning should demote high-score interpretations (evidence only).
     warnings = ["Speculative position IONQ has excessive concentration"]
     action, reason = apply_recommendation_guardrails("Add", "IONQ", warnings)
     
-    assert action == "Trim Review"
+    assert action == "Weak score"
     assert "Override" in reason
     
     # Compliance disclaimer injection

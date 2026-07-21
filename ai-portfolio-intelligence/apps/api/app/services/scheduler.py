@@ -150,8 +150,24 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
             account_ids=account_ids,
         )
 
+    try:
+        _run_weekly_backup_job(business_date=business_date, current_time=current_time)
+    except SchedulerLeaseLost:
+        raise
+    except Exception as exc:
+        logger.error("Failed weekly backup job: %s", exc)
+
     if current_time.weekday() >= 5:
         return
+
+    try:
+        if _slot_is_due(current_time, time(10, 0)) or _slot_is_due(current_time, time(15, 0)):
+            adapter = adapter or get_broker_adapter()
+            _run_decision_and_monitoring_jobs(adapter=adapter, business_date=business_date)
+    except SchedulerLeaseLost:
+        raise
+    except Exception as exc:
+        logger.error("Failed decision/monitoring evaluation jobs: %s", exc)
 
     if not _slot_is_due(current_time, time(16, 0)):
         return
@@ -234,6 +250,128 @@ def _run_scheduler_sync(now: datetime | None = None) -> None:
         raise
     except Exception as exc:
         logger.error("Failed recording scheduled PnL snapshots: %s", exc)
+
+
+def _run_weekly_backup_job(*, business_date: date, current_time: datetime) -> None:
+    """Create a local desktop backup once per ISO week (no passphrase — zip only).
+
+    Encrypted verify-restore remains a manual Settings action with the user's passphrase.
+    """
+    from app.core.config import is_desktop_local
+
+    if not is_desktop_local():
+        return
+    if not _slot_is_due(current_time, time(17, 0)):
+        return
+    week_key = business_date.strftime("%G-W%V")
+    job_name = "encrypted_backup"
+    account_id = "desktop"
+    slot = f"weekly:{week_key}"
+    if job_already_completed(job_name, account_id, business_date, slot):
+        return
+    if not try_acquire_job(job_name, account_id, business_date, slot):
+        return
+    logger.info("Triggering weekly desktop backup for %s", week_key)
+    try:
+        with SchedulerLeaseHeartbeat(job_name, account_id, business_date, slot) as lease:
+            lease.assert_owned()
+            from app.core.desktop_bootstrap import backup_desktop_data
+
+            path = backup_desktop_data(reason="scheduled_weekly")
+            lease.assert_owned()
+        payload = {
+            "backup_path": str(path) if path else None,
+            "week": week_key,
+            "order_generated": False,
+            "note": "Zip backup only; passphrase encryption and verify-restore are manual.",
+        }
+        if not complete_job(job_name, account_id, business_date, slot, status="completed", payload=payload):
+            raise SchedulerLeaseLost("Lost scheduler lease before completing weekly backup")
+    except SchedulerLeaseLost:
+        raise
+    except Exception as exc:
+        complete_job(
+            job_name,
+            account_id,
+            business_date,
+            slot,
+            status="failed",
+            error_message=str(exc),
+        )
+        raise
+
+
+def _run_decision_and_monitoring_jobs(*, adapter, business_date: date) -> None:
+    """Periodic decision packet refresh and monitoring evaluation (lease/idempotent)."""
+    account_ids = _scheduled_analysis_account_ids(adapter)
+    for account_id in account_ids:
+        for job_name, runner in (
+            ("decision_evaluation", _evaluate_decisions_for_account),
+            ("monitoring_evaluation", _evaluate_monitoring_for_account),
+        ):
+            slot = f"{job_name}:{account_id}"
+            if job_already_completed(job_name, account_id, business_date, slot):
+                continue
+            if not try_acquire_job(job_name, account_id, business_date, slot):
+                continue
+            logger.info("Triggering %s for account %s", job_name, account_id)
+            try:
+                with SchedulerLeaseHeartbeat(job_name, account_id, business_date, slot) as lease:
+                    lease.assert_owned()
+                    payload = runner(adapter=adapter, account_id=account_id)
+                    lease.assert_owned()
+                if not complete_job(
+                    job_name,
+                    account_id,
+                    business_date,
+                    slot,
+                    status="completed",
+                    payload=payload,
+                ):
+                    raise SchedulerLeaseLost(f"Lost scheduler lease before completing {job_name}")
+            except SchedulerLeaseLost:
+                raise
+            except Exception as exc:
+                logger.error("Failed %s for account %s: %s", job_name, account_id, exc)
+                complete_job(
+                    job_name,
+                    account_id,
+                    business_date,
+                    slot,
+                    status="failed",
+                    error_message=str(exc),
+                )
+
+
+def _evaluate_decisions_for_account(*, adapter, account_id: str) -> dict:
+    try:
+        from app.services.decision_center.orchestrator import evaluate_account_decisions
+
+        return evaluate_account_decisions(adapter=adapter, account_id=account_id)
+    except Exception as exc:
+        return {
+            "account_id": account_id,
+            "order_generated": False,
+            "status": "evaluation_failed",
+            "error": str(exc),
+            "fail_closed": True,
+        }
+
+
+def _evaluate_monitoring_for_account(*, adapter, account_id: str) -> dict:
+    from app.services.decision_center.monitoring_service import run_monitoring_evaluation
+
+    positions = adapter.get_positions(account_id)
+    holdings = [
+        {
+            "symbol": p.symbol,
+            "instrument_key": f"{p.symbol}:{p.con_id}" if p.con_id else p.symbol,
+            "portfolio_weight": float(getattr(p, "portfolio_weight", 0) or 0),
+        }
+        for p in positions
+        if getattr(p, "asset_class", None) not in {"OPT", "FOP", "CASH"}
+    ]
+    return run_monitoring_evaluation(account_id=account_id, holdings=holdings)
 
 
 async def run_background_scheduler() -> None:

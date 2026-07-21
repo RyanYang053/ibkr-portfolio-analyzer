@@ -7,6 +7,8 @@ Create Date: 2026-07-10
 import sqlalchemy as sa
 from alembic import op
 
+from app.db.migration_types import timestamp_now_default
+
 revision = "0013_identity_and_invitation_hardening"
 down_revision = "0012_iv_dimensions"
 branch_labels = None
@@ -23,7 +25,7 @@ def upgrade() -> None:
         sa.Column("invited_by_email", sa.String(length=320), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=timestamp_now_default()),
         sa.UniqueConstraint("token_digest", name="uq_user_invitations_token_digest"),
         sa.CheckConstraint("role IN ('owner', 'viewer')", name="ck_user_invitations_role"),
     )

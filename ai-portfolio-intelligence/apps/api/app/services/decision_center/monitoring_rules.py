@@ -127,7 +127,10 @@ def evaluate_monitoring_rules(
         "rules_evaluated": len(rules),
         "alerts": [item for item in evaluations if item.get("triggered")],
         "evaluations": evaluations,
-        "alert_delivery": "withheld_not_implemented",
+        "alert_delivery": "desktop_inbox",
         "methodology_status": "experimental",
-        "note": "Rule evaluation is local/deterministic; external alert delivery is not implemented.",
+        "note": (
+            "Rule evaluation is local/deterministic. Desktop inbox / notification outbox "
+            "delivery is implemented; external email/push channels are not configured by default."
+        ),
     }

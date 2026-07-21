@@ -6,7 +6,8 @@ Create Date: 2026-07-10
 """
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
+
+from app.db.migration_types import json_document_type
 
 revision = "0019_accounting_hardening"
 down_revision = "0018_audit_event_ledger"
@@ -30,7 +31,7 @@ def upgrade() -> None:
     )
     op.add_column(
         "portfolio_snapshots",
-        sa.Column("completeness_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column("completeness_json", json_document_type(), nullable=False, server_default=sa.text("'{}'")),
     )
     op.add_column("portfolio_snapshots", sa.Column("valuation_coverage_percent", sa.Numeric(9, 6), nullable=True))
     op.add_column("portfolio_snapshots", sa.Column("broker_nav_tie_out", sa.Numeric(24, 8), nullable=True))

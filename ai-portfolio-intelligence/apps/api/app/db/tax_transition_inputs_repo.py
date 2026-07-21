@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.db.postgres_guard import require_postgres_persistence, require_postgres_read
+from app.db.sql_dialect import json_cast
 from app.db.state_store import get_state_store, postgres_available
 
 NAMESPACE = "tax_transition_inputs"
@@ -73,7 +74,7 @@ def upsert_tax_transition_inputs(
         with SessionLocal() as session:
             session.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO tax_transition_inputs (
                         account_id, jurisdiction, account_type, tax_budget, available_loss_offsets,
                         wash_sale_window_days, superficial_loss_window_days, effective_date, source,
@@ -81,7 +82,7 @@ def upsert_tax_transition_inputs(
                     ) VALUES (
                         :account_id, :jurisdiction, :account_type, :tax_budget, :available_loss_offsets,
                         :wash_sale_window_days, :superficial_loss_window_days, :effective_date, :source,
-                        CAST(:constraints_json AS jsonb)
+                        {json_cast("constraints_json")}
                     )
                     """
                 ),

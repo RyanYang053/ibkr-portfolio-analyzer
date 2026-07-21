@@ -184,16 +184,22 @@ class MockMarketDataProvider:
                         prices = []
                         from datetime import datetime, timezone
                         for ts, close, open_p, high, low in zip(timestamps, closes, opens, highs, lows, strict=False):
-                            if None not in (close, open_p, high, low):
-                                date_str = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
-                                prices.append({
-                                    "date": date_str,
-                                    "close": float(close),
-                                    "open": float(open_p),
-                                    "high": float(high),
-                                    "low": float(low),
-                                    "source": "live_yahoo_finance",
-                                })
+                            # Yahoo often nulls open/high/low on some sessions; keep close-only bars.
+                            if close is None:
+                                continue
+                            date_str = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                            row: dict[str, float | str] = {
+                                "date": date_str,
+                                "close": float(close),
+                                "source": "live_yahoo_finance",
+                            }
+                            if open_p is not None:
+                                row["open"] = float(open_p)
+                            if high is not None:
+                                row["high"] = float(high)
+                            if low is not None:
+                                row["low"] = float(low)
+                            prices.append(row)
                         if prices:
                             return prices
             except Exception as exc:

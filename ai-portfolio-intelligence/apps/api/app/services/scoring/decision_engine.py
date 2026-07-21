@@ -1,49 +1,68 @@
+"""Score interpretation engine — evidence only, never authoritative outcomes."""
+
 from __future__ import annotations
 
 from app.core.config import settings
+from app.core.product_contract import ScoreInterpretation
 from app.schemas.domain import Position, Provenance, Recommendation
 from app.services.fundamentals.sector_models import resolve_scoring_model
 from app.services.scoring.calibration import get_calibration_status
 from app.services.scoring.stock_score import score_stock
 
+# Human-readable labels kept for API compatibility; these are NOT decision outcomes.
+_SCORE_LABELS: dict[ScoreInterpretation, str] = {
+    ScoreInterpretation.HIGH_HEURISTIC_SCORE: "High heuristic score",
+    ScoreInterpretation.SUPPORTIVE_SCORE: "Supportive score",
+    ScoreInterpretation.MIXED_SCORE: "Mixed score",
+    ScoreInterpretation.WEAK_SCORE: "Weak score",
+    ScoreInterpretation.HIGH_RISK_SCORE: "High risk score",
+    ScoreInterpretation.DATA_INSUFFICIENT: "Data Insufficient",
+}
 
-def _heuristic_action_for(score: float, position: Position) -> str:
+
+def _interpret_score(score: float, position: Position) -> ScoreInterpretation:
     absolute_weight = abs(position.portfolio_weight)
     if position.is_speculative and absolute_weight > 3.0:
-        return "Trim Review"
+        return ScoreInterpretation.HIGH_RISK_SCORE
     if score >= 85.0:
         model_name = resolve_scoring_model(position)
         if (
             settings.enable_strong_add_recommendations
             and get_calibration_status(model_name) == "sufficient"
         ):
-            return "Strong Add"
-        return "High heuristic score"
+            return ScoreInterpretation.HIGH_HEURISTIC_SCORE
+        return ScoreInterpretation.HIGH_HEURISTIC_SCORE
     if score >= 70.0:
-        return "High heuristic score"
+        return ScoreInterpretation.SUPPORTIVE_SCORE
     if score >= 55.0:
-        return "Moderate heuristic score"
+        return ScoreInterpretation.MIXED_SCORE
     if score >= 40.0:
-        return "Low heuristic score"
-    return "Low heuristic score"
+        return ScoreInterpretation.WEAK_SCORE
+    return ScoreInterpretation.WEAK_SCORE
 
 
 def build_recommendation(position: Position) -> Recommendation:
+    """Build a score interpretation. Does not produce Decision Center outcomes."""
     score = score_stock(position)
     decision_grade = score.final_score is not None and score.confidence in {"High", "Medium-High"}
-    action = _heuristic_action_for(score.final_score, position) if decision_grade else "Data Insufficient"
+    interpretation = (
+        _interpret_score(score.final_score, position)
+        if decision_grade
+        else ScoreInterpretation.DATA_INSUFFICIENT
+    )
+    action_label = _SCORE_LABELS[interpretation]
 
-    if action == "Data Insufficient":
+    if interpretation == ScoreInterpretation.DATA_INSUFFICIENT:
         explanation = (
             f"{position.symbol} remains Data Insufficient because the research model does not have enough "
-            f"verified coverage for a decision category. {score.explanation}"
+            f"verified coverage for a score interpretation. {score.explanation} "
+            "This is analytical evidence only; the Decision Center produces the authoritative outcome."
         )
     else:
         explanation = (
-            f"{position.symbol} is categorized as {action} from an auditable weighted-factor score of "
-            f"{score.final_score:.1f} with {score.confidence} confidence. This is an experimental heuristic "
-            "category for decision support only and must be reviewed against valuation, portfolio constraints, "
-            "taxes, and current filings."
+            f"{position.symbol} has score interpretation '{action_label}' from an auditable weighted-factor "
+            f"score of {score.final_score:.1f} with {score.confidence} confidence. This is experimental "
+            "heuristic evidence only and is not an authoritative Decision Center outcome."
         )
 
     missing_lower = " ".join(score.missing_data).lower()
@@ -60,7 +79,7 @@ def build_recommendation(position: Position) -> Recommendation:
     return Recommendation(
         symbol=position.symbol,
         con_id=position.con_id,
-        action=action,  # type: ignore[arg-type]
+        action=action_label,  # type: ignore[arg-type]
         score=score.final_score,
         confidence=score.confidence,
         add_zone=None,
@@ -77,3 +96,25 @@ def build_recommendation(position: Position) -> Recommendation:
         },
         provenance=provenance,
     )
+
+
+def score_interpretation_payload(position: Position) -> dict:
+    """Explicit evidence payload with deprecated recommendation compatibility."""
+    rec = build_recommendation(position)
+    return {
+        "symbol": rec.symbol,
+        "con_id": rec.con_id,
+        "score_interpretation": rec.action,
+        "score": rec.score,
+        "confidence": rec.confidence,
+        "explanation": rec.explanation,
+        "evidence": rec.evidence,
+        "data_freshness": rec.data_freshness,
+        "provenance": rec.provenance.model_dump() if hasattr(rec.provenance, "model_dump") else rec.provenance,
+        "deprecated": True,
+        "authoritative": False,
+        "note": "Score interpretation is evidence only. Use Decision Center for authoritative outcomes.",
+        # Compatibility shim — never treat as authoritative.
+        "action": rec.action,
+        "recommendation": rec.model_dump(),
+    }

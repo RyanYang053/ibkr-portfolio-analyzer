@@ -2,12 +2,19 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
-import { desktopFetch, isDesktopRuntimeAvailable } from "@/lib/desktop-api";
+import {
+  desktopFetch,
+  ensureDesktopRuntime,
+  isDesktopRuntimeAvailable,
+  markUiReadyPosted,
+  shouldPostUiReady,
+} from "@/lib/desktop-api";
 
 const desktopLocal = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local";
 
 export function DesktopRuntimeGate({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(!desktopLocal);
+  // Instant gate when Tauri already injected runtime (or sessionStorage restore).
+  const [ready, setReady] = useState(() => !desktopLocal || isDesktopRuntimeAvailable());
 
   useEffect(() => {
     if (!desktopLocal) {
@@ -18,14 +25,20 @@ export function DesktopRuntimeGate({ children }: { children: ReactNode }) {
     let timer: number | undefined;
 
     async function markReady() {
+      ensureDesktopRuntime();
+      if (!cancelled) {
+        setReady(true);
+      }
+      // Only hit the API once per app session so nav stays fast.
+      if (!shouldPostUiReady()) {
+        return;
+      }
       try {
         await desktopFetch("/desktop/status");
         await desktopFetch("/desktop/ui-ready", { method: "POST" });
+        markUiReadyPosted();
       } catch {
-        // Smoke waits for the marker; keep retrying briefly.
-      }
-      if (!cancelled) {
-        setReady(true);
+        // Keep UI usable even if smoke marker POST fails.
       }
     }
 

@@ -18,6 +18,7 @@ class HoldingContext:
     lens_ensemble: dict[str, Any] = field(default_factory=dict)
     evidence: list[dict[str, Any]] = field(default_factory=list)
     tax_flags: dict[str, Any] = field(default_factory=dict)
+    liquidity: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -33,6 +34,7 @@ class HoldingContext:
             "lens_ensemble": self.lens_ensemble,
             "evidence": self.evidence,
             "tax_flags": self.tax_flags,
+            "liquidity": self.liquidity,
         }
 
 
@@ -49,6 +51,7 @@ def build_holding_context(
     tax_flags: dict[str, Any] | None = None,
     thesis: dict[str, Any] | None = None,
     valuation_status: str = "withheld",
+    max_single_position_pct: float | None = None,
 ) -> HoldingContext:
     from app.services.investor_lenses import ensemble_synthesis, evaluate_all_lenses
     from app.services.investor_lenses.base import LensInputs
@@ -87,9 +90,12 @@ def build_holding_context(
     ensemble = ensemble_synthesis(lens_results)
 
     weight = float(pos.get("portfolio_weight") or pos.get("weight") or 0.0)
+    max_single = float(max_single_position_pct) if max_single_position_pct is not None else 12.0
     portfolio_fit = {
         "weight_percent": weight,
-        "over_concentrated": weight > 10.0,
+        "weight": weight,
+        "over_concentrated": weight > max_single,
+        "max_single_position_pct": max_single,
         "status": "available" if pos else "withheld",
     }
 
@@ -98,6 +104,8 @@ def build_holding_context(
         {"type": "risk", "present": bool(risk)},
         {"type": "lenses", "count": len(lens_results)},
         {"type": "thesis", "present": bool(thesis_payload.get("text") or thesis_payload.get("summary"))},
+        {"type": "tax", "present": bool(tax)},
+        {"type": "liquidity", "present": bool(liq)},
     ]
 
     return HoldingContext(
@@ -116,4 +124,5 @@ def build_holding_context(
         lens_ensemble=ensemble,
         evidence=evidence,
         tax_flags=tax,
+        liquidity=liq,
     )

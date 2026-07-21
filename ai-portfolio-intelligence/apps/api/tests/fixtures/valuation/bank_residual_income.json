@@ -1,0 +1,25 @@
+{
+  "model_id": "bank_residual_income",
+  "inputs": {
+    "tangible_common_equity": "10000000000",
+    "tangible_book_per_share": "40",
+    "normalized_roe": "0.12",
+    "cost_of_equity": "0.10",
+    "retention_ratio": "0.40",
+    "share_count": "250000000",
+    "currency": "USD",
+    "as_of": "2025-12-31",
+    "source_ids": ["golden_fixture"],
+    "forecast_horizon": 5,
+    "terminal_growth": "0.03"
+  },
+  "scenarios": [
+    {"name": "base", "assumptions": {}},
+    {"name": "bull", "assumptions": {"normalized_roe": "0.14"}},
+    {"name": "bear", "assumptions": {"normalized_roe": "0.10"}}
+  ],
+  "expected": {
+    "per_share": 53.24262092044055,
+    "tol_rel": 0.02
+  }
+}

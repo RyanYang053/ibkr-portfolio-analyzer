@@ -6,7 +6,8 @@ Create Date: 2026-07-10
 """
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
+
+from app.db.migration_types import json_document_type, timestamp_now_default
 
 revision = "0021_option_contract_master"
 down_revision = "0020_login_rate_limit_audit"
@@ -47,9 +48,9 @@ def upgrade() -> None:
         sa.Column("greeks_source", sa.String(length=32), nullable=True),
         sa.Column("provider", sa.String(length=64), nullable=True),
         sa.Column("source_batch_id", sa.String(length=36), nullable=True),
-        sa.Column("payload_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'{}'::jsonb")),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column("payload_json", json_document_type(), nullable=False, server_default=sa.text("'{}'")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=timestamp_now_default()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=timestamp_now_default()),
     )
     op.create_index("ix_option_contracts_symbol", "option_contracts", ["symbol"])
     op.create_index("ix_option_contracts_underlying_con_id", "option_contracts", ["underlying_con_id"])

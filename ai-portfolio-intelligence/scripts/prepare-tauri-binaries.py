@@ -101,6 +101,21 @@ def install_spa_fallback(out_dir: Path) -> None:
         shutil.copy2(index, fallback)
 
 
+def strip_rsc_flight_payloads(out_dir: Path) -> None:
+    """Remove Next.js RSC `.txt` flight files from the static export.
+
+    Soft navigation in Tauri loads these as the document body (raw flight
+    text instead of Settings/HTML). Full-page HTML nav does not need them.
+    """
+    removed = 0
+    for path in out_dir.rglob("*.txt"):
+        if path.is_file():
+            path.unlink()
+            removed += 1
+    if removed:
+        print(f"Removed {removed} RSC flight .txt file(s) from static export")
+
+
 def copy_web_sources(dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     ignore = shutil.ignore_patterns(
@@ -128,6 +143,7 @@ def build_static_export(*, use_temp: bool) -> None:
             backup_incompatible_paths(WEB, BACKUP)
             npm_run("build", cwd=WEB, env=env)
             install_spa_fallback(WEB_OUT)
+            strip_rsc_flight_payloads(WEB_OUT)
         finally:
             restore_backup(WEB, BACKUP)
         return
@@ -143,6 +159,7 @@ def build_static_export(*, use_temp: bool) -> None:
         if not tmp_out.exists():
             raise SystemExit(f"Expected static export at {tmp_out}")
         install_spa_fallback(tmp_out)
+        strip_rsc_flight_payloads(tmp_out)
         if WEB_OUT.exists():
             shutil.rmtree(WEB_OUT)
         shutil.copytree(tmp_out, WEB_OUT)

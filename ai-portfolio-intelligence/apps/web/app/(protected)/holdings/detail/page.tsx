@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { AppLink as Link } from "@/components/AppLink";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -40,15 +40,40 @@ function HoldingDetailContent() {
   const conId = conIdRaw ? Number(conIdRaw) : undefined;
 
   const { data, error, loading } = useClientResource(
-    () =>
-      Promise.all([
-        getHoldingAnalysis(symbol, accountId, conId),
-        getAIStatus(),
-        getTechnicals(symbol),
-        getNews(symbol),
-        getFundamentals(symbol),
-        getWatchlist(),
-      ]),
+    async () => {
+      const [analysis, aiStatus, technicalsResult, newsResult, fundamentalsResult, watchlist] =
+        await Promise.all([
+          getHoldingAnalysis(symbol, accountId, conId),
+          getAIStatus(),
+          getTechnicals(symbol).then(
+            (value) => ({ ok: true as const, value }),
+            (err) => ({ ok: false as const, error: err }),
+          ),
+          getNews(symbol).then(
+            (value) => ({ ok: true as const, value }),
+            (err) => ({ ok: false as const, error: err }),
+          ),
+          getFundamentals(symbol).then(
+            (value) => ({ ok: true as const, value }),
+            (err) => ({ ok: false as const, error: err }),
+          ),
+          getWatchlist(),
+        ]);
+
+      return {
+        analysis,
+        aiStatus,
+        technicals: technicalsResult.ok ? technicalsResult.value : null,
+        technicalsError: technicalsResult.ok
+          ? null
+          : technicalsResult.error instanceof Error
+            ? technicalsResult.error.message
+            : "Technicals unavailable",
+        news: newsResult.ok ? newsResult.value : [],
+        fundamentals: fundamentalsResult.ok ? fundamentalsResult.value : null,
+        watchlist,
+      };
+    },
     [symbol, accountId, conId],
   );
 
@@ -65,9 +90,29 @@ function HoldingDetailContent() {
     );
   }
 
-  const [analysis, aiStatus, technicals, news, fundamentals, watchlist] = data;
+  const { analysis, aiStatus, technicals, technicalsError, news, fundamentals, watchlist } = data;
   const position = analysis.position;
-  const recommendation = analysis.recommendation;
+  const recommendation =
+    analysis.score_interpretation ||
+    analysis.recommendation ||
+    ({
+      symbol: position.symbol,
+      action: "Data insufficient",
+      score: analysis.score.final_score,
+      confidence: "low",
+      add_zone: null,
+      hold_zone: null,
+      trim_review_zone: null,
+      exit_review_trigger: null,
+      explanation: "",
+      evidence: [],
+      human_review_reminder: "",
+      disclaimer: "Score interpretations are evidence only.",
+    } as const);
+  const authoritativeOutcome =
+    (analysis as { authoritative_outcome?: string }).authoritative_outcome ||
+    (analysis as { outcome?: string }).outcome ||
+    null;
   const watchItem = (watchlist as Array<{ symbol: string; id: number | string; reason: string }>).find(
     (item) => item.symbol.toUpperCase() === symbol,
   );
@@ -147,28 +192,36 @@ function HoldingDetailContent() {
           <section className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
             <div className="grid gap-4">
               <div className="rounded-md border border-line bg-white p-4">
-                <h3 className="text-lg font-semibold">Decision-Support View</h3>
+                <h3 className="text-lg font-semibold">Evidence view (not authoritative)</h3>
+                <p className="mt-2 text-sm text-amber-800">
+                  Score interpretations below are evidence only. Open the holding Decision Packet for the
+                  authoritative outcome.
+                </p>
+                <div className="mt-3">
+                  <Link
+                    className="inline-block rounded-md border border-accent px-3 py-1.5 text-sm font-semibold text-accent hover:bg-panel"
+                    href={`/holdings/${encodeURIComponent(conId ? `${symbol}:${conId}` : symbol)}`}
+                  >
+                    Open Decision Packet workspace
+                  </Link>
+                </div>
                 <div className="mt-3 rounded-md bg-panel p-3">
-                  <div className="text-sm uppercase tracking-wide text-zinc-500">Action category</div>
-                  <div className="text-2xl font-bold text-accent">{recommendation.action}</div>
+                  <div className="text-sm uppercase tracking-wide text-zinc-500">
+                    {authoritativeOutcome ? "Decision Center outcome" : "Score interpretation"}
+                  </div>
+                  {authoritativeOutcome ? (
+                    <div className="text-2xl font-bold text-accent">{authoritativeOutcome}</div>
+                  ) : (
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {analysis.score.interpretation || recommendation.action}
+                    </p>
+                  )}
                 </div>
                 <div className="mt-4 grid gap-3 text-sm text-zinc-700">
                   <p>{recommendation.explanation}</p>
-                  <p>
-                    <strong>Add zone:</strong>{" "}
-                    {recommendation.add_zone ?? "Unavailable until research inputs are verified."}
-                  </p>
-                  <p>
-                    <strong>Hold zone:</strong>{" "}
-                    {recommendation.hold_zone ?? "Unavailable until research inputs are verified."}
-                  </p>
-                  <p>
-                    <strong>Trim review zone:</strong>{" "}
-                    {recommendation.trim_review_zone ?? "Unavailable until research inputs are verified."}
-                  </p>
-                  <p>
-                    <strong>Exit review trigger:</strong>{" "}
-                    {recommendation.exit_review_trigger ?? "Unavailable until research inputs are verified."}
+                  <p className="text-zinc-500">
+                    Add / hold / trim / exit zone labels from the score engine are research aids only and
+                    cannot authorize Review Add without an approved Decision Packet.
                   </p>
                 </div>
               </div>
@@ -178,25 +231,30 @@ function HoldingDetailContent() {
                   <div>
                     <h3 className="text-lg font-semibold">Technical Trend</h3>
                     <p className="text-xs text-zinc-500 font-medium capitalize mt-0.5">
-                      Classification: {technicals.trend_classification ?? "Unavailable"}
+                      Classification: {technicals?.trend_classification ?? "Unavailable"}
                     </p>
                   </div>
                   <div className="text-right">
                     <span className="text-sm font-bold text-zinc-800">
                       RSI (14):{" "}
-                      {technicals.rsi_14 === null || technicals.rsi_14 === undefined
+                      {technicals?.rsi_14 === null || technicals?.rsi_14 === undefined
                         ? "Unavailable"
                         : technicals.rsi_14.toFixed(1)}
                     </span>
                     <p className="text-[10px] text-zinc-500 uppercase tracking-wide mt-0.5">
                       52W Drawdown:{" "}
-                      {technicals.drawdown_from_52w_high === null ||
-                      technicals.drawdown_from_52w_high === undefined
+                      {technicals?.drawdown_from_52w_high === null ||
+                      technicals?.drawdown_from_52w_high === undefined
                         ? "Unavailable"
                         : `${technicals.drawdown_from_52w_high.toFixed(1)}%`}
                     </p>
                   </div>
                 </div>
+                {technicalsError ? (
+                  <p className="mb-3 rounded-md border border-warning bg-amber-50 p-2 text-xs text-warning">
+                    {technicalsError}
+                  </p>
+                ) : null}
                 <HoldingInteractiveChart symbol={position.symbol} />
               </div>
 
@@ -252,44 +310,44 @@ function HoldingDetailContent() {
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-zinc-500 block">Revenue Growth (YoY)</span>
-                    <span className="font-semibold text-base">{formatPercent(fundamentals.revenue_growth_yoy)}</span>
+                    <span className="font-semibold text-base">{formatPercent(fundamentals?.revenue_growth_yoy)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Gross Margin</span>
-                    <span className="font-semibold text-base">{formatPercent(fundamentals.gross_margin)}</span>
+                    <span className="font-semibold text-base">{formatPercent(fundamentals?.gross_margin)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Operating Margin</span>
-                    <span className="font-semibold text-base">{formatPercent(fundamentals.operating_margin)}</span>
+                    <span className="font-semibold text-base">{formatPercent(fundamentals?.operating_margin)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Free Cash Flow</span>
-                    <span className="font-semibold text-base">{formatLargeCurrency(fundamentals.free_cash_flow)}</span>
+                    <span className="font-semibold text-base">{formatLargeCurrency(fundamentals?.free_cash_flow)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Cash & Equivalents</span>
-                    <span className="font-semibold text-base">{formatLargeCurrency(fundamentals.cash)}</span>
+                    <span className="font-semibold text-base">{formatLargeCurrency(fundamentals?.cash)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Total Debt</span>
-                    <span className="font-semibold text-base">{formatLargeCurrency(fundamentals.total_debt)}</span>
+                    <span className="font-semibold text-base">{formatLargeCurrency(fundamentals?.total_debt)}</span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">Forward P/E</span>
                     <span className="font-semibold text-base">
-                      {fundamentals.pe_forward !== null ? fundamentals.pe_forward.toFixed(1) : "N/A"}
+                      {fundamentals?.pe_forward != null ? fundamentals.pe_forward.toFixed(1) : "N/A"}
                     </span>
                   </div>
                   <div>
                     <span className="text-zinc-500 block">EV / Sales</span>
                     <span className="font-semibold text-base">
-                      {fundamentals.ev_sales !== null ? fundamentals.ev_sales.toFixed(1) : "N/A"}
+                      {fundamentals?.ev_sales != null ? fundamentals.ev_sales.toFixed(1) : "N/A"}
                     </span>
                   </div>
                   <div className="col-span-2">
                     <span className="text-zinc-500 block">FCF Yield</span>
                     <span className="font-semibold text-base">
-                      {fundamentals.fcf_yield !== null ? `${(fundamentals.fcf_yield * 100).toFixed(2)}%` : "N/A"}
+                      {fundamentals?.fcf_yield != null ? `${(fundamentals.fcf_yield * 100).toFixed(2)}%` : "N/A"}
                     </span>
                   </div>
                 </div>

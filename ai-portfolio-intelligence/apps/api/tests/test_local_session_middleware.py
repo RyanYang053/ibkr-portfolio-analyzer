@@ -35,6 +35,20 @@ def test_public_health_does_not_require_session():
     assert response.status_code == 200
 
 
+def test_options_preflight_does_not_require_session():
+    token = token_urlsafe(32)
+    client = _app_with_middleware(token)
+    response = client.options(
+        "/portfolio/summary",
+        headers={
+            "Origin": "http://tauri.localhost",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "x-local-session",
+        },
+    )
+    assert response.status_code != 401
+
+
 def test_protected_route_requires_local_session_header():
     token = token_urlsafe(32)
     client = _app_with_middleware(token)

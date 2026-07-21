@@ -25,9 +25,24 @@ def apply_recommendation_guardrails(
     
     if symbol_warnings:
         # If there's a serious violation, restrict buying or adding
-        if action in ("Strong Add", "Add"):
-            override_action = "Exit Review" if "unsuitable" in "".join(symbol_warnings).lower() else "Trim Review"
-            reason = f"Override: Action adjusted to {override_action} due to suitability warnings: {'; '.join(symbol_warnings)}"
+        if action in (
+            "Strong Add",
+            "Add",
+            "High heuristic score",
+            "Supportive score",
+            "review_add",
+            "Review add",
+        ):
+            override_action = (
+                "High risk score"
+                if "unsuitable" in "".join(symbol_warnings).lower()
+                else "Weak score"
+            )
+            reason = (
+                f"Override: Score interpretation adjusted to {override_action} due to "
+                f"suitability warnings: {'; '.join(symbol_warnings)}. "
+                "Authoritative outcomes remain Decision Center only."
+            )
             return override_action, reason
             
     return action, ""

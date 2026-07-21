@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.db.postgres_guard import require_postgres_persistence, require_postgres_read
+from app.db.sql_dialect import json_cast
 from app.db.state_store import get_state_store, postgres_available
 
 NAMESPACE = "decision_monitoring_rules"
@@ -112,13 +113,13 @@ def create_rule(
         with SessionLocal() as session:
             session.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO decision_monitoring_rules (
                         rule_id, account_id, instrument_key, rule_type, threshold, active,
                         payload_json, created_at
                     ) VALUES (
                         :rule_id, :account_id, :instrument_key, :rule_type, :threshold, :active,
-                        CAST(:payload_json AS jsonb), :created_at
+                        {json_cast("payload_json")}, :created_at
                     )
                     """
                 ),

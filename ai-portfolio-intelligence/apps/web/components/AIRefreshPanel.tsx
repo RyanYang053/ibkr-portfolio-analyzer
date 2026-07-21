@@ -50,9 +50,20 @@ export function AIRefreshPanel({ symbol, initialProvider, initialReport }: { sym
       {active ? (
         <div className="mt-4 grid gap-4">
           <div className="rounded-md bg-panel p-3">
-            <div className="text-xs uppercase tracking-wide text-zinc-500">AI action category</div>
-            <div className="text-2xl font-semibold">{active.action}</div>
-            <p className="mt-1 text-sm text-zinc-700">Confidence: {active.confidence} · cap {active.confidence_limits?.confidence_cap}</p>
+            <div className="text-xs uppercase tracking-wide text-zinc-500">
+              Decision Center outcome (AI explanation only)
+            </div>
+            <div className="text-2xl font-semibold">
+              {(active as { authoritative_outcome?: string }).authoritative_outcome ||
+                active.action ||
+                "data_insufficient"}
+            </div>
+            <p className="mt-1 text-sm text-amber-800">
+              Score/AI labels are evidence. Open the Decision Packet for the authoritative outcome.
+            </p>
+            <p className="mt-1 text-sm text-zinc-700">
+              Confidence: {active.confidence} · cap {active.confidence_limits?.confidence_cap}
+            </p>
             <p className="mt-1 text-sm text-zinc-700">Thesis: {active.thesis?.status?.replaceAll("_", " ")}</p>
           </div>
           <div className="grid gap-3 text-sm lg:grid-cols-2">

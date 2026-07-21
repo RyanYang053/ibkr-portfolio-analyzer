@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 
 import { DesktopRuntimeGate } from "@/components/DesktopRuntimeGate";
+import { useAppRouter } from "@/lib/use-app-router";
 
 const desktopLocal =
   process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local" ||
   process.env.NEXT_PUBLIC_DISABLE_AUTH === "true";
 
 function HostedAuthGuard({ children }: { children: ReactNode }) {
-  const router = useRouter();
+  const router = useAppRouter();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {

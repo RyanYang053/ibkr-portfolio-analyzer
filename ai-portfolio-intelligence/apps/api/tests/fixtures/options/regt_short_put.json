@@ -1,0 +1,14 @@
+{
+  "methodology_id": "options_margin_regt",
+  "inputs": {
+    "strategy": "short_put_uncovered",
+    "underlying_price": 100.0,
+    "strike": 100.0,
+    "shares": 100.0,
+    "premium": 500.0
+  },
+  "expected": {
+    "requirement": 2500.0,
+    "tol_abs": 0.01
+  }
+}

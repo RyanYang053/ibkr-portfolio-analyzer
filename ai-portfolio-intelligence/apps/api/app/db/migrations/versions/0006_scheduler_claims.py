@@ -16,9 +16,12 @@ depends_on = None
 def upgrade() -> None:
     op.add_column("scheduled_jobs", sa.Column("fencing_token", sa.Integer(), nullable=False, server_default="0"))
     op.execute("UPDATE scheduled_jobs SET account_id = '__all__' WHERE account_id IS NULL")
-    op.alter_column("scheduled_jobs", "account_id", existing_type=sa.String(length=64), nullable=False)
+    # batch_alter_table recreates the table on SQLite (no ALTER COLUMN); emits ALTER on Postgres.
+    with op.batch_alter_table("scheduled_jobs") as batch_op:
+        batch_op.alter_column("account_id", existing_type=sa.String(length=64), nullable=False)
 
 
 def downgrade() -> None:
-    op.alter_column("scheduled_jobs", "account_id", existing_type=sa.String(length=64), nullable=True)
+    with op.batch_alter_table("scheduled_jobs") as batch_op:
+        batch_op.alter_column("account_id", existing_type=sa.String(length=64), nullable=True)
     op.drop_column("scheduled_jobs", "fencing_token")

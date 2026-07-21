@@ -24,21 +24,21 @@ def upgrade() -> None:
     op.add_column("daily_position_snapshots", sa.Column("broker_batch_id", sa.String(length=36)))
     op.add_column("daily_position_snapshots", sa.Column("calculation_run_id", sa.String(length=64)))
 
-    op.drop_constraint("uq_daily_position_snapshots_account_date_symbol", "daily_position_snapshots", type_="unique")
-    op.create_unique_constraint(
-        "uq_daily_position_snapshots_account_date_symbol",
-        "daily_position_snapshots",
-        ["account_id", "snapshot_date", "symbol", "con_id_key"],
-    )
+    with op.batch_alter_table("daily_position_snapshots") as batch_op:
+        batch_op.drop_constraint("uq_daily_position_snapshots_account_date_symbol", type_="unique")
+        batch_op.create_unique_constraint(
+            "uq_daily_position_snapshots_account_date_symbol",
+            ["account_id", "snapshot_date", "symbol", "con_id_key"],
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("uq_daily_position_snapshots_account_date_symbol", "daily_position_snapshots", type_="unique")
-    op.create_unique_constraint(
-        "uq_daily_position_snapshots_account_date_symbol",
-        "daily_position_snapshots",
-        ["account_id", "snapshot_date", "symbol", "con_id"],
-    )
+    with op.batch_alter_table("daily_position_snapshots") as batch_op:
+        batch_op.drop_constraint("uq_daily_position_snapshots_account_date_symbol", type_="unique")
+        batch_op.create_unique_constraint(
+            "uq_daily_position_snapshots_account_date_symbol",
+            ["account_id", "snapshot_date", "symbol", "con_id"],
+        )
     for column in (
         "calculation_run_id",
         "broker_batch_id",

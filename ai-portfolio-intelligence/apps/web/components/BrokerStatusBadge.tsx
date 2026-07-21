@@ -19,9 +19,15 @@ export function BrokerStatusBadge() {
     return <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-zinc-400 animate-pulse h-4 w-28" />;
   }
 
-  const isConnected = status?.status === "connected" || status?.status === "connected_mock_readonly";
-  const statusLabel = isConnected 
-    ? `Connected: ${status.mode === "mock_ibkr_readonly" ? "Mock" : `Live`}` 
+  const isConnected =
+    status?.status === "connected" ||
+    status?.status === "connected_mock_readonly" ||
+    status?.status === "connected_readonly" ||
+    status?.status === "reachable";
+  const statusLabel = isConnected
+    ? status?.status === "reachable"
+      ? `Gateway reachable (${status.mode === "mock_ibkr_readonly" ? "Mock" : "Live"})`
+      : `Connected: ${status.mode === "mock_ibkr_readonly" ? "Mock" : "Live"}`
     : "IBKR not connected";
   const badgeColor = isConnected ? "text-emerald-600" : "text-accent";
 

@@ -24,6 +24,11 @@ impl BackendProcess {
             std::fs::create_dir_all(data_dir.join(sub))?;
         }
 
+        let sqlite_url = format!(
+            "sqlite+pysqlite:///{}",
+            data_dir.join("portfolio.db").to_string_lossy()
+        );
+
         // sidecar() takes the binary filename (not binaries/ prefix).
         let sidecar = app
             .shell()
@@ -31,7 +36,8 @@ impl BackendProcess {
             .map_err(|err| format!("sidecar resolve failed: {err}"))?
             .env("DEPLOYMENT_MODE", "desktop_local")
             .env("ENVIRONMENT", "desktop")
-            .env("PERSISTENCE_BACKEND", "json")
+            .env("PERSISTENCE_BACKEND", "sqlite")
+            .env("DATABASE_URL", &sqlite_url)
             .env("PORTFOLIO_DATA_DIR", data_dir.to_string_lossy().as_ref())
             .env("LOCAL_API_HOST", &runtime.host)
             .env("LOCAL_API_PORT", runtime.port.to_string())

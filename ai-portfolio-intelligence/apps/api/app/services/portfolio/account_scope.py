@@ -78,15 +78,14 @@ def find_portfolio_position(
     if account_id and account_id not in {"all", "default"}:
         account_ids = [account_id]
     else:
+        # Consolidated / unspecified scope: search every broker account, not just
+        # the configured default (which made research/analyze ignore other accounts).
         accounts = adapter.get_accounts()
         if not accounts:
             return None
-        if len(accounts) == 1:
-            account_ids = [accounts[0].id]
-        elif settings.ibkr_account_id:
+        account_ids = [account.id for account in accounts]
+        if not account_ids and settings.ibkr_account_id:
             account_ids = [settings.ibkr_account_id]
-        else:
-            return None
 
     for active_id in account_ids:
         try:

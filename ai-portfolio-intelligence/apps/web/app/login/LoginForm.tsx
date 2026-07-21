@@ -1,8 +1,8 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 import { login } from "@/lib/auth";
+import { useAppRouter } from "@/lib/use-app-router";
 
 function readNextPath(): string {
   if (typeof window === "undefined") {
@@ -17,7 +17,7 @@ function readNextPath(): string {
 }
 
 export default function LoginForm() {
-  const router = useRouter();
+  const router = useAppRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
