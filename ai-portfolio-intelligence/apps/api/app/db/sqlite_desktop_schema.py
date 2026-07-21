@@ -407,6 +407,18 @@ def _decision_os_metadata() -> MetaData:
         Column("created_at", DateTime(timezone=True), nullable=False),
     )
 
+    Table(
+        "research_notes",
+        metadata,
+        Column("note_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=True),
+        Column("note_type", String(32), nullable=False, server_default="security"),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
     return metadata
 
 

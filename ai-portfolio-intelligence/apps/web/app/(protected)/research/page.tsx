@@ -110,9 +110,15 @@ function ResearchContent() {
           )}
         </div>
       </section>
-      <div className="flex gap-4">
+      <div className="flex flex-wrap gap-4">
         <Link className="text-sm text-accent hover:underline" href="/research/screener">
           Open screener
+        </Link>
+        <Link className="text-sm text-accent hover:underline" href="/research/notes">
+          Research notes
+        </Link>
+        <Link className="text-sm text-accent hover:underline" href="/research/compare">
+          Compare candidates
         </Link>
         <Link className="text-sm text-accent hover:underline" href="/watchlist">
           Open watchlist

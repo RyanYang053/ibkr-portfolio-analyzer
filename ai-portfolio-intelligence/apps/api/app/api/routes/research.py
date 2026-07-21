@@ -11,6 +11,7 @@ from app.api.auth_deps import Principal, get_current_principal
 from app.api.deps import get_broker_adapter
 from app.db.decision_packet_repo import DecisionPacketRepository
 from app.db.research_candidate_repo import ResearchCandidateRepository
+from app.schemas.research_note import ResearchNoteCreate
 from app.services.broker.base import BrokerAdapter
 from app.services.research.candidate_comparison import compare_candidates
 from app.services.research.catalyst_calendar import build_catalyst_calendar
@@ -182,3 +183,61 @@ def compare(body: CompareRequest) -> dict[str, Any]:
     if not left or not right:
         raise HTTPException(status_code=404, detail="candidate_not_found")
     return compare_candidates(left, right)
+
+
+# --- Structured research notes (§8.5) --------------------------------------
+
+
+@router.get("/notes")
+def list_research_notes(
+    account_id: str,
+    instrument_id: str | None = None,
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, Any]:
+    from app.db.research_note_repo import list_notes
+
+    notes = list_notes(account_id, instrument_id=instrument_id)
+    return {"account_id": account_id, "count": len(notes), "notes": [n.model_dump(mode="json") for n in notes]}
+
+
+@router.post("/notes")
+def create_research_note(
+    body: ResearchNoteCreate,
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, Any]:
+    from uuid import uuid4
+
+    from app.db.research_note_repo import save_note
+    from app.schemas.research_note import ResearchNote
+
+    note = ResearchNote(note_id=f"note_{uuid4().hex[:12]}", **body.model_dump())
+    save_note(note)
+    return note.model_dump(mode="json")
+
+
+@router.get("/notes/{note_id}")
+def get_research_note(note_id: str, principal: Principal = Depends(get_current_principal)) -> dict[str, Any]:
+    from app.db.research_note_repo import get_note
+
+    note = get_note(note_id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="note_not_found")
+    return note.model_dump(mode="json")
+
+
+@router.patch("/notes/{note_id}")
+def update_research_note(
+    note_id: str,
+    body: dict[str, Any],
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, Any]:
+    from app.db.research_note_repo import get_note, save_note
+
+    note = get_note(note_id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="note_not_found")
+    for field in ("title", "body", "tags", "evidence_links", "note_type"):
+        if field in body and body[field] is not None:
+            setattr(note, field, body[field])
+    save_note(note)
+    return note.model_dump(mode="json")

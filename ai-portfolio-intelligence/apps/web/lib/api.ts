@@ -859,6 +859,31 @@ export async function promoteScreenResult(resultId: string, accountId: string): 
   );
 }
 
+// --- Research notes + compare (§8.3/§8.5) -----------------------------------
+
+export async function listResearchNotes(
+  accountId: string,
+  instrumentId?: string,
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ account_id: accountId });
+  if (instrumentId) params.set("instrument_id", instrumentId);
+  return requireJson(`/research/notes?${params.toString()}`);
+}
+
+export async function createResearchNote(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return requireJson(`/research/notes`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function compareCandidates(
+  leftCandidateId: string,
+  rightCandidateId: string,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/research/compare`, {
+    method: "POST",
+    body: JSON.stringify({ left_candidate_id: leftCandidateId, right_candidate_id: rightCandidateId }),
+  });
+}
+
 export async function runTaxReconciliation(
   accountId?: string,
   taxYear?: number,
