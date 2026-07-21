@@ -12,6 +12,7 @@ from app.schemas.domain import FundamentalSnapshot, FundamentalSnapshotRecord
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 _FILE_LOCK = Lock()
+_STATE_NAMESPACE = "fundamental_snapshots"
 
 
 def _store_path(symbol: str) -> str:
@@ -47,13 +48,31 @@ def _atomic_write(path: str, payload: list[dict]) -> None:
                 os.unlink(temporary_path)
 
 
-def _load_json_records(symbol: str) -> list[FundamentalSnapshotRecord]:
+def _raw_records(symbol: str) -> list[dict]:
+    # P0.2 / §16.1: SQLite is canonical under the shipped desktop backend; raw JSON
+    # files are only used in pure ``json`` mode.
+    if settings.persistence_backend == "sqlite":
+        from app.db.state_store import get_state_store
+
+        return list(get_state_store().read_json(_STATE_NAMESPACE, symbol.upper(), default=None) or [])
     path = _store_path(symbol)
     if not os.path.exists(path):
         return []
     with _FILE_LOCK, open(path, "r", encoding="utf-8") as handle:
-        raw = json.load(handle)
-    return [FundamentalSnapshotRecord(**item) for item in raw]
+        return json.load(handle)
+
+
+def _write_records(symbol: str, merged: list[dict]) -> None:
+    if settings.persistence_backend == "sqlite":
+        from app.db.state_store import get_state_store
+
+        get_state_store().write_json(_STATE_NAMESPACE, symbol.upper(), merged)
+        return
+    _atomic_write(_store_path(symbol), merged)
+
+
+def _load_json_records(symbol: str) -> list[FundamentalSnapshotRecord]:
+    return [FundamentalSnapshotRecord(**item) for item in _raw_records(symbol)]
 
 
 def save_snapshot_record(record: FundamentalSnapshotRecord) -> FundamentalSnapshotRecord:
@@ -63,11 +82,7 @@ def save_snapshot_record(record: FundamentalSnapshotRecord) -> FundamentalSnapsh
         upsert_snapshot_record(record)
         return record
 
-    path = _store_path(record.symbol)
-    existing: list[dict] = []
-    if os.path.exists(path):
-        with _FILE_LOCK, open(path, "r", encoding="utf-8") as handle:
-            existing = json.load(handle)
+    existing = _raw_records(record.symbol)
     keyed = {
         _record_key(FundamentalSnapshotRecord(**item)): item
         for item in existing
@@ -78,7 +93,7 @@ def save_snapshot_record(record: FundamentalSnapshotRecord) -> FundamentalSnapsh
         keyed.values(),
         key=lambda item: (item.get("as_of_date", ""), item.get("ingested_at", "")),
     )
-    _atomic_write(path, merged)
+    _write_records(record.symbol, merged)
     return record
 
 

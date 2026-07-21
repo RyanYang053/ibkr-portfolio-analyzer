@@ -459,6 +459,15 @@ jobs:
           sums = Path("dist/SHA256SUMS.txt")
           if sums.exists():
               artifact = sums.read_text().split()[0] if sums.read_text().strip() else ""
+          # Track the actual Alembic head rather than a hardcoded (drifting) revision.
+          try:
+              from alembic.config import Config
+              from alembic.script import ScriptDirectory
+              schema_revision = ScriptDirectory.from_config(
+                  Config("ai-portfolio-intelligence/apps/api/alembic.ini")
+              ).get_current_head() or "unknown"
+          except Exception:
+              schema_revision = "unknown"
           manifest = build_release_manifest(
               commit_sha=os.environ["COMMIT_SHA"],
               branch=os.environ["BRANCH"],
@@ -466,7 +475,7 @@ jobs:
               required_jobs=required,
               sbom_sha256=sbom,
               desktop_artifact_sha256=artifact,
-              database_schema_revision="0036_backup_and_audit_integrity",
+              database_schema_revision=schema_revision,
               golden_fixture_sha256=golden,
           )
           if not manifest["tests_verified"]:

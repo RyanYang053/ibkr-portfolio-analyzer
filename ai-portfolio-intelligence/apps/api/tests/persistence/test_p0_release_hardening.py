@@ -119,6 +119,34 @@ def test_transactions_persist_to_sqlite_not_json_files(sqlite_backend, monkeypat
     assert stored is not None and len(stored) == 1
 
 
+def test_fundamentals_persist_to_sqlite(sqlite_backend, monkeypatch):
+    """P0.2 follow-up: fundamental snapshots persist to SQLite, not raw JSON files."""
+    from datetime import date
+
+    from app.schemas.domain import FundamentalSnapshot, FundamentalSnapshotRecord
+    from app.services.fundamentals import snapshot_store
+
+    json_dir = sqlite_backend.parent / "fund_json"
+    monkeypatch.setattr(snapshot_store, "DATA_DIR", str(json_dir))
+
+    record = FundamentalSnapshotRecord(
+        symbol="MSFT",
+        as_of_date=date(2024, 3, 31),
+        snapshot=FundamentalSnapshot(symbol="MSFT", period="Q1", report_date=date(2024, 3, 31)),
+        point_in_time=True,
+        source="test",
+    )
+    snapshot_store.save_snapshot_record(record)
+
+    loaded = snapshot_store.list_snapshot_records("MSFT")
+    assert any(r.symbol == "MSFT" for r in loaded)
+    assert not json_dir.exists() or not list(json_dir.glob("fundamentals_*.json"))
+
+    from app.db.state_store import get_state_store
+
+    assert get_state_store().read_json("fundamental_snapshots", "MSFT", default=None) is not None
+
+
 def test_fx_history_persists_to_sqlite(sqlite_backend):
     from app.services.market_data import fx_store
 
