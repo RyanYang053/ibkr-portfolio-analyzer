@@ -135,6 +135,13 @@ def instrument_overview(
                 "as_of": held.updated_at.isoformat() if held.updated_at else None,
                 "source": held.price_source,
             }
+            # Persist the observed quote into the canonical quotes table (§17).
+            try:
+                from app.db.reference_data_repo import save_quote
+
+                save_quote(record.instrument_id, {k: v for k, v in market.items() if k != "status"})
+            except Exception:  # noqa: BLE001
+                pass
     except Exception:  # noqa: BLE001 — section degrades, page does not fail
         position_payload = {"status": "unavailable"}
 

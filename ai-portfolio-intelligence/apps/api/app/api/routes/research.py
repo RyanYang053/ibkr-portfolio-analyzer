@@ -159,6 +159,24 @@ def research_catalysts(
         if getattr(p, "asset_class", None) in {"OPT", "FOP"}
     ]
     events = build_catalyst_calendar(symbols=symbols[:40], option_positions=option_positions)
+    # Persist catalysts into the canonical catalysts table (§8.8 / §17).
+    try:
+        import hashlib
+
+        from app.db.instruments_repository import resolve_instrument
+        from app.db.reference_data_repo import save_catalyst
+
+        for event in events:
+            sym = str(event.get("symbol") or "").upper()
+            if not sym:
+                continue
+            instrument = resolve_instrument(symbol=sym, con_id=None)
+            ctype = str(event.get("catalyst_type") or event.get("event_type") or "catalyst")
+            key = f"{instrument.instrument_id}:{ctype}:{event.get('event_date') or event.get('date') or ''}"
+            catalyst_id = "cat_" + hashlib.sha256(key.encode()).hexdigest()[:16]
+            save_catalyst(catalyst_id, instrument.instrument_id, ctype, event)
+    except Exception:  # noqa: BLE001 — persistence must not break the read
+        pass
     return {
         "account_id": summary.account_id,
         "events": events,

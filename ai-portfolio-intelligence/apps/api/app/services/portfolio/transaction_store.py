@@ -178,6 +178,24 @@ def sync_transactions(
         imported_sections.append("mock_flex_cash_ledger")
 
     merged = save_transactions(account_id, execution_rows + flex_rows)
+    # Persist any corporate actions parsed from the imported ledger (§17).
+    try:
+        import hashlib
+
+        from app.db.reference_data_repo import save_corporate_action
+        from app.services.portfolio.corporate_actions import parse_corporate_action
+        from app.services.portfolio.instrument_identity import instrument_key_from_row
+
+        for txn in merged:
+            action = parse_corporate_action(txn)
+            if action is None:
+                continue
+            iid = instrument_key_from_row({"symbol": txn.symbol, "con_id": txn.con_id})
+            key = f"{iid}:{txn.action}:{txn.event_timestamp.isoformat()}"
+            action_id = "ca_" + hashlib.sha256(key.encode()).hexdigest()[:16]
+            save_corporate_action(action_id, iid, str(txn.action), txn.model_dump(mode="json"))
+    except Exception:  # noqa: BLE001 — reference persistence must not break the sync
+        pass
     flex_period_start = flex_result.report_period_start if flex_result is not None else None
     flex_period_end = flex_result.report_period_end if flex_result is not None else None
 
