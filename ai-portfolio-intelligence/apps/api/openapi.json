@@ -48,49 +48,6 @@
         "title": "AIScheduleSettings",
         "type": "object"
       },
-      "AcceptInviteRequest": {
-        "properties": {
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "password": {
-            "minLength": 10,
-            "title": "Password",
-            "type": "string"
-          },
-          "token": {
-            "title": "Token",
-            "type": "string"
-          }
-        },
-        "required": [
-          "token",
-          "password",
-          "name"
-        ],
-        "title": "AcceptInviteRequest",
-        "type": "object"
-      },
-      "AccountAccessRequest": {
-        "properties": {
-          "account_id": {
-            "title": "Account Id",
-            "type": "string"
-          },
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          }
-        },
-        "required": [
-          "email",
-          "account_id"
-        ],
-        "title": "AccountAccessRequest",
-        "type": "object"
-      },
       "AccountRole": {
         "properties": {
           "account_id": {
@@ -181,36 +138,6 @@
           "version"
         ],
         "title": "ApprovalRequest",
-        "type": "object"
-      },
-      "BootstrapRequest": {
-        "properties": {
-          "bootstrap_token": {
-            "title": "Bootstrap Token",
-            "type": "string"
-          },
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "password": {
-            "minLength": 10,
-            "title": "Password",
-            "type": "string"
-          }
-        },
-        "required": [
-          "bootstrap_token",
-          "email",
-          "password",
-          "name"
-        ],
-        "title": "BootstrapRequest",
         "type": "object"
       },
       "BrokerConfigureRequest": {
@@ -1317,26 +1244,6 @@
         "title": "InvestorProfile",
         "type": "object"
       },
-      "InvitationRequest": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "role": {
-            "default": "viewer",
-            "pattern": "^(owner|viewer)$",
-            "title": "Role",
-            "type": "string"
-          }
-        },
-        "required": [
-          "email"
-        ],
-        "title": "InvitationRequest",
-        "type": "object"
-      },
       "JournalEntryCreate": {
         "properties": {
           "account_id": {
@@ -1633,25 +1540,6 @@
           }
         },
         "title": "JournalEntryUpdate",
-        "type": "object"
-      },
-      "LoginRequest": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "password": {
-            "title": "Password",
-            "type": "string"
-          }
-        },
-        "required": [
-          "email",
-          "password"
-        ],
-        "title": "LoginRequest",
         "type": "object"
       },
       "MarketIndicator": {
@@ -2445,31 +2333,6 @@
         "title": "RegimeState",
         "type": "string"
       },
-      "RegisterRequest": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "password": {
-            "minLength": 10,
-            "title": "Password",
-            "type": "string"
-          }
-        },
-        "required": [
-          "email",
-          "password",
-          "name"
-        ],
-        "title": "RegisterRequest",
-        "type": "object"
-      },
       "ResearchNoteCreate": {
         "properties": {
           "account_id": {
@@ -2577,26 +2440,6 @@
           }
         },
         "title": "ReviewRequest",
-        "type": "object"
-      },
-      "RoleUpdateRequest": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "role": {
-            "pattern": "^(owner|viewer)$",
-            "title": "Role",
-            "type": "string"
-          }
-        },
-        "required": [
-          "email",
-          "role"
-        ],
-        "title": "RoleUpdateRequest",
         "type": "object"
       },
       "ScheduledAnalyzeRequest": {
@@ -3181,12 +3024,6 @@
         "title": "WatchlistItem",
         "type": "object"
       }
-    },
-    "securitySchemes": {
-      "HTTPBearer": {
-        "scheme": "bearer",
-        "type": "http"
-      }
     }
   },
   "info": {
@@ -3216,295 +3053,6 @@
           }
         },
         "summary": "Root"
-      }
-    },
-    "/admin/account-access": {
-      "delete": {
-        "operationId": "revoke_access_admin_account_access_delete",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AccountAccessRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Revoke Access",
-        "tags": [
-          "admin"
-        ]
-      },
-      "post": {
-        "operationId": "grant_access_admin_account_access_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AccountAccessRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Grant Access",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
-    "/admin/account-access/{email}": {
-      "get": {
-        "operationId": "account_access_admin_account_access__email__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "email",
-            "required": true,
-            "schema": {
-              "title": "Email",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Account Access",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
-    "/admin/audit-logs": {
-      "get": {
-        "operationId": "audit_logs_admin_audit_logs_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Audit Logs",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
-    "/admin/invitations": {
-      "get": {
-        "operationId": "invitations_admin_invitations_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Invitations",
-        "tags": [
-          "admin"
-        ]
-      },
-      "post": {
-        "operationId": "invite_user_admin_invitations_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InvitationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Invite User",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
-    "/admin/users": {
-      "get": {
-        "operationId": "users_admin_users_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Users",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
-    "/admin/users/role": {
-      "put": {
-        "operationId": "set_user_role_admin_users_role_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RoleUpdateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Set User Role",
-        "tags": [
-          "admin"
-        ]
       }
     },
     "/ai/analyze-portfolio": {
@@ -3548,11 +3096,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Analyze Portfolio",
         "tags": [
           "ai-research"
@@ -3625,11 +3168,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Analyze Stock",
         "tags": [
           "ai-research"
@@ -3687,11 +3225,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Chat",
         "tags": [
           "chat"
@@ -3734,11 +3267,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Configure Ai",
         "tags": [
           "ai-research"
@@ -3761,11 +3289,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Schedule",
         "tags": [
           "ai-research"
@@ -3806,11 +3329,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Schedule",
         "tags": [
           "ai-research"
@@ -3869,11 +3387,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Trigger Scheduled Analysis",
         "tags": [
           "ai-research"
@@ -3896,11 +3409,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Ai Status",
         "tags": [
           "ai-research"
@@ -3944,11 +3452,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Read Thesis",
         "tags": [
           "ai-research"
@@ -4000,11 +3503,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Write Thesis",
         "tags": [
           "ai-research"
@@ -4052,11 +3550,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Alerts",
         "tags": [
           "alerts"
@@ -4113,11 +3606,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Resolve Alert",
         "tags": [
           "alerts"
@@ -4140,11 +3628,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Settings",
         "tags": [
           "settings"
@@ -4188,11 +3671,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Read Setting",
         "tags": [
           "settings"
@@ -4244,254 +3722,9 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Write Setting",
         "tags": [
           "settings"
-        ]
-      }
-    },
-    "/auth/accept-invite": {
-      "post": {
-        "operationId": "accept_invite_auth_accept_invite_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AcceptInviteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Accept Invite Auth Accept Invite Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Accept Invite",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/auth/bootstrap": {
-      "post": {
-        "operationId": "bootstrap_owner_auth_bootstrap_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BootstrapRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Bootstrap Owner Auth Bootstrap Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Bootstrap Owner",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/auth/login": {
-      "post": {
-        "operationId": "login_auth_login_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LoginRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Login Auth Login Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Login",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/auth/logout": {
-      "post": {
-        "operationId": "logout_auth_logout_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Logout Auth Logout Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Logout",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/auth/me": {
-      "get": {
-        "operationId": "me_auth_me_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Me Auth Me Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Me",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/auth/register": {
-      "post": {
-        "operationId": "register_auth_register_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RegisterRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Register Auth Register Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Register",
-        "tags": [
-          "auth"
         ]
       }
     },
@@ -4508,11 +3741,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Accounts",
         "tags": [
           "broker-readonly"
@@ -4553,11 +3781,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Positions",
         "tags": [
           "broker-readonly"
@@ -4598,11 +3821,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Account Summary",
         "tags": [
           "broker-readonly"
@@ -4643,11 +3861,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Transactions",
         "tags": [
           "broker-readonly"
@@ -4690,11 +3903,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Configure Readonly",
         "tags": [
           "broker-readonly"
@@ -4720,11 +3928,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Status",
         "tags": [
           "broker-readonly"
@@ -4768,11 +3971,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Sync Flex",
         "tags": [
           "broker-readonly"
@@ -4795,11 +3993,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Sync Readonly",
         "tags": [
           "broker-readonly"
@@ -4850,11 +4043,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Replacement Universe",
         "tags": [
           "construction"
@@ -4905,11 +4093,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Construction Scenarios",
         "tags": [
           "construction"
@@ -4960,11 +4143,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Data Health Overview",
         "tags": [
           "data-health"
@@ -4987,11 +4165,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Data Health Database",
         "tags": [
           "data-health"
@@ -5034,11 +4207,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Evidence Filter",
         "tags": [
           "data-health"
@@ -5082,11 +4250,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Outcome Attribution",
         "tags": [
           "data-health"
@@ -5129,11 +4292,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Point In Time Check",
         "tags": [
           "data-health"
@@ -5184,11 +4342,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Walk Forward",
         "tags": [
           "data-health"
@@ -5231,11 +4384,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Walk Forward Evaluate",
         "tags": [
           "data-health"
@@ -5295,11 +4443,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Decision History",
         "tags": [
           "decisions"
@@ -5350,11 +4493,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Decision Queue",
         "tags": [
           "decisions"
@@ -5398,11 +4536,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Decision",
         "tags": [
           "decisions"
@@ -5456,11 +4589,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Respond To Decision",
         "tags": [
           "decisions"
@@ -5485,11 +4613,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Desktop Audit Logs",
         "tags": [
           "desktop"
@@ -5540,11 +4663,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Desktop Backup",
         "tags": [
           "desktop"
@@ -5595,11 +4713,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Desktop Verify Restore",
         "tags": [
           "desktop"
@@ -5622,11 +4735,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Desktop Export",
         "tags": [
           "desktop"
@@ -5649,11 +4757,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Desktop Status",
         "tags": [
           "desktop"
@@ -5677,11 +4780,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Desktop Ui Ready",
         "tags": [
           "desktop"
@@ -5841,11 +4939,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Instrument Search",
         "tags": [
           "instruments"
@@ -5904,11 +4997,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Instrument Detail",
         "tags": [
           "instruments"
@@ -5968,11 +5056,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Instrument Overview",
         "tags": [
           "instruments"
@@ -6016,11 +5099,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Entries",
         "tags": [
           "journal"
@@ -6061,11 +5139,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Create Entry",
         "tags": [
           "journal"
@@ -6109,11 +5182,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Journal Analytics",
         "tags": [
           "journal"
@@ -6157,11 +5225,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Entry",
         "tags": [
           "journal"
@@ -6213,11 +5276,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Entry",
         "tags": [
           "journal"
@@ -6271,11 +5329,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Add Review",
         "tags": [
           "journal"
@@ -6298,11 +5351,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Market Calendar",
         "tags": [
           "markets"
@@ -6325,11 +5373,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Market Factors",
         "tags": [
           "markets"
@@ -6352,11 +5395,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Market History",
         "tags": [
           "markets"
@@ -6378,11 +5416,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Market Overview",
         "tags": [
           "markets"
@@ -6404,11 +5437,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Market Regime",
         "tags": [
           "markets"
@@ -6431,11 +5459,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Market Sectors",
         "tags": [
           "markets"
@@ -6458,11 +5481,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Methodologies",
         "tags": [
           "methodologies"
@@ -6505,11 +5523,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Approve Methodology",
         "tags": [
           "methodologies"
@@ -6552,11 +5565,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Validate Claim",
         "tags": [
           "methodologies"
@@ -6607,11 +5615,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Evaluate Monitoring",
         "tags": [
           "monitoring"
@@ -6662,11 +5665,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Monitoring Events",
         "tags": [
           "monitoring"
@@ -6727,11 +5725,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Acknowledge Event",
         "tags": [
           "monitoring"
@@ -6792,11 +5785,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Resolve Event",
         "tags": [
           "monitoring"
@@ -6857,11 +5845,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Snooze Event",
         "tags": [
           "monitoring"
@@ -6912,11 +5895,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Notifications",
         "tags": [
           "monitoring"
@@ -6939,11 +5917,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Flush Notifications",
         "tags": [
           "monitoring"
@@ -6994,11 +5967,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Options Expiry",
         "tags": [
           "monitoring"
@@ -7021,11 +5989,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Onboarding Readiness",
         "tags": [
           "onboarding"
@@ -7079,11 +6042,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Stage",
         "tags": [
           "onboarding"
@@ -7106,11 +6064,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Onboarding State",
         "tags": [
           "onboarding"
@@ -7155,11 +6108,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Account Roles",
         "tags": [
           "planning"
@@ -7212,11 +6160,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Upsert Account Roles",
         "tags": [
           "planning"
@@ -7261,11 +6204,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Feasibility",
         "tags": [
           "planning"
@@ -7310,11 +6248,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Goals",
         "tags": [
           "planning"
@@ -7367,11 +6300,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Create Goal",
         "tags": [
           "planning"
@@ -7425,11 +6353,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Delete Goal",
         "tags": [
           "planning"
@@ -7491,11 +6414,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Goal",
         "tags": [
           "planning"
@@ -7547,11 +6465,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Plan",
         "tags": [
           "planning"
@@ -7603,11 +6516,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Upsert Plan",
         "tags": [
           "planning"
@@ -7661,11 +6569,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Rebuild Policy",
         "tags": [
           "planning"
@@ -7713,11 +6616,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Advanced Portfolio Risk",
         "tags": [
           "portfolio"
@@ -7765,11 +6663,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Allocation",
         "tags": [
           "portfolio"
@@ -7817,11 +6710,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Portfolio Attribution",
         "tags": [
           "portfolio"
@@ -7869,11 +6757,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Data Quality",
         "tags": [
           "portfolio"
@@ -7924,11 +6807,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Decision Center Overview",
         "tags": [
           "decision-center"
@@ -7976,11 +6854,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Decision Journal",
         "tags": [
           "portfolio"
@@ -8031,11 +6904,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Decision Monitoring",
         "tags": [
           "decision-center"
@@ -8094,11 +6962,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Post Decision Monitoring",
         "tags": [
           "decision-center"
@@ -8155,11 +7018,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Point In Time Fundamentals",
         "tags": [
           "portfolio"
@@ -8219,11 +7077,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Holding Decision",
         "tags": [
           "decision-center"
@@ -8283,11 +7136,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Holding Lenses",
         "tags": [
           "decision-center"
@@ -8357,11 +7205,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Simulate Holding",
         "tags": [
           "decision-center"
@@ -8421,11 +7264,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Holding Thesis",
         "tags": [
           "decision-center"
@@ -8493,11 +7331,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Put Holding Thesis",
         "tags": [
           "decision-center"
@@ -8545,11 +7378,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Ledger Coverage",
         "tags": [
           "portfolio"
@@ -8575,11 +7403,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Methodologies",
         "tags": [
           "portfolio"
@@ -8637,11 +7460,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Optimize Portfolio",
         "tags": [
           "portfolio"
@@ -8693,11 +7511,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Portfolio Options",
         "tags": [
           "portfolio"
@@ -8745,11 +7558,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Performance",
         "tags": [
           "portfolio"
@@ -8797,11 +7605,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Pnl Decomposition",
         "tags": [
           "portfolio"
@@ -8856,11 +7659,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Read Pnl History",
         "tags": [
           "portfolio-pnl"
@@ -8911,11 +7709,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Create Pnl Snapshot",
         "tags": [
           "portfolio-pnl"
@@ -8965,11 +7758,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Policy",
         "tags": [
           "portfolio"
@@ -9025,11 +7813,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Policy",
         "tags": [
           "portfolio"
@@ -9083,11 +7866,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Positions",
         "tags": [
           "portfolio"
@@ -9137,11 +7915,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Profile",
         "tags": [
           "portfolio"
@@ -9197,11 +7970,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Profile",
         "tags": [
           "portfolio"
@@ -9249,11 +8017,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Rebalance Proposal",
         "tags": [
           "portfolio"
@@ -9301,11 +8064,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Reconciliation",
         "tags": [
           "portfolio"
@@ -9353,11 +8111,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Research Context",
         "tags": [
           "portfolio"
@@ -9405,11 +8158,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Risk",
         "tags": [
           "portfolio"
@@ -9451,11 +8199,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Score Calibration",
         "tags": [
           "portfolio"
@@ -9503,11 +8246,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Snapshots",
         "tags": [
           "portfolio"
@@ -9555,11 +8293,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Summary",
         "tags": [
           "portfolio"
@@ -9607,11 +8340,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Tax Lot Attribution",
         "tags": [
           "portfolio"
@@ -9675,11 +8403,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Tax Reconciliation",
         "tags": [
           "portfolio"
@@ -9741,11 +8464,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Tax Reconciliation",
         "tags": [
           "portfolio"
@@ -9809,11 +8527,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Recommendations",
         "tags": [
           "recommendations"
@@ -9877,11 +8590,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Generate",
         "tags": [
           "recommendations"
@@ -9954,11 +8662,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Recommendation",
         "tags": [
           "recommendations"
@@ -10006,11 +8709,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Reports",
         "tags": [
           "reports"
@@ -10058,11 +8756,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Daily",
         "tags": [
           "reports"
@@ -10121,11 +8814,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Monthly Review",
         "tags": [
           "reports"
@@ -10173,11 +8861,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Risk Report",
         "tags": [
           "reports"
@@ -10234,11 +8917,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Stock Report",
         "tags": [
           "reports"
@@ -10290,11 +8968,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Trade Plan Report",
         "tags": [
           "reports"
@@ -10342,11 +9015,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Weekly",
         "tags": [
           "reports"
@@ -10390,11 +9058,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Candidate",
         "tags": [
           "research"
@@ -10445,11 +9108,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Research Catalysts",
         "tags": [
           "research"
@@ -10500,11 +9158,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Research Change Feed",
         "tags": [
           "research"
@@ -10547,11 +9200,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Compare",
         "tags": [
           "research"
@@ -10611,11 +9259,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Research Notes",
         "tags": [
           "research"
@@ -10656,11 +9299,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Create Research Note",
         "tags": [
           "research"
@@ -10704,11 +9342,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Research Note",
         "tags": [
           "research"
@@ -10761,11 +9394,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Research Note",
         "tags": [
           "research"
@@ -10816,11 +9444,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Research Queue",
         "tags": [
           "research"
@@ -10864,11 +9487,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Screens",
         "tags": [
           "screener"
@@ -10920,11 +9538,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Create Screen",
         "tags": [
           "screener"
@@ -10988,11 +9601,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Promote Result",
         "tags": [
           "screener"
@@ -11036,11 +9644,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Run Endpoint",
         "tags": [
           "screener"
@@ -11103,11 +9706,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Screen",
         "tags": [
           "screener"
@@ -11160,11 +9758,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Run Screen Endpoint",
         "tags": [
           "screener"
@@ -11237,11 +9830,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Stock",
         "tags": [
           "stocks"
@@ -11314,11 +9902,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Analysis",
         "tags": [
           "stocks"
@@ -11385,11 +9968,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Chart",
         "tags": [
           "stocks"
@@ -11446,11 +10024,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Fundamentals",
         "tags": [
           "stocks"
@@ -11507,11 +10080,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "News",
         "tags": [
           "stocks"
@@ -11584,11 +10152,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Options Strategy",
         "tags": [
           "stocks"
@@ -11661,11 +10224,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Score",
         "tags": [
           "stocks"
@@ -11722,11 +10280,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Technicals",
         "tags": [
           "stocks"
@@ -11783,11 +10336,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Valuation",
         "tags": [
           "stocks"
@@ -11854,11 +10402,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Xbrl Facts",
         "tags": [
           "stocks"
@@ -11918,11 +10461,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Plans",
         "tags": [
           "trade-plans"
@@ -11963,11 +10501,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Create Plan",
         "tags": [
           "trade-plans"
@@ -12011,11 +10544,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Get Plan",
         "tags": [
           "trade-plans"
@@ -12067,11 +10595,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Plan",
         "tags": [
           "trade-plans"
@@ -12116,11 +10639,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Approve Plan",
         "tags": [
           "trade-plans"
@@ -12164,11 +10682,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Defer Plan",
         "tags": [
           "trade-plans"
@@ -12213,11 +10726,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Evaluate Plan",
         "tags": [
           "trade-plans"
@@ -12262,11 +10770,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Match Execution",
         "tags": [
           "trade-plans"
@@ -12310,11 +10813,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Reject Plan",
         "tags": [
           "trade-plans"
@@ -12356,11 +10854,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "List Watchlist",
         "tags": [
           "watchlist"
@@ -12398,11 +10891,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Create Watchlist Item",
         "tags": [
           "watchlist"
@@ -12443,11 +10931,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Delete Watchlist Item",
         "tags": [
           "watchlist"
@@ -12496,11 +10979,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "summary": "Update Watchlist Item",
         "tags": [
           "watchlist"

@@ -107,11 +107,6 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(desktop.router)
-if not is_desktop_local():
-    from app.api.routes import admin, auth
-
-    app.include_router(auth.router)
-    app.include_router(admin.router)
 app.include_router(ai.router)
 app.include_router(broker.router)
 app.include_router(portfolio.router)
