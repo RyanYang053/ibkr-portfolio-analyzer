@@ -241,12 +241,6 @@ def health_ready() -> dict[str, object]:
     if settings.environment == "production" and not broker_ok:
         failures.append("broker_config")
 
-    if settings.environment == "production" and not settings.jwt_secret:
-        checks["jwt_secret"] = {"ok": False, "detail": "missing"}
-        failures.append("jwt_secret")
-    else:
-        checks["jwt_secret"] = {"ok": True, "detail": "configured"}
-
     if failures:
         raise HTTPException(
             status_code=503,

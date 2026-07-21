@@ -222,9 +222,6 @@ def test_production_requires_real_sec_user_agent(monkeypatch):
     from app.core.config import validate_production_settings
 
     monkeypatch.setattr("app.core.config.settings.environment", "production")
-    monkeypatch.setattr("app.core.config.settings.jwt_secret", "strong-production-secret-value")
-    monkeypatch.setattr("app.core.config.settings.persistence_backend", "postgres")
-    monkeypatch.setattr("app.core.config.settings.bootstrap_token", "bootstrap-secret")
     monkeypatch.setattr("app.core.config.settings.sec_edgar_user_agent", "PortfolioIntelligence/1.0 contact@example.com")
     with pytest.raises(RuntimeError, match="SEC EDGAR"):
         validate_production_settings()

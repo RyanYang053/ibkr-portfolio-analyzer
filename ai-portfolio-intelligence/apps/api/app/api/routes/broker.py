@@ -6,7 +6,6 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.account_access_store import grant_account_access
 from app.api.account_deps import ensure_account_access, filter_accounts_for_principal
 from app.api.auth_deps import Principal, get_current_principal, require_scope
 from app.api.deps import broker_not_configured_error, get_broker_adapter
@@ -63,8 +62,6 @@ def configure_readonly(
         account_id=payload.account_id,
         metadata={"host": payload.host, "port": payload.port, "client_id": payload.client_id, "account_id": payload.account_id},
     )
-    if payload.account_id:
-        grant_account_access(principal.user_id, payload.account_id)
     from app.db.broker_config_repo import save_runtime_config
 
     save_runtime_config(
@@ -104,7 +101,6 @@ def sync_readonly(
         batch_ids: dict[str, str] = {}
         for account in accounts:
             synced, coverage = sync_transactions(adapter, account.id)
-            grant_account_access(principal.user_id, account.id)
             transaction_counts[account.id] = len(synced)
             coverage_reports[account.id] = coverage
             from app.db.broker_sync_batch_repo import create_broker_sync_batch

@@ -16,7 +16,6 @@ import type {
 } from "./types";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const CLIENT_API_BASE = "/api/backend";
 const DESKTOP_MODE = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local";
 
 async function resolveApiBase(): Promise<string> {
@@ -25,30 +24,17 @@ async function resolveApiBase(): Promise<string> {
     if (isDesktopRuntimeAvailable()) {
       return getDesktopRuntime().apiBaseUrl;
     }
-    if (DESKTOP_MODE) {
-      // Static desktop build before runtime injection should fail closed.
-      return "";
-    }
-    return CLIENT_API_BASE;
+    // No desktop runtime injected yet: fail closed rather than call a hosted API.
+    return "";
   }
   return BACKEND_URL;
 }
 
 async function buildRequestHeaders(initHeaders?: HeadersInit): Promise<Headers> {
   const headers = new Headers(initHeaders);
-  // Desktop static export is client-only; never pull next/headers into that graph.
-  if (typeof window === "undefined" && !DESKTOP_MODE) {
-    const { cookies } = await import("next/headers");
-    const cookieStore = await cookies();
-    const token = cookieStore.get("access_token")?.value;
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-    const csrfToken = cookieStore.get("csrf_token")?.value;
-    if (csrfToken) {
-      headers.set("X-CSRF-Token", csrfToken);
-    }
-  } else if (typeof window !== "undefined") {
+  // Desktop is client-only: authenticate loopback calls with the per-launch
+  // local session token. There is no hosted cookie/JWT path.
+  if (typeof window !== "undefined") {
     const { isDesktopRuntimeAvailable, getDesktopRuntime } = await import("./desktop-api");
     if (isDesktopRuntimeAvailable()) {
       headers.set("X-Local-Session", getDesktopRuntime().sessionToken);

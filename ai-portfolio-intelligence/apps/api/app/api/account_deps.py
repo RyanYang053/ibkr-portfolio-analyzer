@@ -4,7 +4,6 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException
 
-from app.api.account_access_store import list_accessible_accounts
 from app.api.auth_deps import Principal, auth_enforcement_active, get_current_principal
 from app.api.deps import get_broker_adapter
 from app.core.config import is_desktop_local
@@ -22,11 +21,10 @@ ACCOUNT_SELECTION_REQUIRED = {
 
 
 def _accessible_account_ids(principal: Principal) -> list[str]:
-    if not auth_enforcement_active():
-        # Desktop / local-dev have no app-login ACLs; treat as full access.
-        if is_desktop_local() or principal.user_id == "local-dev":
-            return [WILDCARD_ACCOUNT]
-    return list_accessible_accounts(principal.user_id)
+    # Local single-owner product: there are no multi-user ACLs, so every
+    # principal has full (wildcard) access to whatever accounts the broker
+    # exposes. Account scoping below still honors an explicitly requested id.
+    return [WILDCARD_ACCOUNT]
 
 
 def _known_account_ids_without_live_broker(adapter: BrokerAdapter) -> list[str]:
