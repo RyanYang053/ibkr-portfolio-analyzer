@@ -27,6 +27,7 @@ const items = [
   { href: "/decisions", label: "Decisions", icon: Scale },
   { href: "/plan", label: "Plan", icon: Target },
   { href: "/research", label: "Research", icon: Telescope },
+  { href: "/securities", label: "Securities", icon: Search },
   { href: "/monitoring", label: "Monitoring", icon: HeartPulse },
   { href: "/portfolio", label: "Portfolio", icon: ClipboardList },
   { href: "/portfolio/construction", label: "Construction", icon: BookOpen },

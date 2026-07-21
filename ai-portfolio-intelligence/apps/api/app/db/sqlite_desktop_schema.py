@@ -251,6 +251,36 @@ def _decision_os_metadata() -> MetaData:
         Column("payload_json", json_document_type(), nullable=True),
     )
 
+    Table(
+        "instruments",
+        metadata,
+        Column("instrument_id", String(128), primary_key=True),
+        Column("symbol", String(32), nullable=False),
+        Column("con_id", Integer, nullable=True),
+        Column("name", String(256), nullable=True),
+        Column("asset_class", String(32), nullable=True),
+        Column("currency", String(8), nullable=True),
+        Column("exchange", String(32), nullable=True),
+        Column("sector", String(128), nullable=True),
+        Column("industry", String(128), nullable=True),
+        Column("is_etf", Boolean, nullable=False, server_default=text("0")),
+        Column("status", String(32), nullable=False, server_default="active"),
+        Column("provisional", Boolean, nullable=False, server_default=text("0")),
+        Column("payload_json", json_document_type(), nullable=True),
+        Column("first_seen_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "instrument_aliases",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("alias", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("source", String(64), nullable=False, server_default="user"),
+        UniqueConstraint("alias", "instrument_id", name="uq_instrument_alias"),
+    )
+
     return metadata
 
 

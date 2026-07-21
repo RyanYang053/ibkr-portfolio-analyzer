@@ -713,6 +713,23 @@ export async function getTaxLots(accountId?: string): Promise<Record<string, unk
   return requireJson(`/portfolio/tax-lots${query}`);
 }
 
+export async function searchInstruments(
+  q: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ q });
+  if (accountId) params.set("account_id", accountId);
+  return requireJson(`/instruments/search?${params.toString()}`);
+}
+
+export async function getInstrumentOverview(
+  instrumentId: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/instruments/${encodeURIComponent(instrumentId)}/overview${query}`);
+}
+
 export async function runTaxReconciliation(
   accountId?: string,
   taxYear?: number,

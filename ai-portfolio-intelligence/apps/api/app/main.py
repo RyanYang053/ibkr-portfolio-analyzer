@@ -19,6 +19,7 @@ from app.api.routes import (
     decisions,
     desktop,
     health,
+    instruments,
     methodologies,
     monitoring,
     planning,
@@ -108,6 +109,7 @@ if not is_desktop_local():
 app.include_router(ai.router)
 app.include_router(broker.router)
 app.include_router(portfolio.router)
+app.include_router(instruments.router)
 app.include_router(decision_center.router)
 app.include_router(decisions.router)
 app.include_router(planning.router)
