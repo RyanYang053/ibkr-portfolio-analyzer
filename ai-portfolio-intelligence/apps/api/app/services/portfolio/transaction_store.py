@@ -66,6 +66,9 @@ def _transaction_key(txn: Transaction) -> str:
     ).hexdigest()
 
 
+_STATE_NAMESPACE = "transaction_ledger"
+
+
 def load_transactions(account_id: str) -> list[Transaction]:
     if settings.persistence_backend == "postgres":
         from app.db.ledger_transaction_repo import read_transactions
@@ -73,6 +76,14 @@ def load_transactions(account_id: str) -> list[Transaction]:
         stored = read_transactions(account_id)
         if stored is not None:
             return [Transaction(**item) for item in stored]
+
+    if settings.persistence_backend == "sqlite":
+        # P0.2 / §16.1: transactions are canonical financial state — persist to SQLite
+        # (via the state store), not a raw JSON file outside the backup scope.
+        from app.db.state_store import get_state_store
+
+        stored = get_state_store().read_json(_STATE_NAMESPACE, account_id, default=None)
+        return [Transaction(**item) for item in (stored or [])]
 
     path = _transactions_path(account_id)
     if not __import__("os").path.exists(path):
@@ -102,6 +113,12 @@ def save_transactions(account_id: str, transactions: list[Transaction]) -> list[
         from app.db.ledger_transaction_repo import replace_transactions
 
         replace_transactions(account_id, merged)
+    elif settings.persistence_backend == "sqlite":
+        from app.db.state_store import get_state_store
+
+        get_state_store().write_json(
+            _STATE_NAMESPACE, account_id, [item.model_dump(mode="json") for item in merged]
+        )
     else:
         _atomic_write(_transactions_path(account_id), [item.model_dump(mode="json") for item in merged])
     return merged

@@ -20,7 +20,7 @@ This monorepo is split into the frontend, backend, and infrastructure configurat
 
 * `apps/api/` - FastAPI backend application.
 * `apps/web/` - Next.js frontend dashboard built with TypeScript and Tailwind CSS.
-* `infra/` - Docker Compose file for Postgres, Redis, and app containers.
+* `infra/` - Docker Compose file (Postgres + API + scheduler + web) for the `development` deployment mode. The shipping product is a local-first Tauri desktop app on SQLite with no login; see `ai-portfolio-intelligence/README.md`.
 
 ---
 
@@ -88,7 +88,7 @@ This monorepo is split into the frontend, backend, and infrastructure configurat
 
 ### 3. Run via Docker Compose (Alternative)
 
-To spin up PostgreSQL, Redis, the API, and the Web UI together:
+To spin up PostgreSQL, the API, the scheduler, and the Web UI together (development mode):
 
 1. Navigate to the infra directory:
    ```bash

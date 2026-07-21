@@ -57,19 +57,26 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def seed_application_state(data_dir: Path) -> None:
+def sqlite_env(data_dir: Path) -> dict:
+    """Match the packaged desktop app: SQLite canonical store at <data_dir>/portfolio.db."""
     env = os.environ.copy()
     env.update(
         {
             "DEPLOYMENT_MODE": "desktop_local",
-            "PERSISTENCE_BACKEND": "json",
+            "ENVIRONMENT": "desktop",
+            "PERSISTENCE_BACKEND": "sqlite",
+            "DATABASE_URL": f"sqlite+pysqlite:///{data_dir / 'portfolio.db'}",
             "PORTFOLIO_DATA_DIR": str(data_dir),
             "PYTHONPATH": str(API_ROOT),
         }
     )
+    return env
+
+
+def seed_application_state(data_dir: Path) -> None:
     script = r"""
-from app.db.state_store import JsonStateStore
-store = JsonStateStore()
+from app.db.state_store import get_state_store
+store = get_state_store()
 store.write_json("holding_theses", "U0001:AAPL", {"summary": "Quality compounder"})
 store.write_json("watchlist", "local-owner", {"symbols": ["AAPL"]})
 store.write_json("broker", "runtime_config", {"mode": "mock_ibkr_readonly", "host": "127.0.0.1"})
@@ -79,24 +86,15 @@ print("SEEDED")
     subprocess.check_call(
         [python_executable(), "-c", script],
         cwd=API_ROOT,
-        env=env,
+        env=sqlite_env(data_dir),
     )
 
 
 def read_application_state(data_dir: Path) -> dict:
-    env = os.environ.copy()
-    env.update(
-        {
-            "DEPLOYMENT_MODE": "desktop_local",
-            "PERSISTENCE_BACKEND": "json",
-            "PORTFOLIO_DATA_DIR": str(data_dir),
-            "PYTHONPATH": str(API_ROOT),
-        }
-    )
     script = r"""
 import json
-from app.db.state_store import JsonStateStore
-store = JsonStateStore()
+from app.db.state_store import get_state_store
+store = get_state_store()
 payload = {
     "thesis": store.read_json("holding_theses", "U0001:AAPL"),
     "watchlist": store.read_json("watchlist", "local-owner"),
@@ -108,7 +106,7 @@ print(json.dumps(payload))
     raw = subprocess.check_output(
         [python_executable(), "-c", script],
         cwd=API_ROOT,
-        env=env,
+        env=sqlite_env(data_dir),
         text=True,
     ).strip()
     return json.loads(raw.splitlines()[-1])
@@ -116,13 +114,9 @@ print(json.dumps(payload))
 
 def start_api(data_dir: Path, token: str, port: int) -> tuple[subprocess.Popen[str], Path]:
     log_path = data_dir / "uvicorn.log"
-    env = os.environ.copy()
+    env = sqlite_env(data_dir)
     env.update(
         {
-            "DEPLOYMENT_MODE": "desktop_local",
-            "ENVIRONMENT": "desktop",
-            "PERSISTENCE_BACKEND": "json",
-            "PORTFOLIO_DATA_DIR": str(data_dir),
             "LOCAL_API_HOST": "127.0.0.1",
             "LOCAL_API_PORT": str(port),
             "LOCAL_SESSION_TOKEN": token,
@@ -131,7 +125,6 @@ def start_api(data_dir: Path, token: str, port: int) -> tuple[subprocess.Popen[s
             "BROKER_MODE": "mock_ibkr_readonly",
             "SCHEDULER_ENABLED": "false",
             "SCHEDULER_RUN_IN_API": "false",
-            "PYTHONPATH": str(API_ROOT),
         }
     )
     log_handle = log_path.open("w", encoding="utf-8")
@@ -237,10 +230,19 @@ def main() -> int:
 
         manifest = validate_export_manifest(export_path, extract_dir)
 
+        # P0.5: under SQLite the canonical DB (portfolio.db) MUST be in the export.
+        manifest_paths = {entry["path"] for entry in manifest["files"]}
+        if "portfolio.db" not in manifest_paths:
+            raise SystemExit(f"Export omitted portfolio.db under SQLite backend: {sorted(manifest_paths)}")
+
         for folder in ("state", "imports"):
             src = extract_dir / folder
             if src.exists():
                 shutil.copytree(src, restored_dir / folder, dirs_exist_ok=True)
+        # Restore the canonical database itself.
+        restored_db = extract_dir / "portfolio.db"
+        if restored_db.exists():
+            shutil.copy2(restored_db, restored_dir / "portfolio.db")
 
         after = read_application_state(restored_dir)
         if after != before:

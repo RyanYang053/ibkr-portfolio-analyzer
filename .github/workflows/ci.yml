@@ -92,6 +92,10 @@ jobs:
           assert cert["evidence_complete"] is True
           assert cert["certified"] is False
           assert "code_sha_unknown" not in cert["blockers"]
+          # P0.9: build-environment and dependency-lock evidence must be captured.
+          assert manifest["build_environment"]["os"], "build_environment missing"
+          assert manifest["build_environment"]["python_version"]
+          assert manifest["dependency_lock_hashes"]["package-lock.json"], "lock hash missing"
           if manifest.get("container_digest") == "placeholder":
               assert "container_digest_placeholder" in cert["blockers"]
           print("CI evidence manifest ok; production certified=false as expected")

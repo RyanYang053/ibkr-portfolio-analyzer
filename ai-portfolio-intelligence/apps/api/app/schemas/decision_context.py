@@ -4,9 +4,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from app.schemas.evidence import EvidenceRef
+
+
+class EvaluationMode(str, Enum):
+    """Explicit point-in-time evaluation mode (plan §15.4 / P0.4).
+
+    LIVE_PROVISIONAL may use currently available evidence and may synthesize evidence
+    that lacks an available_at timestamp (flagged provisional). HISTORICAL_REPLAY must
+    fail closed on missing availability or future-data leakage and must never recover.
+    """
+
+    LIVE_PROVISIONAL = "live_provisional"
+    HISTORICAL_REPLAY = "historical_replay"
 
 
 @dataclass
@@ -40,3 +53,4 @@ class DecisionContext:
     previous_outcome: str | None = None
     previous_packet_id: str | None = None
     source_integrity_ok: bool = True
+    evaluation_mode: EvaluationMode = EvaluationMode.LIVE_PROVISIONAL

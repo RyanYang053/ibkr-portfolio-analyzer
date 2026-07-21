@@ -18,12 +18,12 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    inspect,
     text,
 )
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.migration_types import json_document_type
-from app.db.session import engine
 from app.db.state_store import ensure_sql_state_table
 
 
@@ -255,9 +255,18 @@ def _decision_os_metadata() -> MetaData:
 
 
 def ensure_decision_os_sqlite_tables() -> dict[str, object]:
-    """Idempotent create for Decision OS tables used by desktop sqlite mode."""
+    """Idempotent create for Decision OS tables used by desktop sqlite mode.
+
+    Returns ``{"ok": True, ...}`` only when every required table is present after
+    creation. Callers MUST fail closed on ``{"ok": False}`` (plan P0.1) — the app
+    must never start with an incomplete canonical schema.
+    """
     ensure_sql_state_table()
+    # Import at call time so a rebound engine (desktop bootstrap / tests) is honored.
+    from app.db.session import engine
+
     metadata = _decision_os_metadata()
+    required = sorted(metadata.tables.keys())
     created: list[str] = []
     try:
         metadata.create_all(bind=engine, checkfirst=True)
@@ -265,6 +274,12 @@ def ensure_decision_os_sqlite_tables() -> dict[str, object]:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
             conn.commit()
+        # Verify the tables actually exist rather than trusting create_all.
+        inspector = inspect(engine)
+        present = set(inspector.get_table_names())
+        missing = [name for name in required if name not in present]
+        if missing:
+            return {"ok": False, "error": f"missing tables: {missing}", "missing": missing, "tables": created}
     except SQLAlchemyError as exc:
         return {"ok": False, "error": str(exc), "tables": created}
-    return {"ok": True, "tables": created, "schema_pin": "0036"}
+    return {"ok": True, "tables": created, "required": required, "schema_pin": "0036"}

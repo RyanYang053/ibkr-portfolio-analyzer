@@ -64,6 +64,55 @@ def test_walk_forward_evaluate_fail_closed() -> None:
     assert result["excluded_future_count"] == 1
 
 
+def test_replay_fails_closed_when_any_evidence_rejected_even_with_critical_present() -> None:
+    # P0.4: a leaked/future item must NOT be silently excluded while a valid outcome
+    # proceeds. Present critical evidence + one rejected future item => DATA_INSUFFICIENT.
+    as_of = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    result = evaluate_historical_decision(
+        as_of=as_of,
+        evidence=[
+            {
+                "evidence_id": "ok_fund",
+                "evidence_type": "fundamental_snapshot",
+                "available_at": "2024-05-01T00:00:00+00:00",
+                "observed_at": "2024-05-01T00:00:00+00:00",
+            },
+            {
+                "evidence_id": "future_news",
+                "evidence_type": "news",
+                "available_at": "2024-07-01T00:00:00+00:00",
+                "observed_at": "2024-07-01T00:00:00+00:00",
+            },
+        ],
+        methodology_version="v1",
+        policy_version="p1",
+        outcome="review_add",
+    )
+    assert result["outcome"] == "data_insufficient"
+    assert result["fail_closed"] is True
+    assert "point_in_time_rejection" in result["replay_blocked_reasons"]
+
+
+def test_replay_fails_closed_on_unknown_methodology_version() -> None:
+    as_of = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    result = evaluate_historical_decision(
+        as_of=as_of,
+        evidence=[
+            {
+                "evidence_id": "ok_fund",
+                "evidence_type": "fundamental_snapshot",
+                "available_at": "2024-05-01T00:00:00+00:00",
+                "observed_at": "2024-05-01T00:00:00+00:00",
+            }
+        ],
+        methodology_version="unknown",
+        policy_version="p1",
+        outcome="monitor",
+    )
+    assert result["outcome"] == "data_insufficient"
+    assert "unknown_methodology_version" in result["replay_blocked_reasons"]
+
+
 def test_walk_forward_splits_and_summary() -> None:
     dates = [f"2024-01-{i:02d}" for i in range(1, 29)] + [f"2024-02-{i:02d}" for i in range(1, 29)]
     # Need enough dates for train 60 + test 20

@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowUpRight } from "lucide-react";
 
 import { Disclaimer } from "@/components/Disclaimer";
+import { DegradedStateBanner } from "@/components/DegradedStateBanner";
 import { HoldingsTable } from "@/components/HoldingsTable";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { StatCard } from "@/components/StatCard";
@@ -31,11 +32,13 @@ function DashboardContent() {
     () =>
       Promise.all([
         getPortfolioSummary(accountId),
-        getDecisionQueue(accountId).catch(() => ({ account_id: "", queue: [], count: 0 })),
+        // P0.7 / §15.3: a failed request must surface as a degraded panel, never as an
+        // empty-but-successful state. Tag the fallback so the UI can tell them apart.
+        getDecisionQueue(accountId).catch(() => ({ account_id: "", queue: [], count: 0, __degraded: true })),
         getPnlHistory(accountId),
         getScheduleSettings(),
-        getDataHealth().catch(() => ({ checks: [], overall_status: "unknown" })),
-        getResearchChangeFeed(accountId).catch(() => ({ changes: [], count: 0 })),
+        getDataHealth().catch(() => ({ checks: [], overall_status: "unknown", __degraded: true })),
+        getResearchChangeFeed(accountId).catch(() => ({ changes: [], count: 0, __degraded: true })),
       ]),
     [accountId],
   );
@@ -66,6 +69,10 @@ function DashboardContent() {
       </div>
     );
   }
+
+  const decisionQueueDegraded = Boolean((decisionQueue as { __degraded?: boolean }).__degraded);
+  const dataHealthDegraded = Boolean((dataHealth as { __degraded?: boolean }).__degraded);
+  const changeFeedDegraded = Boolean((changeFeed as { __degraded?: boolean }).__degraded);
 
   const queue = decisionQueue?.queue ?? [];
   const urgent = queue.filter((item) =>
@@ -114,7 +121,9 @@ function DashboardContent() {
         <div className="rounded-md border border-line bg-white p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Data health</div>
           <div className="mt-1 text-2xl font-bold capitalize">
-            {String((dataHealth as { overall_status?: string }).overall_status || "unknown")}
+            {dataHealthDegraded
+              ? "unavailable"
+              : String((dataHealth as { overall_status?: string }).overall_status || "unknown")}
           </div>
         </div>
       </section>
@@ -123,7 +132,9 @@ function DashboardContent() {
         <div className="rounded-md border border-line bg-white p-4">
           <h3 className="mb-3 text-lg font-semibold">Decision queue</h3>
           <div className="grid gap-2">
-            {queue.slice(0, 8).length === 0 ? (
+            {decisionQueueDegraded ? (
+              <DegradedStateBanner message="Decision queue unavailable — this panel is empty because the request failed, not because there are no reviews. Open Decision Center to retry." />
+            ) : queue.slice(0, 8).length === 0 ? (
               <p className="text-sm text-zinc-600">No active reviews. Monitors stay in Decision Center.</p>
             ) : (
               queue.slice(0, 8).map((item) => (
@@ -148,7 +159,9 @@ function DashboardContent() {
         <div className="rounded-md border border-line bg-white p-4">
           <h3 className="mb-3 text-lg font-semibold">What changed</h3>
           <div className="grid gap-2 text-sm">
-            {changes.slice(0, 8).length === 0 ? (
+            {changeFeedDegraded ? (
+              <DegradedStateBanner message="Research change feed unavailable — the request failed, so changes cannot be shown. This is not a confirmation that nothing changed." />
+            ) : changes.slice(0, 8).length === 0 ? (
               <p className="text-zinc-600">No material changes detected since last packets.</p>
             ) : (
               changes.slice(0, 8).map((change, idx) => (
@@ -186,6 +199,9 @@ function DashboardContent() {
             <AlertTriangle size={18} aria-hidden /> Data health
           </h3>
           <div className="grid gap-2">
+            {dataHealthDegraded ? (
+              <DegradedStateBanner message="Data health checks unavailable — the request failed. Absence of warnings here does not mean the data is healthy." />
+            ) : null}
             {healthChecks.slice(0, 6).map((check) => (
               <div key={check.id} className="rounded-md border border-line bg-panel p-3 text-sm">
                 <div className="font-medium capitalize">

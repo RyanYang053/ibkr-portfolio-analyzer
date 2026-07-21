@@ -66,12 +66,17 @@ def main() -> int:
     host = "127.0.0.1"
     port = free_port()
     token = token_urlsafe(32)
+    # P0.5: exercise the SAME SQLite configuration the packaged desktop app uses
+    # (see apps/desktop/src-tauri/src/backend.rs), not JSON.
+    sqlite_db = data_dir / "portfolio.db"
+    sqlite_url = f"sqlite+pysqlite:///{sqlite_db}"
     env = os.environ.copy()
     env.update(
         {
             "DEPLOYMENT_MODE": "desktop_local",
             "ENVIRONMENT": "desktop",
-            "PERSISTENCE_BACKEND": "json",
+            "PERSISTENCE_BACKEND": "sqlite",
+            "DATABASE_URL": sqlite_url,
             "PORTFOLIO_DATA_DIR": str(data_dir),
             "LOCAL_API_HOST": host,
             "LOCAL_API_PORT": str(port),
@@ -115,6 +120,16 @@ def main() -> int:
         if not healthy:
             detail = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
             raise SystemExit(f"Packaged sidecar never became healthy\n{detail}")
+
+        # P0.5: prove the SQLite backend actually initialized and persisted to portfolio.db.
+        if not sqlite_db.exists():
+            raise SystemExit(f"portfolio.db was not created under SQLite backend: {sqlite_db}")
+        ready_status, ready_body = http(f"{base}/health/ready", token=token)
+        if ready_status == 200:
+            checks = json.loads(ready_body).get("checks", {})
+            sqlite_check = checks.get("sqlite", {})
+            if sqlite_check and sqlite_check.get("ok") is not True:
+                raise SystemExit(f"SQLite readiness check failed: {ready_body}")
 
         denied, _ = http(f"{base}/desktop/status")
         if denied != 401:

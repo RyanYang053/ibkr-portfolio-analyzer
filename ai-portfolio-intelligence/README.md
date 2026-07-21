@@ -22,7 +22,7 @@ The full interactive UI ships inside the Tauri desktop app. The session token is
 | Loopback-only API + per-launch session token | Done |
 | Token not disclosed over HTTP | Done |
 | Local data under OS Application Support | Done |
-| Startup backup retention + export manifest | Done |
+| Startup backup retention (last 10) + export manifest | Done |
 | No Docker / Postgres for personal use | Done |
 | No order submission | Done |
 | IBKR password collection | Never |
@@ -31,7 +31,8 @@ Data directory (macOS):
 
 ```text
 ~/Library/Application Support/PortfolioAnalyzer/
-├── state/
+├── portfolio.db     # canonical SQLite database (positions, transactions, decisions, …)
+├── state/           # namespaced JSON projections / legacy import staging
 ├── imports/
 ├── exports/
 ├── backups/
@@ -40,19 +41,22 @@ Data directory (macOS):
 
 ## Current release status
 
-Exact verified SHA for package matrix + launch smoke (pre-hardening): `67ab2c782bf1ee883250e99708d1836378effa51`
+The certified commit, gate conclusions, and installer hashes for any release are the
+release manifest emitted into `ci-evidence/<commit-sha>/` — that manifest, not this
+table, is the source of truth (see `scripts/write_release_manifest.py`).
 
-Latest hardening adds: real installer/bundle launch preference, UI readiness marker,
-sidecar shutdown assertion, platform-specific signing gates, and signature verification
-on tagged releases.
+Baseline for the SQLite/goldens/release-gates layer: `39a3a2bde2f37f3f26e5d8d137d2c5db7ce481fc`.
+The package matrix + launch smoke must be re-run and re-certified for the current
+commit before publishing (the P0 release-hardening changes supersede the earlier
+`67ab2c78…` pre-hardening evidence).
 
 | Area | Status |
 | --- | --- |
 | Local-first architecture | **GO** |
-| CI + Desktop validate | **GO** on exact SHA above |
-| Platform installers (DMG/NSIS/AppImage/DEB) | **GO** (all four package jobs green) |
-| Packaged sidecar smoke | **GO** |
-| Tauri application launch smoke | **GO** |
+| CI + Desktop validate | Re-certify for current commit |
+| Platform installers (DMG/NSIS/AppImage/DEB) | Re-certify for current commit |
+| Packaged sidecar smoke | Re-certify for current commit |
+| Tauri application launch smoke | Re-certify for current commit |
 | Signed / notarized installers | Add GitHub signing secrets, then tag `desktop-v*` |
 | Public GitHub Release for other users | **Ready after signing secrets** |
 
@@ -63,14 +67,15 @@ Tauri desktop app
 ├── Next.js static UI (apps/web/out) in the webview
 ├── FastAPI sidecar on 127.0.0.1:<random port>
 ├── X-Local-Session injected as window.__DESKTOP_RUNTIME__ (webview only)
-├── JSON state in Application Support (fail-closed on corruption)
+├── SQLite database (portfolio.db) in Application Support — canonical local store,
+│     fail-closed on schema-init failure; namespaced JSON is a projection
 └── OS Keychain for Flex tokens
 ```
 
 Deployment modes:
 
 ```text
-desktop_local   → personal use (no login, JSON state only)
+desktop_local   → personal use (no login, SQLite persistence via portfolio.db)
 development     → engineering (Docker/Postgres allowed)
 ```
 

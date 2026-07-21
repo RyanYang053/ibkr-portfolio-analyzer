@@ -7,13 +7,13 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.product_contract import (
+    OUTCOME_TO_ACTION_LABEL,
     DecisionOutcome,
     ImplementationStatus,
-    OUTCOME_TO_ACTION_LABEL,
 )
 from app.core.product_scope import DECISION_DISCLAIMER
 from app.db.decision_packet_repo import DecisionPacketRepository
-from app.schemas.decision_context import DecisionContext
+from app.schemas.decision_context import DecisionContext, EvaluationMode
 from app.schemas.decision_gate import GateResult
 from app.schemas.decision_packet import HoldingDecisionPacket
 from app.services.decision_center.evidence_registry import EvidenceRegistry
@@ -71,11 +71,13 @@ class DecisionOrchestrator:
                 # Keep only usable evidence refs when timestamps are present.
                 usable_ids = {row.get("evidence_id") for row in usable}
                 evidence = [e for e in evidence if getattr(e, "evidence_id", None) in usable_ids]
-                # If all evidence lacked available_at, filter rejects everything —
-                # treat as incomplete rather than wiping a fresh synthetic registry.
-                if not evidence and evidence_payloads:
-                    # Re-check: missing available_at is fail-closed for historical replay,
-                    # but live evaluation often synthesizes evidence without available_at.
+                # P0.4 / §15.4: the fail-open recovery below (restore evidence, reset
+                # source integrity) is ONLY permitted in live provisional mode, where
+                # evidence is often synthesized without an available_at. In historical
+                # replay this MUST fail closed — never recover, so the source-integrity
+                # gate fails terminally and the outcome becomes DATA_INSUFFICIENT.
+                live_mode = context.evaluation_mode == EvaluationMode.LIVE_PROVISIONAL
+                if not evidence and evidence_payloads and live_mode:
                     missing_only = all(
                         r.get("reason") == "missing_available_at" for r in rejected
                     )

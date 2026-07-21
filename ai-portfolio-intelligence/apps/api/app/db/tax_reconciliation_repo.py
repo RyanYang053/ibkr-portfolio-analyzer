@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.db.sql_dialect import json_cast
 from app.db.state_store import get_state_store
 
 _NAMESPACE = "tax_reconciliation_runs"
@@ -35,7 +39,6 @@ def save_tax_reconciliation_run(
     }
     try:
         from sqlalchemy import text
-        from sqlalchemy.exc import SQLAlchemyError
 
         from app.core.config import settings
         from app.db.session import SessionLocal
@@ -44,11 +47,11 @@ def save_tax_reconciliation_run(
             with SessionLocal() as session:
                 session.execute(
                     text(
-                        """
+                        f"""
                         INSERT INTO tax_reconciliation_runs
                             (run_id, account_id, tax_year, status, payload_json, created_at)
                         VALUES
-                            (:run_id, :account_id, :tax_year, :status, :payload_json, :created_at)
+                            (:run_id, :account_id, :tax_year, :status, {json_cast("payload_json")}, :created_at)
                         """
                     ),
                     {
@@ -56,13 +59,14 @@ def save_tax_reconciliation_run(
                         "account_id": account_id,
                         "tax_year": int(tax_year),
                         "status": status,
-                        "payload_json": payload or {},
+                        # P0.3: serialize the dict before binding to raw SQL params.
+                        "payload_json": json.dumps(payload or {}),
                         "created_at": created,
                     },
                 )
                 session.commit()
-    except Exception:
-        # Table may be missing in local JSON mode — state store is authoritative.
+    except SQLAlchemyError:
+        # Table may be absent (pure JSON mode). State store remains the projection.
         pass
 
     store = get_state_store()

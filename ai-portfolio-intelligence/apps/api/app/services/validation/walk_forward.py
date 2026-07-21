@@ -55,10 +55,20 @@ def evaluate_historical_decision(
         e.get("evidence_type") in {"position_snapshot", "portfolio_risk_run", "fundamental_snapshot"}
         for e in available
     )
+    # P0.4 / §15.4: historical replay fails CLOSED. Any point-in-time rejection
+    # (future leakage OR missing available_at), missing critical evidence, or an
+    # unknown methodology version forces DATA_INSUFFICIENT — a leaked/missing item is
+    # never silently excluded while the original outcome proceeds.
+    replay_blocked_reasons: list[str] = []
+    if rejected:
+        replay_blocked_reasons.append("point_in_time_rejection")
+    if missing_critical:
+        replay_blocked_reasons.append("missing_critical_evidence")
+    if not methodology_version or str(methodology_version).strip().lower() in {"", "unknown"}:
+        replay_blocked_reasons.append("unknown_methodology_version")
     resolved = outcome
-    if missing_critical or rejected:
-        if missing_critical:
-            resolved = DecisionOutcome.DATA_INSUFFICIENT.value
+    if replay_blocked_reasons:
+        resolved = DecisionOutcome.DATA_INSUFFICIENT.value
     return {
         "as_of": as_of.isoformat(),
         "methodology_version": methodology_version,
@@ -67,6 +77,8 @@ def evaluate_historical_decision(
         "excluded_future_count": len(rejected),
         "rejected": rejected[:20],
         "outcome": resolved or DecisionOutcome.MONITOR.value,
+        "replay_blocked_reasons": replay_blocked_reasons,
+        "fail_closed": bool(replay_blocked_reasons),
         "no_trade_baseline": True,
         "order_generated": False,
         "look_ahead_forbidden": True,

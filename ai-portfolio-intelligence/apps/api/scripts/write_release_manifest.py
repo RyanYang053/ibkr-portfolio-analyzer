@@ -6,12 +6,33 @@ import argparse
 import hashlib
 import json
 import os
+import platform
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUT = ROOT / "release-manifest.json"
+
+# Honest gate names — each conclusion must come from a real CI step (plan P0.9).
+REQUIRED_GATES = (
+    "api_pytest_suite",
+    "financial_golden_master",
+    "point_in_time",
+    "no_trading_guards",
+    "web_typecheck",
+    "desktop_build",
+)
+
+# Dependency lock files hashed for reproducibility (path relative to PROJECT_ROOT).
+LOCK_FILES = (
+    "package-lock.json",
+    "apps/api/requirements.txt",
+    "apps/api/requirements-dev.txt",
+    "apps/desktop/src-tauri/Cargo.lock",
+)
 
 
 def _git_sha() -> str:
@@ -65,6 +86,75 @@ def _file_sha256(path: Path) -> str | None:
     return digest.hexdigest()
 
 
+def _tool_version(args: list[str]) -> str | None:
+    try:
+        out = subprocess.check_output(args, text=True, stderr=subprocess.STDOUT, timeout=15)
+        return out.strip().splitlines()[0] if out.strip() else None
+    except Exception:  # noqa: BLE001 — evidence capture must not crash the build
+        return None
+
+
+def build_environment() -> dict[str, object]:
+    """Capture OS/arch/toolchain versions (plan P0.9 build-env evidence)."""
+    return {
+        "os": platform.system(),
+        "os_release": platform.release(),
+        "arch": platform.machine(),
+        "python_version": platform.python_version(),
+        "toolchain": {
+            "rustc": _tool_version(["rustc", "--version"]),
+            "cargo": _tool_version(["cargo", "--version"]),
+            "node": _tool_version(["node", "--version"]),
+            "npm": _tool_version(["npm", "--version"]),
+        },
+    }
+
+
+def dependency_lock_hashes() -> dict[str, str | None]:
+    """sha256 of each dependency lock file for reproducible-build evidence (P0.9)."""
+    hashes: dict[str, str | None] = {}
+    for rel in LOCK_FILES:
+        hashes[rel] = _file_sha256(PROJECT_ROOT / rel)
+    return hashes
+
+
+def installer_artifacts(paths: list[str] | None) -> list[dict[str, object]]:
+    """sha256 + size for each built installer (DMG/NSIS/AppImage/DEB) — P0.9."""
+    artifacts: list[dict[str, object]] = []
+    for raw in paths or []:
+        path = Path(raw)
+        artifacts.append(
+            {
+                "name": path.name,
+                "sha256": _file_sha256(path),
+                "size_bytes": path.stat().st_size if path.is_file() else None,
+                "present": path.is_file(),
+            }
+        )
+    return artifacts
+
+
+def _load_json_arg(value: str | None) -> dict[str, object] | None:
+    """Accept either an inline JSON string or a path to a JSON file."""
+    if not value:
+        return None
+    candidate = Path(value)
+    text = candidate.read_text(encoding="utf-8") if candidate.is_file() else value
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def gate_conclusions(raw: dict[str, object] | None) -> dict[str, object]:
+    """Normalize per-gate conclusions and compute an honest all-pass flag."""
+    supplied = {str(k): str(v) for k, v in (raw or {}).items()}
+    conclusions = {gate: supplied.get(gate, "missing") for gate in REQUIRED_GATES}
+    all_passed = all(conclusions[gate] == "success" for gate in REQUIRED_GATES)
+    return {"conclusions": conclusions, "all_required_passed": all_passed}
+
+
 def certification_status(
     *,
     code_sha: str,
@@ -101,6 +191,10 @@ def build_manifest(
     golden_hash_file: Path | None = None,
     container_digest: str | None = None,
     mode: str = "ci_evidence",
+    gates: dict[str, object] | None = None,
+    installers: list[str] | None = None,
+    signing: dict[str, object] | None = None,
+    notarization: dict[str, object] | None = None,
 ) -> dict[str, object]:
     approvals = _methodology_approvals()
     code_sha = _git_sha()
@@ -138,6 +232,12 @@ def build_manifest(
         "pytest_report_sha256": pytest_digest,
         "golden_fixture_sha256": golden_digest,
         "container_digest": resolved_container,
+        "gate_conclusions": gate_conclusions(gates),
+        "build_environment": build_environment(),
+        "dependency_lock_hashes": dependency_lock_hashes(),
+        "installer_artifacts": installer_artifacts(installers),
+        "signing": signing or {"status": "not_captured"},
+        "notarization": notarization or {"status": "not_captured"},
         "certification": cert,
         "approval_status": {
             "all_experimental_or_approved": all(
@@ -164,6 +264,23 @@ def main() -> int:
     parser.add_argument("--golden-hash-file", type=Path, default=None)
     parser.add_argument("--container-digest", type=str, default=None)
     parser.add_argument(
+        "--gate-conclusions",
+        type=str,
+        default=None,
+        help="Inline JSON or path mapping required gate names to CI conclusions "
+        '(e.g. \'{"api_pytest_suite":"success",...}\').',
+    )
+    parser.add_argument(
+        "--installer",
+        action="append",
+        default=None,
+        help="Path to a built installer to hash (repeatable: DMG/NSIS/AppImage/DEB).",
+    )
+    parser.add_argument("--signing", type=str, default=None, help="Inline JSON or path: signing evidence.")
+    parser.add_argument(
+        "--notarization", type=str, default=None, help="Inline JSON or path: notarization evidence."
+    )
+    parser.add_argument(
         "--mode",
         choices=("ci_evidence", "production_release"),
         default="ci_evidence",
@@ -182,6 +299,10 @@ def main() -> int:
         golden_hash_file=args.golden_hash_file,
         container_digest=args.container_digest,
         mode=args.mode,
+        gates=_load_json_arg(args.gate_conclusions),
+        installers=args.installer,
+        signing=_load_json_arg(args.signing),
+        notarization=_load_json_arg(args.notarization),
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

@@ -52,12 +52,15 @@ def main() -> int:
     host = "127.0.0.1"
     port = free_port()
     token = token_urlsafe(32)
+    # P0.5: run the SAME SQLite configuration as the packaged desktop app.
+    sqlite_db = data_dir / "portfolio.db"
     env = os.environ.copy()
     env.update(
         {
             "DEPLOYMENT_MODE": "desktop_local",
             "ENVIRONMENT": "desktop",
-            "PERSISTENCE_BACKEND": "json",
+            "PERSISTENCE_BACKEND": "sqlite",
+            "DATABASE_URL": f"sqlite+pysqlite:///{sqlite_db}",
             "PORTFOLIO_DATA_DIR": str(data_dir),
             "LOCAL_API_HOST": host,
             "LOCAL_API_PORT": str(port),
@@ -142,6 +145,15 @@ def main() -> int:
 
         if not (data_dir / "backups").exists():
             raise SystemExit("Expected backups directory after desktop bootstrap")
+
+        # P0.5: the SQLite database must actually exist and pass the readiness gate.
+        if not sqlite_db.exists():
+            raise SystemExit(f"portfolio.db was not created under SQLite backend: {sqlite_db}")
+        ready_status, ready_body = http_json(f"{base}/health/ready", token=token)
+        if ready_status not in {200, 503}:
+            raise SystemExit(f"/health/ready unexpected status: {ready_status} {ready_body}")
+        if '"sqlite"' not in ready_body:
+            raise SystemExit(f"/health/ready did not report a sqlite check: {ready_body}")
 
         print("DESKTOP_LOCAL_SMOKE_OK")
         print(f"port={port}")

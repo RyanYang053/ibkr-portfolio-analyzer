@@ -290,7 +290,9 @@ def record_pnl_snapshot(
     except Exception as exc:
         from app.core.config import settings
 
-        if settings.persistence_backend == "postgres" and not is_demo:
+        # P0.2 / §16.2: a canonical SQL-backed write (postgres OR sqlite state store)
+        # must fail closed. Never swallow the failure and let JSON be the silent survivor.
+        if settings.persistence_backend in {"postgres", "sqlite"} and not is_demo:
             raise
         logger = __import__("logging").getLogger("pnl_tracker")
         logger.warning("Daily position snapshot write failed for %s: %s", active_account_id, exc)
