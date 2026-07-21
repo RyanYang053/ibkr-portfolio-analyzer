@@ -222,8 +222,16 @@ def run_score_calibration(
         "Out-of-sample calibration ranks historical scores against realized benchmark-relative forward excess "
         "returns (security total return minus SPY total return over the same maturity window). "
         "Information coefficient is Pearson correlation; rank correlation is Spearman. "
+        "The top-minus-bottom quantile spread is the highest score bucket's mean forward return less the "
+        "lowest bucket's — positive means the model separates winners from losers. "
         "Observations remain experimental until enough non-demo, point-in-time-safe samples exist."
     )
+
+    quantile_spread = None
+    if len(buckets) == 5 and int(buckets[4]["count"]) > 0 and int(buckets[0]["count"]) > 0:
+        quantile_spread = round(
+            float(buckets[4]["average_forward_return"]) - float(buckets[0]["average_forward_return"]), 4
+        )
 
     return ScoreCalibrationReport(
         model_name=model_name,
@@ -231,6 +239,7 @@ def run_score_calibration(
         information_coefficient=round(information_coefficient, 4) if information_coefficient is not None else None,
         rank_correlation=round(rank_correlation, 4) if rank_correlation is not None else None,
         hit_rate_top_quintile=round(hit_rate, 4) if hit_rate is not None else None,
+        quantile_spread_top_minus_bottom=quantile_spread,
         calibration_buckets=buckets,
         data_quality=data_quality,
         methodology=methodology,

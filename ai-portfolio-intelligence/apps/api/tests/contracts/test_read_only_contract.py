@@ -40,3 +40,19 @@ def test_forbidden_actions_documented() -> None:
     assert "Strong Add" in FORBIDDEN_AUTHORITATIVE_ACTIONS
     assert "Buy" in FORBIDDEN_AUTHORITATIVE_ACTIONS
     assert "Sell" in FORBIDDEN_AUTHORITATIVE_ACTIONS
+
+
+def test_no_ib_order_methods_in_broker_layer() -> None:
+    """The IBKR client (now ib_async) must only be used read-only: no order-placement APIs."""
+    app_root = Path(__file__).resolve().parents[2] / "app" / "services"
+    forbidden = ("placeOrder", "cancelOrder", "reqGlobalCancel", "bracketOrder", "oneCancelsAll")
+    offenders: list[str] = []
+    for folder in ("broker", "options"):
+        for path in (app_root / folder).rglob("*.py"):
+            if " 2." in path.name or "__pycache__" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for token in forbidden:
+                if token in text:
+                    offenders.append(f"{path.name}:{token}")
+    assert offenders == []

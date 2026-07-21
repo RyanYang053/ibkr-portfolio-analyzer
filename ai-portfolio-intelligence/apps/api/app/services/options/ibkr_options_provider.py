@@ -106,7 +106,7 @@ def fetch_ibkr_options_chain(symbol: str, current_price: float, *, max_contracts
     if settings.broker_mode != "ibkr_readonly":
         raise RuntimeError("IBKR options chain requires ibkr_readonly broker mode")
 
-    from ib_insync import IB, Option, Stock
+    from ib_async import IB, Option, Stock
 
     from app.services.broker.ibkr_readonly import get_runtime_ibkr_config
 

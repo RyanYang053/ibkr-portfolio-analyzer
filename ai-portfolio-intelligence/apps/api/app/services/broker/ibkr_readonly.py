@@ -413,7 +413,7 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
 
     def get_transactions(self, account_id: str, start_date: date, end_date: date) -> list[Transaction]:
         with self._connect() as ib:
-            from ib_insync import ExecutionFilter
+            from ib_async import ExecutionFilter
 
             transactions: list[Transaction] = []
             seen: set[str] = set()
@@ -516,7 +516,7 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
         raise NotImplementedError("IBKR latest-price lookup needs contract discovery; portfolio positions already include market price.")
 
     def health_check(self) -> dict[str, str]:
-        """Return configured socket info without opening an ib_insync session.
+        """Return configured socket info without opening an ib_async session.
 
         A full IB handshake can hang for tens of seconds when TWS/Gateway is up
         but IB server farms are broken; Settings must stay responsive.
@@ -545,9 +545,9 @@ class IBKRReadOnlyAdapter(BrokerAdapter):
     def _connect(self):
         _ensure_sync_event_loop()
         try:
-            from ib_insync import IB
+            from ib_async import IB
         except ImportError as exc:
-            raise NotImplementedError("ib-insync is not installed. Install API requirements first.") from exc
+            raise NotImplementedError("ib-async is not installed. Install API requirements first.") from exc
 
         config = get_runtime_ibkr_config()
         client_id = allocate_readonly_client_id(config["client_id"])

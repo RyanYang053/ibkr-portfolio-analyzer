@@ -10,6 +10,7 @@ from typing import Any
 
 from app.schemas.domain import AdvancedRiskMetrics, Position, StressScenario
 from app.services.portfolio.pnl_tracker import PortfolioPnLSnapshot
+from app.services.risk import extended_metrics as em
 
 TRADING_DAYS = 252
 MIN_RISK_RETURNS = 20
@@ -239,6 +240,15 @@ def _historical_metrics(
         "jensens_alpha": None,
         "tracking_error": None,
         "information_ratio": None,
+        "omega_ratio": None,
+        "tail_ratio": None,
+        "gain_to_pain_ratio": None,
+        "pain_index": None,
+        "conditional_drawdown_at_risk_95": None,
+        "up_capture": None,
+        "down_capture": None,
+        "up_down_capture": None,
+        "batting_average": None,
     }
     if len(returns) < MIN_RISK_RETURNS:
         return result
@@ -279,6 +289,15 @@ def _historical_metrics(
         downside_sigma = math.sqrt(downside_variance)
         result["sortino_ratio"] = math.sqrt(TRADING_DAYS) * fmean(excess) / downside_sigma
 
+    # Extended distribution/drawdown-shape metrics over the same return series.
+    result["omega_ratio"] = em.omega_ratio(returns, risk_free_rate_annual)
+    result["tail_ratio"] = em.tail_ratio(returns)
+    result["gain_to_pain_ratio"] = em.gain_to_pain_ratio(returns)
+    pain = em.pain_index(returns)
+    result["pain_index"] = pain * 100.0 if pain is not None else None
+    cdar = em.conditional_drawdown_at_risk(returns)
+    result["conditional_drawdown_at_risk_95"] = cdar * 100.0 if cdar is not None else None
+
     if len(spy_returns) == len(returns) and len(spy_returns) >= MIN_RISK_RETURNS:
         beta = _beta(returns, spy_returns)
         result["portfolio_beta_spy"] = beta
@@ -294,6 +313,10 @@ def _historical_metrics(
             tracking_annual = tracking_daily * math.sqrt(TRADING_DAYS)
             result["tracking_error"] = tracking_annual * 100.0
             result["information_ratio"] = math.sqrt(TRADING_DAYS) * fmean(active_returns) / tracking_daily
+        result["up_capture"] = em.up_capture(returns, spy_returns)
+        result["down_capture"] = em.down_capture(returns, spy_returns)
+        result["up_down_capture"] = em.up_down_capture(returns, spy_returns)
+        result["batting_average"] = em.batting_average(returns, spy_returns)
     return result
 
 
@@ -888,6 +911,18 @@ def calculate_advanced_risk_metrics(
         "jensens_alpha": "Daily CAPM intercept from excess portfolio and market returns, geometrically annualized.",
         "tracking_error": "Annualized sample standard deviation of actual account active returns versus SPY.",
         "information_ratio": "sqrt(252) * mean(daily active return) / (sqrt(252) * daily tracking error standard deviation).",
+        "distribution_shape": (
+            "Omega ratio uses the configured annual risk-free rate as the return threshold; tail ratio is "
+            "|95th percentile| / |5th percentile| of daily returns; gain-to-pain is sum(returns) / |sum(losses)|."
+        ),
+        "drawdown_shape": (
+            "Pain index is the mean depth of the compounded-equity drawdown (percent); conditional drawdown at "
+            "risk (95%) is the average of the worst 5% of drawdowns."
+        ),
+        "capture_ratios": (
+            "Up/down capture compound portfolio vs SPY returns over benchmark up/down sessions; batting average "
+            "is the fraction of aligned sessions where the account outperformed SPY. Require aligned benchmark history."
+        ),
     }
 
     def rounded(name: str, digits: int = 2):
@@ -911,6 +946,15 @@ def calculate_advanced_risk_metrics(
         jensens_alpha=rounded("jensens_alpha"),
         tracking_error=rounded("tracking_error"),
         information_ratio=rounded("information_ratio"),
+        omega_ratio=rounded("omega_ratio"),
+        tail_ratio=rounded("tail_ratio"),
+        gain_to_pain_ratio=rounded("gain_to_pain_ratio"),
+        pain_index=rounded("pain_index"),
+        conditional_drawdown_at_risk_95=rounded("conditional_drawdown_at_risk_95"),
+        up_capture=rounded("up_capture"),
+        down_capture=rounded("down_capture"),
+        up_down_capture=rounded("up_down_capture"),
+        batting_average=rounded("batting_average", 4),
         calmar_ratio=(
             round(float(drawdown_stats["calmar_ratio"]), 2)
             if drawdown_stats.get("calmar_ratio") is not None

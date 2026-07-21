@@ -97,6 +97,68 @@ def build_trade_plan_report(plan: TradePlan) -> dict[str, Any]:
     }
 
 
+def build_performance_tearsheet(*, account_id: str, as_of: str, metrics: dict[str, Any]) -> dict[str, Any]:
+    """Institutional-style risk/return tearsheet assembled from computed metrics.
+
+    ``metrics`` is an AdvancedRiskMetrics mapping (e.g. ``model_dump()``). Each section is
+    marked available only when at least one member metric is present; nothing is fabricated.
+    """
+
+    def section(fields: dict[str, str]) -> dict[str, Any]:
+        values = {label: metrics.get(key) for key, label in fields.items()}
+        status = "available" if any(value is not None for value in values.values()) else "unavailable"
+        return _section(status, **values)
+
+    return {
+        "report_type": "performance_tearsheet",
+        "account_id": account_id,
+        "as_of": as_of,
+        "risk_adjusted_ratios": section(
+            {
+                "sharpe_ratio": "sharpe",
+                "sortino_ratio": "sortino",
+                "calmar_ratio": "calmar",
+                "omega_ratio": "omega",
+                "information_ratio": "information_ratio",
+            }
+        ),
+        "volatility_and_drawdown": section(
+            {
+                "volatility": "annualized_volatility_pct",
+                "ewma_volatility": "ewma_volatility_pct",
+                "max_drawdown": "max_drawdown_pct",
+                "ulcer_index": "ulcer_index",
+                "pain_index": "pain_index",
+                "conditional_drawdown_at_risk_95": "cdar_95",
+            }
+        ),
+        "tail_risk": section(
+            {
+                "value_at_risk_95": "parametric_var_95",
+                "conditional_var_95": "expected_shortfall_95",
+                "historical_var_95": "historical_var_95",
+                "tail_ratio": "tail_ratio",
+                "gain_to_pain_ratio": "gain_to_pain",
+            }
+        ),
+        "market_capture": section(
+            {
+                "portfolio_beta_spy": "beta_spy",
+                "up_capture": "up_capture",
+                "down_capture": "down_capture",
+                "up_down_capture": "up_down_capture",
+                "batting_average": "batting_average",
+                "jensens_alpha": "jensens_alpha_pct",
+                "tracking_error": "tracking_error_pct",
+            }
+        ),
+        "data_quality": {
+            "status": "partial",
+            "note": "Metrics are withheld (null) when history is insufficient; nothing is fabricated.",
+        },
+    }
+
+
 def render_report_html(report: dict[str, Any]) -> str:
     """Minimal self-contained HTML rendering of a structured report."""
 
