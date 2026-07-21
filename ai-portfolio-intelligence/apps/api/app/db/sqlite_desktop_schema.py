@@ -281,6 +281,89 @@ def _decision_os_metadata() -> MetaData:
         UniqueConstraint("alias", "instrument_id", name="uq_instrument_alias"),
     )
 
+    Table(
+        "trade_plans",
+        metadata,
+        Column("trade_plan_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("symbol", String(32), nullable=False),
+        Column("direction", String(16), nullable=False),
+        Column("plan_type", String(32), nullable=False, server_default="discretionary"),
+        Column("status", String(48), nullable=False, server_default="draft"),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "trade_plan_versions",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("trade_plan_id", String(64), nullable=False),
+        Column("version", Integer, nullable=False),
+        Column("status", String(48), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        UniqueConstraint("trade_plan_id", "version", name="uq_trade_plan_version"),
+    )
+
+    Table(
+        "journal_entries",
+        metadata,
+        Column("entry_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("symbol", String(32), nullable=False),
+        Column("trade_plan_id", String(64), nullable=True),
+        Column("outcome_classification", String(32), nullable=False, server_default="open"),
+        Column("realized_return", Float, nullable=True),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "journal_reviews",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("review_id", String(64), nullable=False, unique=True),
+        Column("entry_id", String(64), nullable=False),
+        Column("interval", String(32), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "market_snapshots",
+        metadata,
+        Column("snapshot_id", String(64), primary_key=True),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "market_regimes",
+        metadata,
+        Column("regime_id", String(64), primary_key=True),
+        Column("as_of", DateTime(timezone=True), nullable=False),
+        Column("label", String(48), nullable=False),
+        Column("confidence", Float, nullable=False, server_default="0"),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "economic_events",
+        metadata,
+        Column("event_id", String(64), primary_key=True),
+        Column("name", String(256), nullable=False),
+        Column("event_time", DateTime(timezone=True), nullable=True),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
     return metadata
 
 

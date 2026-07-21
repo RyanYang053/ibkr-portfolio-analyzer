@@ -730,6 +730,102 @@ export async function getInstrumentOverview(
   return requireJson(`/instruments/${encodeURIComponent(instrumentId)}/overview${query}`);
 }
 
+// --- Trade Plans (§9) -------------------------------------------------------
+
+export async function listTradePlans(
+  accountId: string,
+  status?: string,
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ account_id: accountId });
+  if (status) params.set("status", status);
+  return requireJson(`/trade-plans?${params.toString()}`);
+}
+
+export async function createTradePlan(
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function getTradePlan(planId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}`);
+}
+
+export async function updateTradePlan(
+  planId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function evaluateTradePlan(
+  planId: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${accountId}` : "";
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}/evaluate${query}`, {
+    method: "POST",
+  });
+}
+
+export async function transitionTradePlan(
+  planId: string,
+  action: "approve" | "reject" | "defer",
+): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}/${action}`, { method: "POST" });
+}
+
+// --- Trade Journal (§10) ----------------------------------------------------
+
+export async function listJournal(accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/journal?account_id=${encodeURIComponent(accountId)}`);
+}
+
+export async function createJournalEntry(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return requireJson(`/journal`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function updateJournalEntry(
+  entryId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/journal/${encodeURIComponent(entryId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function addJournalReview(
+  entryId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/journal/${encodeURIComponent(entryId)}/review`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getJournalAnalytics(accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/journal/analytics?account_id=${encodeURIComponent(accountId)}`);
+}
+
+// --- Markets (§7) -----------------------------------------------------------
+
+export async function getMarketOverview(): Promise<Record<string, unknown>> {
+  return requireJson(`/markets/overview`);
+}
+
+export async function getMarketRegime(): Promise<Record<string, unknown>> {
+  return requireJson(`/markets/regime`);
+}
+
+export async function getMarketCalendar(): Promise<Record<string, unknown>> {
+  return requireJson(`/markets/calendar`);
+}
+
 export async function runTaxReconciliation(
   accountId?: string,
   taxYear?: number,

@@ -16,6 +16,7 @@ import {
   Search,
   Target,
   Telescope,
+  TrendingUp,
 } from "lucide-react";
 import { AppLink } from "@/components/AppLink";
 import { BrokerStatusBadge } from "@/components/BrokerStatusBadge";
@@ -24,10 +25,13 @@ import { useAppRouter } from "@/lib/use-app-router";
 
 const items = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/markets", label: "Markets", icon: TrendingUp },
   { href: "/decisions", label: "Decisions", icon: Scale },
   { href: "/plan", label: "Plan", icon: Target },
   { href: "/research", label: "Research", icon: Telescope },
   { href: "/securities", label: "Securities", icon: Search },
+  { href: "/trade-plans", label: "Trade Plans", icon: ClipboardList },
+  { href: "/journal", label: "Journal", icon: BookOpen },
   { href: "/monitoring", label: "Monitoring", icon: HeartPulse },
   { href: "/portfolio", label: "Portfolio", icon: ClipboardList },
   { href: "/portfolio/construction", label: "Construction", icon: BookOpen },

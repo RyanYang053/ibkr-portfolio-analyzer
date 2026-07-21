@@ -20,6 +20,8 @@ from app.api.routes import (
     desktop,
     health,
     instruments,
+    journal,
+    markets,
     methodologies,
     monitoring,
     planning,
@@ -28,6 +30,7 @@ from app.api.routes import (
     reports,
     research,
     stocks,
+    trade_plans,
     watchlist,
 )
 from app.core.config import is_desktop_local, settings, validate_production_settings
@@ -110,11 +113,14 @@ app.include_router(ai.router)
 app.include_router(broker.router)
 app.include_router(portfolio.router)
 app.include_router(instruments.router)
+app.include_router(markets.router)
 app.include_router(decision_center.router)
 app.include_router(decisions.router)
 app.include_router(planning.router)
 app.include_router(construction.router)
 app.include_router(research.router)
+app.include_router(trade_plans.router)
+app.include_router(journal.router)
 app.include_router(monitoring.router)
 app.include_router(data_health.router)
 app.include_router(methodologies.router)
