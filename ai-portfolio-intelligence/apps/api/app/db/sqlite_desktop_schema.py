@@ -419,6 +419,16 @@ def _decision_os_metadata() -> MetaData:
         Column("updated_at", DateTime(timezone=True), nullable=False),
     )
 
+    Table(
+        "onboarding_stages",
+        metadata,
+        Column("owner_id", String(64), primary_key=True),
+        Column("stage", String(64), primary_key=True),
+        Column("status", String(32), nullable=False, server_default="not_started"),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
     return metadata
 
 

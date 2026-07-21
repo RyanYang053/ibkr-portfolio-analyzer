@@ -884,6 +884,29 @@ export async function compareCandidates(
   });
 }
 
+// --- Onboarding state machine (§21) -----------------------------------------
+
+export async function getOnboardingState(): Promise<Record<string, unknown>> {
+  return requireJson(`/onboarding/state`);
+}
+
+export async function updateOnboardingStage(
+  stage: string,
+  status: string,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/onboarding/stages/${encodeURIComponent(stage)}`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
+  });
+}
+
+// --- Reports (§22) ----------------------------------------------------------
+
+export async function getMonthlyReview(accountId?: string): Promise<Record<string, unknown>> {
+  const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : "";
+  return requireJson(`/reports/monthly${query}`, { method: "POST" });
+}
+
 export async function runTaxReconciliation(
   accountId?: string,
   taxYear?: number,

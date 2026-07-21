@@ -23,6 +23,7 @@ from app.api.routes import (
     journal,
     markets,
     methodologies,
+    onboarding,
     monitoring,
     planning,
     pnl,
@@ -123,6 +124,7 @@ app.include_router(research.router)
 app.include_router(screener.router)
 app.include_router(trade_plans.router)
 app.include_router(journal.router)
+app.include_router(onboarding.router)
 app.include_router(monitoring.router)
 app.include_router(data_health.router)
 app.include_router(methodologies.router)
