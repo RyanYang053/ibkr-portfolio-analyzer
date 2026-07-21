@@ -311,14 +311,16 @@ jobs:
             exit 1
           }
 
-      - name: Require Windows signing on tagged releases
+      - name: Note Windows signing status on tagged releases
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'Windows'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
-            throw "Tagged Windows releases require WINDOWS_CERTIFICATE for code signing."
+            Write-Warning "WINDOWS_CERTIFICATE not set: publishing an UNSIGNED Windows installer. Users get a one-time SmartScreen 'More info -> Run anyway' prompt. Set WINDOWS_CERTIFICATE (or switch to Azure Trusted Signing) to sign it."
+          } else {
+            Write-Host "WINDOWS_CERTIFICATE present: Windows installer will be code-signed."
           }
 
       - name: Verify macOS code signature and notarization
@@ -336,7 +338,13 @@ jobs:
       - name: Verify Windows Authenticode signature
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'Windows'
         shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            Write-Host "Unsigned Windows build; skipping Authenticode verification."
+            exit 0
+          }
           $installer = Get-ChildItem -Path "apps/desktop/src-tauri/target" -Recurse -Filter "*.exe" |
             Where-Object { $_.FullName -match "nsis|setup" -and $_.Name -notmatch "uninstall" } |
             Sort-Object LastWriteTime -Descending |

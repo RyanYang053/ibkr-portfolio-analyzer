@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Nav } from "@/components/Nav";
 import { FloatingChatbot } from "@/components/FloatingChatbot";
+import { UpdateChecker } from "@/components/UpdateChecker";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <FloatingChatbot />
           </main>
         </div>
+        <UpdateChecker />
       </body>
     </html>
   );

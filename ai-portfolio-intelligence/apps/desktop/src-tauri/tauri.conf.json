@@ -39,9 +39,10 @@
   },
   "plugins": {
     "updater": {
-      "active": false,
-      "endpoints": [],
-      "pubkey": ""
+      "endpoints": [
+        "https://github.com/RyanYang053/ibkr-portfolio-analyzer/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY"
     }
   }
 }
