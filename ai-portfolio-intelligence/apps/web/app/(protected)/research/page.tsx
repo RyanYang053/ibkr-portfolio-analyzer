@@ -110,9 +110,14 @@ function ResearchContent() {
           )}
         </div>
       </section>
-      <Link className="text-sm text-accent hover:underline" href="/watchlist">
-        Open watchlist
-      </Link>
+      <div className="flex gap-4">
+        <Link className="text-sm text-accent hover:underline" href="/research/screener">
+          Open screener
+        </Link>
+        <Link className="text-sm text-accent hover:underline" href="/watchlist">
+          Open watchlist
+        </Link>
+      </div>
     </div>
   );
 }

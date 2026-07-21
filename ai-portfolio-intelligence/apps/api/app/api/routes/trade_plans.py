@@ -202,3 +202,37 @@ def reject_plan(plan_id: str, principal: Principal = Depends(get_current_princip
 @router.post("/{plan_id}/defer")
 def defer_plan(plan_id: str, principal: Principal = Depends(get_current_principal)) -> dict[str, object]:
     return _transition(plan_id, TradePlanStatus.DEFERRED)
+
+
+@router.post("/{plan_id}/match-execution")
+def match_execution(
+    plan_id: str,
+    adapter: BrokerAdapter = Depends(get_broker_adapter),
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, object]:
+    """Match imported broker executions to this plan (§9.4). Read-only; no orders."""
+    plan = _require(plan_id)
+    from app.db.execution_match_repo import save_execution_match
+    from app.services.trade_planning.execution_matching import match_executions
+
+    symbol, _, _con = plan.instrument_id.partition(":")
+    try:
+        from app.services.portfolio.transaction_store import get_transactions
+
+        transactions = get_transactions(plan.account_id)
+    except Exception:  # noqa: BLE001
+        transactions = []
+    transactions = [t for t in transactions if str(getattr(t, "symbol", "")).upper() == symbol.upper()]
+
+    match = match_executions(plan, transactions)
+    save_execution_match(match)
+    if match.matched and plan.status not in {TradePlanStatus.CLOSED, TradePlanStatus.EXPIRED}:
+        plan.status = TradePlanStatus.IMPORTED_EXECUTION_MATCHED
+        plan.reviewed_at = _now()
+        save_trade_plan(plan)
+    return {
+        "trade_plan_id": plan_id,
+        "match": match.model_dump(mode="json"),
+        "plan_status": plan.status.value,
+        "order_generated": False,
+    }

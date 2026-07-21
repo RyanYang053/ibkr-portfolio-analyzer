@@ -364,6 +364,49 @@ def _decision_os_metadata() -> MetaData:
         Column("created_at", DateTime(timezone=True), nullable=False),
     )
 
+    Table(
+        "screen_definitions",
+        metadata,
+        Column("screen_id", String(64), primary_key=True),
+        Column("account_id", String(64), nullable=False),
+        Column("name", String(128), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "screen_runs",
+        metadata,
+        Column("run_id", String(64), primary_key=True),
+        Column("screen_id", String(64), nullable=False),
+        Column("account_id", String(64), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
+    Table(
+        "screen_results",
+        metadata,
+        Column("result_id", String(64), primary_key=True),
+        Column("run_id", String(64), nullable=False),
+        Column("symbol", String(32), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("payload_json", json_document_type(), nullable=False),
+    )
+
+    Table(
+        "execution_matches",
+        metadata,
+        Column("match_id", String(64), primary_key=True),
+        Column("trade_plan_id", String(64), nullable=False),
+        Column("account_id", String(64), nullable=False),
+        Column("instrument_id", String(128), nullable=False),
+        Column("matched", Boolean, nullable=False, server_default=text("0")),
+        Column("payload_json", json_document_type(), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+    )
+
     return metadata
 
 

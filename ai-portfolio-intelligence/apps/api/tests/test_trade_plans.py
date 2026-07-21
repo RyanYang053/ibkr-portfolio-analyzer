@@ -150,6 +150,58 @@ def test_trade_plan_lifecycle_never_generates_order():
         settings.broker_mode = orig
 
 
+def test_execution_matching_classifies_and_never_assumes_recommended():
+    from datetime import date, datetime, timezone
+
+    from app.schemas.domain import Transaction
+    from app.services.trade_planning.execution_matching import match_executions
+
+    plan = _plan(proposed_quantity=100.0, created_at=datetime(2024, 1, 1, tzinfo=timezone.utc))
+
+    # No transactions -> NO_MATCH, and never assumed recommended.
+    empty = match_executions(plan, [])
+    assert empty.matched is False
+    assert empty.match_types == ["no_match"]
+    assert empty.assumed_recommended is False
+
+    txn = Transaction(
+        account_id="A1",
+        symbol="MSFT",
+        trade_date=date(2024, 3, 1),
+        event_timestamp=datetime(2024, 3, 1, tzinfo=timezone.utc),
+        action="buy",
+        quantity=60,
+        price=400.0,
+        amount=-24000.0,
+        currency="USD",
+        source="import",
+        transaction_id="t1",
+    )
+    matched = match_executions(plan, [txn])
+    assert matched.matched is True
+    assert "planned_execution" in matched.match_types
+    assert "added_position" in matched.match_types
+    assert "partial_fill" in matched.match_types  # 60 of planned 100
+    assert matched.assumed_recommended is False
+
+
+def test_match_execution_endpoint():
+    orig = settings.broker_mode
+    settings.broker_mode = "mock_ibkr_readonly"
+    try:
+        client = TestClient(app)
+        pid = client.post(
+            "/trade-plans",
+            json={"account_id": "MOCK-001", "instrument_id": "MSFT:1", "direction": "buy"},
+        ).json()["trade_plan_id"]
+        res = client.post(f"/trade-plans/{pid}/match-execution")
+        assert res.status_code == 200
+        assert res.json()["order_generated"] is False
+        assert "match" in res.json()
+    finally:
+        settings.broker_mode = orig
+
+
 def test_reject_and_defer_transitions():
     orig = settings.broker_mode
     settings.broker_mode = "mock_ibkr_readonly"

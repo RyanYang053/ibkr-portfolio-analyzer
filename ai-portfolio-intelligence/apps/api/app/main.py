@@ -29,6 +29,7 @@ from app.api.routes import (
     portfolio,
     reports,
     research,
+    screener,
     stocks,
     trade_plans,
     watchlist,
@@ -119,6 +120,7 @@ app.include_router(decisions.router)
 app.include_router(planning.router)
 app.include_router(construction.router)
 app.include_router(research.router)
+app.include_router(screener.router)
 app.include_router(trade_plans.router)
 app.include_router(journal.router)
 app.include_router(monitoring.router)

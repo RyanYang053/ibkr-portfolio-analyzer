@@ -778,6 +778,10 @@ export async function transitionTradePlan(
   return requireJson(`/trade-plans/${encodeURIComponent(planId)}/${action}`, { method: "POST" });
 }
 
+export async function matchTradePlanExecution(planId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/trade-plans/${encodeURIComponent(planId)}/match-execution`, { method: "POST" });
+}
+
 // --- Trade Journal (§10) ----------------------------------------------------
 
 export async function listJournal(accountId: string): Promise<Record<string, unknown>> {
@@ -824,6 +828,35 @@ export async function getMarketRegime(): Promise<Record<string, unknown>> {
 
 export async function getMarketCalendar(): Promise<Record<string, unknown>> {
   return requireJson(`/markets/calendar`);
+}
+
+// --- Screener (§8.2) --------------------------------------------------------
+
+export async function listScreeners(accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/screeners?account_id=${encodeURIComponent(accountId)}`);
+}
+
+export async function createScreener(
+  accountId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requireJson(`/screeners?account_id=${encodeURIComponent(accountId)}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function runScreener(screenId: string, accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(`/screeners/${encodeURIComponent(screenId)}/run?account_id=${encodeURIComponent(accountId)}`, {
+    method: "POST",
+  });
+}
+
+export async function promoteScreenResult(resultId: string, accountId: string): Promise<Record<string, unknown>> {
+  return requireJson(
+    `/screeners/results/${encodeURIComponent(resultId)}/promote?account_id=${encodeURIComponent(accountId)}`,
+    { method: "POST" },
+  );
 }
 
 export async function runTaxReconciliation(

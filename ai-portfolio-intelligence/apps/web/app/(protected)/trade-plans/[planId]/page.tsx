@@ -9,6 +9,7 @@ import { StatCard } from "@/components/StatCard";
 import {
   evaluateTradePlan,
   getTradePlan,
+  matchTradePlanExecution,
   transitionTradePlan,
   updateTradePlan,
 } from "@/lib/api";
@@ -86,6 +87,9 @@ function PlanDetail({ planId }: { planId: string }) {
         </button>
         <button disabled={busy} onClick={() => run(() => transitionTradePlan(planId, "reject"), "Rejected")} className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 hover:bg-red-100 disabled:opacity-50">
           Reject
+        </button>
+        <button disabled={busy} onClick={() => run(() => matchTradePlanExecution(planId), "Matched imported executions")} className="rounded-md border border-line px-3 py-2 text-sm hover:bg-panel disabled:opacity-50">
+          Match imported executions
         </button>
       </div>
 
