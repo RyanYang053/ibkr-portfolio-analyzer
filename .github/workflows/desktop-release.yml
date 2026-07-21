@@ -300,16 +300,17 @@ jobs:
           done
           npm run build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
-      - name: Require macOS signing on tagged releases
+      - name: Note macOS signing status on tagged releases
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'macOS'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
         run: |
-          test -n "$APPLE_CERTIFICATE" || {
-            echo "Tagged macOS releases require APPLE_CERTIFICATE for signing/notarization."
-            exit 1
-          }
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::APPLE_CERTIFICATE not set: publishing an UNSIGNED, un-notarized macOS build. Downloaders must right-click -> Open, and on recent macOS may need 'xattr -dr com.apple.quarantine <app>'. Add APPLE_CERTIFICATE to sign + notarize."
+          else
+            echo "APPLE_CERTIFICATE present: macOS build will be signed + notarized."
+          fi
 
       - name: Note Windows signing status on tagged releases
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'Windows'
@@ -326,8 +327,14 @@ jobs:
       - name: Verify macOS code signature and notarization
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'macOS'
         shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
         run: |
           set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "Unsigned macOS build; skipping signature/notarization verification."
+            exit 0
+          fi
           APP=$(find apps/desktop/src-tauri/target -type d -name 'Portfolio Analyzer.app' | head -n 1)
           test -n "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"

@@ -16,7 +16,7 @@ Download the installer for your platform from the
 
 | Platform | File | Install |
 | --- | --- | --- |
-| macOS | `Portfolio Analyzer_*.dmg` | Open the DMG, drag the app to **Applications**. Unsigned build? Right-click the app → **Open** the first time. |
+| macOS | `Portfolio Analyzer_*.dmg` | Open the DMG, drag the app to **Applications**. Unsigned build? Right-click → **Open** once; if macOS says *"damaged"*, run `xattr -dr com.apple.quarantine "/Applications/Portfolio Analyzer.app"`. |
 | Windows | `Portfolio Analyzer_*-setup.exe` | Run the installer. Unsigned build? On SmartScreen, click **More info → Run anyway**. |
 | Linux | `*.AppImage` / `*.deb` | Run the AppImage, or `sudo dpkg -i` the `.deb`. |
 
