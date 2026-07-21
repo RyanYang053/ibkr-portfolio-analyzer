@@ -4,6 +4,36 @@ Local-first, read-only portfolio analytics and decision-support for Interactive 
 
 > **Product definition:** a local personal application. All portfolio data, broker sessions, tax records, and application state remain on your device. No application login or hosted backend is required.
 
+## Download & install
+
+Portfolio Analyzer ships as a native desktop app for **macOS**, **Windows**, and **Linux**. Grab the
+installer for your platform from the
+[Releases page](https://github.com/RyanYang053/ibkr-portfolio-analyzer/releases):
+
+- **macOS** — download the `.dmg`, open it, drag **Portfolio Analyzer** to Applications. If the build
+  is unsigned, right-click the app → **Open** the first time to get past Gatekeeper.
+- **Windows** — run the `Portfolio Analyzer_*-setup.exe` (NSIS) installer. If unsigned, click
+  **More info → Run anyway** on the one-time SmartScreen prompt.
+- **Linux** — run the `.AppImage`, or install the `.deb`.
+
+Once configured, the app **updates itself** on launch. Maintainers cut a release by tagging
+`desktop-v*`; see [docs/RELEASE_AND_SIGNING.md](docs/RELEASE_AND_SIGNING.md) for signing + release
+steps. To build locally: `python3 scripts/build-macos-installer.py`.
+
+## Using the app
+
+1. **Launch** — the app starts a local, loopback-only engine and opens the dashboard. No sign-up, no login.
+2. **Connect Interactive Brokers (read-only)** — add an IBKR **Flex** token to pull positions,
+   transactions, and history. It **never** places orders and **never** collects your IBKR password.
+   See [docs/ibkr-readonly-setup.md](docs/ibkr-readonly-setup.md).
+3. **Explore** — holdings & P&L, risk (Sharpe/Sortino/Calmar/drawdown/VaR + capture ratios), a
+   securities workspace with interactive charts, screener, options, tax lots, journal, trade-plan
+   drafts (never submitted), markets/regime, and reports.
+4. **Your data stays on your device** — under your OS Application Support folder (see below).
+
+Decision-support only — it surfaces analytics and suggestions for **you** to act on in your own
+broker; it does not trade. See [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md).
+
 ## Personal developer bring-up
 
 From `ai-portfolio-intelligence`:

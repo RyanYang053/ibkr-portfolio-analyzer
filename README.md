@@ -6,6 +6,43 @@ A read-only portfolio intelligence and decision-support dashboard integrated wit
 
 ---
 
+## Download & install
+
+**Portfolio Analyzer is a desktop app** for **macOS** and **Windows** (Linux too). It runs entirely
+on your machine — no account, no login, no cloud.
+
+Download the installer for your platform from the
+[**Releases page**](https://github.com/RyanYang053/ibkr-portfolio-analyzer/releases):
+
+| Platform | File | Install |
+| --- | --- | --- |
+| macOS | `Portfolio Analyzer_*.dmg` | Open the DMG, drag the app to **Applications**. Unsigned build? Right-click the app → **Open** the first time. |
+| Windows | `Portfolio Analyzer_*-setup.exe` | Run the installer. Unsigned build? On SmartScreen, click **More info → Run anyway**. |
+| Linux | `*.AppImage` / `*.deb` | Run the AppImage, or `sudo dpkg -i` the `.deb`. |
+
+Once configured, the app **updates itself** on launch. If no release has been published yet, a
+maintainer tags `desktop-v*` to build one (see the
+[release & signing runbook](ai-portfolio-intelligence/docs/RELEASE_AND_SIGNING.md)), or you can build
+locally: `python3 ai-portfolio-intelligence/scripts/build-macos-installer.py`.
+
+## Using the app
+
+1. **Launch it** — the app boots a local, loopback-only engine and opens the dashboard. No sign-up.
+2. **Connect Interactive Brokers (read-only)** — add an IBKR **Flex** token so it can read your
+   positions, transactions, and history. It **never** places orders and **never** asks for your IBKR
+   password. Guide: [ibkr-readonly-setup.md](ai-portfolio-intelligence/docs/ibkr-readonly-setup.md).
+   No broker handy? Preview with mock data (see **Mock Demo Mode** below).
+3. **Explore** — consolidated holdings & P&L, risk analytics (Sharpe / Sortino / Calmar / drawdown /
+   VaR + up-down capture), a securities workspace with interactive candlestick charts, screener,
+   options, tax lots, trade journal, trade-plan drafts (never submitted), market/regime view, and
+   monthly/performance reports.
+4. **Your data stays local** — stored under your OS Application Support folder; nothing leaves your device.
+
+> The **Local Setup** section below is for **developers/contributors** who want to run the API and
+> web app from source. Everyday users only need the installer above.
+
+---
+
 ## Key Features
 
 - **Multi-Account Consolidated Holdings**: Aggregates and converts positions across multiple Interactive Brokers accounts into a single view, supporting both USD and CAD balances.
