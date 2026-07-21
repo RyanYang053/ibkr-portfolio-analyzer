@@ -148,10 +148,10 @@ jobs:
         include:
           - os: macos-15
             target: aarch64-apple-darwin
-            bundles: app,dmg
+            bundles: app
           - os: macos-15-intel
             target: x86_64-apple-darwin
-            bundles: app,dmg
+            bundles: app
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bundles: nsis
@@ -299,6 +299,29 @@ jobs:
             fi
           done
           npm run build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Create macOS DMG (headless, hdiutil)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          APP=$(find "$BUNDLE/macos" -maxdepth 1 -name '*.app' | head -n1)
+          test -n "$APP"
+          case "${{ matrix.target }}" in
+            aarch64-*) ARCH=aarch64 ;;
+            x86_64-*) ARCH=x64 ;;
+            *) ARCH="${{ matrix.target }}" ;;
+          esac
+          mkdir -p "$BUNDLE/dmg"
+          DMG="$BUNDLE/dmg/Portfolio Analyzer_0.1.0_${ARCH}.dmg"
+          STAGE="$(mktemp -d)"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          # hdiutil is headless-safe; Tauri's bundle_dmg.sh needs a GUI/Finder session and hangs on CI runners.
+          hdiutil create -volname "Portfolio Analyzer" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          rm -rf "$STAGE"
+          echo "Created: $DMG"
 
       - name: Note macOS signing status on tagged releases
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'macOS'

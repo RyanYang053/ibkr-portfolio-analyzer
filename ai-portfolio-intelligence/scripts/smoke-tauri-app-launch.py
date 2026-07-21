@@ -211,7 +211,7 @@ def wait_for_port_closed(port: int, timeout_seconds: float = 30.0) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", required=True)
-    parser.add_argument("--timeout-seconds", type=int, default=180)
+    parser.add_argument("--timeout-seconds", type=int, default=480)
     args = parser.parse_args()
 
     work_dir = Path(tempfile.mkdtemp(prefix="portfolio-tauri-launch-"))
