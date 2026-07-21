@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     deployment_mode: DeploymentMode = DeploymentMode.DEVELOPMENT
     database_url: str = "postgresql+psycopg://portfolio:portfolio@postgres:5432/portfolio"
     persistence_backend: Literal["json", "sqlite", "postgres"] = "json"
-    jwt_secret: str = "dev-only-change-me"
     cors_origins: list[str] = [
         "http://localhost:3000",
         "tauri://localhost",
@@ -43,12 +42,6 @@ class Settings(BaseSettings):
     risk_free_rate_annual: float = 0.0
     enable_strong_add_recommendations: bool = False
     disable_auth_enforcement: bool = False
-    bootstrap_owner_email: str | None = None
-    bootstrap_token: str | None = None
-    allow_public_registration: bool = False
-    access_token_hours: int = 12
-    login_max_attempts: int = 5
-    login_lockout_minutes: int = 15
     trusted_proxies: list[str] = []
     audit_sensitive_keys: list[str] = [
         "password",
@@ -58,8 +51,6 @@ class Settings(BaseSettings):
         "api_key",
         "access_token",
         "refresh_token",
-        "bootstrap_token",
-        "jwt_secret",
         "ibkr_flex_token",
     ]
     allowed_ibkr_hosts: list[str] = ["127.0.0.1", "localhost"]
@@ -129,12 +120,6 @@ def validate_production_settings() -> None:
 
     if settings.environment == "development":
         return
-    weak_secrets = {"", "change-me", "dev-only-change-me"}
-    if settings.jwt_secret in weak_secrets:
-        raise RuntimeError("A strong JWT_SECRET is required outside development")
-    if settings.persistence_backend not in {"postgres", "sqlite"}:
-        raise RuntimeError("PERSISTENCE_BACKEND=postgres or sqlite is required outside development")
-    if not settings.bootstrap_token:
-        raise RuntimeError("BOOTSTRAP_TOKEN is required outside development when bootstrapping owners")
+    # Real market data requires a genuine SEC EDGAR contact user agent.
     if not settings.sec_edgar_user_agent or "example.com" in settings.sec_edgar_user_agent:
         raise RuntimeError("A real SEC EDGAR contact user agent is required")
