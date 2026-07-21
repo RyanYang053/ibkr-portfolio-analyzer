@@ -415,6 +415,15 @@ class AdvancedRiskMetrics(BaseModel):
     information_ratio: Optional[float] = None
     calmar_ratio: Optional[float] = None
     ulcer_index: Optional[float] = None
+    omega_ratio: Optional[float] = None
+    tail_ratio: Optional[float] = None
+    gain_to_pain_ratio: Optional[float] = None
+    pain_index: Optional[float] = None
+    conditional_drawdown_at_risk_95: Optional[float] = None
+    up_capture: Optional[float] = None
+    down_capture: Optional[float] = None
+    up_down_capture: Optional[float] = None
+    batting_average: Optional[float] = None
     max_drawdown_duration_days: Optional[int] = None
     recovery_duration_days: Optional[int] = None
     risk_contribution: dict[str, float] = Field(default_factory=dict)
@@ -536,6 +545,7 @@ class ScoreCalibrationReport(BaseModel):
     information_coefficient: Optional[float]
     rank_correlation: Optional[float]
     hit_rate_top_quintile: Optional[float]
+    quantile_spread_top_minus_bottom: Optional[float] = None
     calibration_buckets: list[dict[str, float | int | str]]
     data_quality: dict[str, str]
     methodology: str
