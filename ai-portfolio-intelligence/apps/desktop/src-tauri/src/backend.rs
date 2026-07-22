@@ -52,7 +52,10 @@ impl BackendProcess {
             .spawn()
             .map_err(|err| format!("sidecar spawn failed: {err}"))?;
 
-        if let Err(error) = wait_for_health(runtime, Duration::from_secs(60)) {
+        // Generous ceiling: the PyInstaller sidecar (numpy/scipy/cvxpy/QuantLib/…) can take
+        // well over a minute to cold-start on Windows; too short a wait kills it mid-import and
+        // spawn_with_retry thrashes without ever stabilising. Fast platforms return immediately.
+        if let Err(error) = wait_for_health(runtime, Duration::from_secs(240)) {
             let _ = child.kill();
             return Err(error);
         }

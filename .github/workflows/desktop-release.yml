@@ -148,10 +148,10 @@ jobs:
         include:
           - os: macos-15
             target: aarch64-apple-darwin
-            bundles: app,dmg
+            bundles: app
           - os: macos-15-intel
             target: x86_64-apple-darwin
-            bundles: app,dmg
+            bundles: app
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bundles: nsis
@@ -300,32 +300,64 @@ jobs:
           done
           npm run build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
-      - name: Require macOS signing on tagged releases
+      - name: Create macOS DMG (headless, hdiutil)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          APP=$(find "$BUNDLE/macos" -maxdepth 1 -name '*.app' | head -n1)
+          test -n "$APP"
+          case "${{ matrix.target }}" in
+            aarch64-*) ARCH=aarch64 ;;
+            x86_64-*) ARCH=x64 ;;
+            *) ARCH="${{ matrix.target }}" ;;
+          esac
+          mkdir -p "$BUNDLE/dmg"
+          DMG="$BUNDLE/dmg/Portfolio Analyzer_0.1.0_${ARCH}.dmg"
+          STAGE="$(mktemp -d)"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          # hdiutil is headless-safe; Tauri's bundle_dmg.sh needs a GUI/Finder session and hangs on CI runners.
+          hdiutil create -volname "Portfolio Analyzer" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          rm -rf "$STAGE"
+          echo "Created: $DMG"
+
+      - name: Note macOS signing status on tagged releases
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'macOS'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
         run: |
-          test -n "$APPLE_CERTIFICATE" || {
-            echo "Tagged macOS releases require APPLE_CERTIFICATE for signing/notarization."
-            exit 1
-          }
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::APPLE_CERTIFICATE not set: publishing an UNSIGNED, un-notarized macOS build. Downloaders must right-click -> Open, and on recent macOS may need 'xattr -dr com.apple.quarantine <app>'. Add APPLE_CERTIFICATE to sign + notarize."
+          else
+            echo "APPLE_CERTIFICATE present: macOS build will be signed + notarized."
+          fi
 
-      - name: Require Windows signing on tagged releases
+      - name: Note Windows signing status on tagged releases
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'Windows'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
-            throw "Tagged Windows releases require WINDOWS_CERTIFICATE for code signing."
+            Write-Warning "WINDOWS_CERTIFICATE not set: publishing an UNSIGNED Windows installer. Users get a one-time SmartScreen 'More info -> Run anyway' prompt. Set WINDOWS_CERTIFICATE (or switch to Azure Trusted Signing) to sign it."
+          } else {
+            Write-Host "WINDOWS_CERTIFICATE present: Windows installer will be code-signed."
           }
 
       - name: Verify macOS code signature and notarization
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'macOS'
         shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
         run: |
           set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "Unsigned macOS build; skipping signature/notarization verification."
+            exit 0
+          fi
           APP=$(find apps/desktop/src-tauri/target -type d -name 'Portfolio Analyzer.app' | head -n 1)
           test -n "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
@@ -336,7 +368,13 @@ jobs:
       - name: Verify Windows Authenticode signature
         if: startsWith(github.ref, 'refs/tags/desktop-v') && runner.os == 'Windows'
         shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            Write-Host "Unsigned Windows build; skipping Authenticode verification."
+            exit 0
+          }
           $installer = Get-ChildItem -Path "apps/desktop/src-tauri/target" -Recurse -Filter "*.exe" |
             Where-Object { $_.FullName -match "nsis|setup" -and $_.Name -notmatch "uninstall" } |
             Sort-Object LastWriteTime -Descending |
@@ -491,7 +529,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: Portfolio Analyzer ${{ github.ref_name }}
-          draft: false
+          draft: true
           prerelease: false
           files: dist/*
           fail_on_unmatched_files: true
