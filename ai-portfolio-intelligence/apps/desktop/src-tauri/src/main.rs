@@ -3,7 +3,7 @@
 mod backend;
 mod secure_runtime;
 
-use backend::BackendProcess;
+use backend::{application_support_dir, BackendProcess};
 use secure_runtime::{build_initialization_script, DesktopRuntime};
 use serde::Serialize;
 use std::fs::OpenOptions;
@@ -90,7 +90,25 @@ fn poll_desktop_notifications(app: AppHandle) -> Result<InboxPollResult, String>
 }
 
 fn main() {
+    // Diagnostic log for packaged-build issues (webview/renderer problems that a Rust
+    // panic wouldn't otherwise surface): Rust-side log:: calls plus any frontend
+    // console output forwarded via @tauri-apps/plugin-log's attachConsole(). Lands next
+    // to the existing sidecar.log under the same PORTFOLIO_DATA_DIR/logs directory.
+    let log_dir = application_support_dir().join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Folder {
+                        path: log_dir,
+                        file_name: Some("webview".to_string()),
+                    },
+                ))
+                .level(log::LevelFilter::Debug)
+                .build(),
+        )
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

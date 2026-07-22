@@ -319,8 +319,16 @@ jobs:
           cp -R "$APP" "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
           # hdiutil is headless-safe; Tauri's bundle_dmg.sh needs a GUI/Finder session and hangs on CI runners.
-          hdiutil create -volname "Portfolio Analyzer" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
-          rm -rf "$STAGE"
+          # Two-step create (explicit-size UDRW, then convert to UDZO): a direct
+          # `-format UDZO -srcfolder` lets hdiutil auto-size the staging image, which can
+          # spuriously fail with "No space left on device" on APFS volumes holding local
+          # snapshots (purgeable space not yet reclaimed) even with ample free space.
+          STAGED_MB=$(du -sm "$STAGE" | cut -f1)
+          IMAGE_SIZE_MB=$((STAGED_MB + 200))
+          RW_DMG="$(dirname "$STAGE")/portfolio-analyzer-rw.dmg"
+          hdiutil create -volname "Portfolio Analyzer" -srcfolder "$STAGE" -fs HFS+ -format UDRW -size "${IMAGE_SIZE_MB}m" "$RW_DMG"
+          hdiutil convert "$RW_DMG" -format UDZO -o "$DMG"
+          rm -rf "$STAGE" "$RW_DMG"
           echo "Created: $DMG"
 
       - name: Note macOS signing status on tagged releases

@@ -196,6 +196,29 @@ def terminate(proc: subprocess.Popen[bytes]) -> None:
             pass
 
 
+def collect_diagnostics(data_dir: Path, work_dir: Path) -> str:
+    """Best-effort dump of every log this launch could have produced.
+
+    Includes the API sidecar log, the packaged app's own stdout/stderr (previously
+    discarded to /dev/null, which hid the real error on at least one Windows failure),
+    and any tauri-plugin-log output (webview/renderer diagnostics, including frontend
+    console output forwarded via attachConsole()).
+    """
+    sections: list[str] = []
+    sidecar_log = data_dir / "logs" / "sidecar.log"
+    if sidecar_log.exists():
+        sections.append(f"--- sidecar.log ---\n{sidecar_log.read_text(encoding='utf-8', errors='replace')}")
+    for webview_log in sorted((data_dir / "logs").glob("webview*.log")):
+        sections.append(
+            f"--- {webview_log.name} ---\n{webview_log.read_text(encoding='utf-8', errors='replace')}"
+        )
+    for name in ("app-stdout.log", "app-stderr.log"):
+        path = work_dir / name
+        if path.exists() and path.stat().st_size > 0:
+            sections.append(f"--- {name} ---\n{path.read_text(encoding='utf-8', errors='replace')}")
+    return "\n".join(sections) if sections else "(no logs produced)"
+
+
 def wait_for_port_closed(port: int, timeout_seconds: float = 30.0) -> None:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -224,13 +247,15 @@ def main() -> int:
     env["PORTFOLIO_DATA_DIR"] = str(data_dir)
     env["RUST_LOG"] = "info"
 
-    print(f"Launching packaged binary: {binary}")
-    print(f"data_dir={data_dir}")
+    print(f"Launching packaged binary: {binary}", flush=True)
+    print(f"data_dir={data_dir}", flush=True)
 
+    stdout_log = open(work_dir / "app-stdout.log", "wb")
+    stderr_log = open(work_dir / "app-stderr.log", "wb")
     popen_kwargs: dict = {
         "env": env,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": stdout_log,
+        "stderr": stderr_log,
     }
     if platform.system() != "Windows":
         popen_kwargs["start_new_session"] = True
@@ -240,12 +265,16 @@ def main() -> int:
     healthy_url = None
     api_port: int | None = None
 
+    def diagnostics() -> str:
+        stdout_log.flush()
+        stderr_log.flush()
+        return collect_diagnostics(data_dir, work_dir)
+
     try:
+        elapsed_marker = time.time()
         while time.time() < deadline:
             if proc.poll() is not None:
-                log_path = data_dir / "logs" / "sidecar.log"
-                detail = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
-                raise SystemExit(f"Desktop app exited early with code {proc.returncode}\n{detail}")
+                raise SystemExit(f"Desktop app exited early with code {proc.returncode}\n{diagnostics()}")
 
             for port in sorted(listening_ports() - before_ports):
                 status, _ = http_status(f"http://127.0.0.1:{port}/health")
@@ -255,48 +284,57 @@ def main() -> int:
                     break
             if healthy_url:
                 break
+            if time.time() - elapsed_marker > 30:
+                elapsed_marker = time.time()
+                print(f"... still waiting for sidecar health ({int(deadline - time.time())}s left)", flush=True)
             time.sleep(1.0)
 
         if not healthy_url or api_port is None:
-            log_path = data_dir / "logs" / "sidecar.log"
-            detail = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
-            raise SystemExit(f"Packaged app launched but local API never became healthy\n{detail}")
+            raise SystemExit(f"Packaged app launched but local API never became healthy\n{diagnostics()}")
+
+        print(f"sidecar_healthy={healthy_url}", flush=True)
 
         denied, _ = http_status(healthy_url.replace("/health", "/desktop/status"))
         if denied != 401:
-            raise SystemExit(f"Expected 401 for desktop/status without token, got {denied}")
+            raise SystemExit(f"Expected 401 for desktop/status without token, got {denied}\n{diagnostics()}")
 
         # Frontend readiness: protected UI posts /desktop/ui-ready after runtime injection.
         ui_marker = data_dir / "ui-ready.json"
+        elapsed_marker = time.time()
         while time.time() < deadline:
             if ui_marker.is_file():
                 payload = json.loads(ui_marker.read_text(encoding="utf-8"))
                 if payload.get("ready") is True:
                     break
             if proc.poll() is not None:
-                raise SystemExit("Desktop app exited before UI readiness marker")
+                raise SystemExit(f"Desktop app exited before UI readiness marker\n{diagnostics()}")
+            if time.time() - elapsed_marker > 30:
+                elapsed_marker = time.time()
+                print(f"... still waiting for ui-ready ({int(deadline - time.time())}s left)", flush=True)
             time.sleep(1.0)
         else:
             raise SystemExit(
-                "UI readiness marker missing: webview did not report /desktop/ui-ready"
+                f"UI readiness marker missing: webview did not report /desktop/ui-ready\n{diagnostics()}"
             )
 
-        print("TAURI_APP_LAUNCH_SMOKE_OK")
-        print(f"binary={binary}")
-        print(f"health={healthy_url}")
-        print(f"ui_ready={ui_marker}")
-        print(f"data_dir={data_dir}")
+        print("TAURI_APP_LAUNCH_SMOKE_OK", flush=True)
+        print(f"binary={binary}", flush=True)
+        print(f"health={healthy_url}", flush=True)
+        print(f"ui_ready={ui_marker}", flush=True)
+        print(f"data_dir={data_dir}", flush=True)
         return 0
     finally:
         terminate(proc)
         if api_port is not None:
             try:
                 wait_for_port_closed(api_port, timeout_seconds=45)
-                print(f"sidecar_port_closed={api_port}")
+                print(f"sidecar_port_closed={api_port}", flush=True)
             except SystemExit as exc:
                 # Surface after cleanup attempt.
                 print(str(exc), file=sys.stderr)
                 raise
+        stdout_log.close()
+        stderr_log.close()
         if os.getenv("DESKTOP_SMOKE_KEEP_DATA") != "1":
             shutil.rmtree(work_dir, ignore_errors=True)
 
