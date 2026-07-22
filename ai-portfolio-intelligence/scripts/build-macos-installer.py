@@ -36,20 +36,27 @@ def build_dmg() -> None:
             applications.symlink_to("/Applications")
         if DMG.exists():
             DMG.unlink()
+
+        # Two-step create (explicit-size UDRW, then convert to UDZO) instead of a
+        # single `-format UDZO -srcfolder` call: the latter lets hdiutil auto-size the
+        # staging image, which can spuriously fail with "No space left on device" on
+        # APFS volumes holding local Time Machine/OS-update snapshots (purgeable space
+        # not yet reclaimed) even with ample free space per `df`.
+        staged_mb = int(subprocess.check_output(["du", "-sm", str(stage_path)]).split()[0])
+        image_size_mb = staged_mb + 200  # generous headroom for filesystem overhead
+        rw_dmg = stage_path.parent / "portfolio-analyzer-rw.dmg"
         subprocess.check_call(
             [
-                "hdiutil",
-                "create",
-                "-volname",
-                "Portfolio Analyzer",
-                "-srcfolder",
-                str(stage_path),
-                "-ov",
-                "-format",
-                "UDZO",
-                str(DMG),
+                "hdiutil", "create",
+                "-volname", "Portfolio Analyzer",
+                "-srcfolder", str(stage_path),
+                "-fs", "HFS+",
+                "-format", "UDRW",
+                "-size", f"{image_size_mb}m",
+                str(rw_dmg),
             ]
         )
+        subprocess.check_call(["hdiutil", "convert", str(rw_dmg), "-format", "UDZO", "-o", str(DMG)])
     print(f"DMG ready: {DMG}")
 
 
