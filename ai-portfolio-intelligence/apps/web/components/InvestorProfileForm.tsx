@@ -73,8 +73,8 @@ export function InvestorProfileForm() {
         Investor Suitability Profile (KYC)
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Investment Objective</label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Investment Objective</span>
           <select
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             value={profile.objective}
@@ -85,18 +85,18 @@ export function InvestorProfileForm() {
             <option value="Capital Preservation">Capital Preservation</option>
             <option value="Speculation">Speculation</option>
           </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Time Horizon (Years)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Time Horizon (Years)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={profile.time_horizon_years}
             onChange={(event) => setProfile({ ...profile, time_horizon_years: parseInt(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Risk Tolerance</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Risk Tolerance</span>
           <select
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             value={profile.risk_tolerance}
@@ -106,9 +106,9 @@ export function InvestorProfileForm() {
             <option value="Medium">Medium</option>
             <option value="High">High</option>
           </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Risk Capacity</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Risk Capacity</span>
           <select
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             value={profile.risk_capacity}
@@ -118,18 +118,18 @@ export function InvestorProfileForm() {
             <option value="Medium">Medium</option>
             <option value="High">High</option>
           </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Liquidity Needs ($)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Liquidity Needs ($)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={profile.liquidity_needs}
             onChange={(event) => setProfile({ ...profile, liquidity_needs: parseFloat(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Account Type</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Account Type</span>
           <select
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             value={profile.account_type}
@@ -140,9 +140,9 @@ export function InvestorProfileForm() {
             <option value="Margin">Margin</option>
             <option value="Corporate">Corporate</option>
           </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Tax Residency</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Tax Residency</span>
           <select
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             value={profile.tax_residency}
@@ -152,18 +152,18 @@ export function InvestorProfileForm() {
             <option value="US">US</option>
             <option value="Other">Other</option>
           </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Net Worth Range</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Net Worth Range</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="text"
             value={profile.net_worth_range}
             onChange={(event) => setProfile({ ...profile, net_worth_range: event.target.value })}
           />
-        </div>
-        <div className="flex flex-col gap-1 md:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Symbol Restrictions (Comma Separated)</label>
+        </label>
+        <label className="flex flex-col gap-1 md:col-span-2">
+          <span className="text-xs font-semibold text-zinc-600">Symbol restrictions (comma separated)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="text"
@@ -171,7 +171,7 @@ export function InvestorProfileForm() {
             onChange={(event) => setRestrictionsText(event.target.value)}
             placeholder="e.g., IONQ, LAES, CELH"
           />
-        </div>
+        </label>
       </div>
       <div className="mt-4">
         <button

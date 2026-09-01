@@ -37,7 +37,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           Skip to content
         </a>
 
-        <div className="grid min-h-screen lg:grid-cols-[236px_1fr]">
+        <div className="grid min-h-screen lg:grid-cols-[236px_minmax(0,1fr)]">
           <Nav />
           <main id="main-content" className="min-w-0 px-4 py-5 lg:px-7 lg:py-6">
             {children}

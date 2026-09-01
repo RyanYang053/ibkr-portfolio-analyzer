@@ -230,7 +230,7 @@ function DashboardContent() {
         </Card>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.3fr_1fr_1fr_1.1fr]">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
         <StatCard
           label="Net liquidation"
           value={formatCurrency(summaryData.summary.net_liquidation, {

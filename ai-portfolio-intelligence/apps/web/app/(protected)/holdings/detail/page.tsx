@@ -191,7 +191,7 @@ function HoldingDetailContent() {
               detail={analysis.score.interpretation}
             />
           </section>
-          <section className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
             <div className="grid gap-4">
               <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Evidence view (not authoritative)</h3>

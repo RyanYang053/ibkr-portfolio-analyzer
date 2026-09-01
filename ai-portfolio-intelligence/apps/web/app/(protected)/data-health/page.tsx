@@ -16,7 +16,10 @@ import { humanizeCode } from "@/lib/format";
 /** Broken checks first: a page of green with one red buried in it is a trap. */
 const TONE_ORDER = { negative: 0, warning: 1, neutral: 2, info: 2, accent: 2, positive: 3 } as const;
 
-function formatCalibrationValue(value: unknown): string {
+/** Values that are identifiers, not labels — a DSN scheme, a path, a version. */
+const IDENTIFIER_VALUE = /[+:/\\.]|\d/;
+
+function formatValue(value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") return value.toLocaleString();
@@ -26,7 +29,10 @@ function formatCalibrationValue(value: unknown): string {
     if (entries.length === 0) return "None recorded";
     return entries.map(([key, count]) => `${humanizeCode(key)}: ${String(count)}`).join(", ");
   }
-  return humanizeCode(value);
+  const text = String(value);
+  // `postgresql+psycopg` is a value to copy verbatim; `attention_required` is a
+  // status code to read. Title-casing the former would corrupt it.
+  return IDENTIFIER_VALUE.test(text) ? text : humanizeCode(text);
 }
 
 function DataHealthContent() {
@@ -96,7 +102,7 @@ function DataHealthContent() {
             {Object.entries(calibration).map(([key, value]) => (
               <div key={key} className="flex items-baseline justify-between gap-3 border-b border-hairline py-1.5">
                 <dt className="text-zinc-600">{humanizeCode(key)}</dt>
-                <dd className="num text-right font-medium text-zinc-900">{formatCalibrationValue(value)}</dd>
+                <dd className="num text-right font-medium text-zinc-900">{formatValue(value)}</dd>
               </div>
             ))}
           </dl>
@@ -115,7 +121,7 @@ function DataHealthContent() {
             .map(([key, value]) => (
               <div key={key} className="flex items-baseline justify-between gap-3 border-b border-hairline py-1.5">
                 <dt className="text-zinc-600">{humanizeCode(key)}</dt>
-                <dd className="text-right font-medium text-zinc-900">{formatCalibrationValue(value)}</dd>
+                <dd className="text-right font-medium text-zinc-900">{formatValue(value)}</dd>
               </div>
             ))}
         </dl>

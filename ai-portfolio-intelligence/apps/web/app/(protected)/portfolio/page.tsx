@@ -333,7 +333,7 @@ function PortfolioContent() {
         </section>
       ) : null}
 
-      <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-4 text-lg font-semibold">Sector Allocation</h3>
           <DonutChart data={risk.sector_exposure} title="Sectors" />

@@ -73,7 +73,7 @@ function RiskContent() {
       <Disclaimer />
       {error ? <PageErrorBanner message={error} onRetry={reload} /> : null}
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_1fr_1fr]">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <RiskGauge score={risk.risk_score} label="Portfolio risk score" />
         <StatCard
           label="Top 5 concentration"

@@ -48,8 +48,12 @@ export function ScheduleConfigForm({ initialSettings }: ScheduleConfigFormProps)
           <span className="text-sm font-bold text-zinc-800">Scheduled Analysis Times</span>
         </div>
         <button
+          type="button"
+          role="switch"
+          aria-checked={settings.enabled}
+          aria-label="Scheduled analysis"
           onClick={() => setSettings((s) => ({ ...s, enabled: !s.enabled }))}
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-600 hover:text-zinc-900 transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-600 transition-colors hover:text-zinc-900"
         >
           {settings.enabled ? (
             <ToggleRight size={20} className="text-accent" />
@@ -72,6 +76,7 @@ export function ScheduleConfigForm({ initialSettings }: ScheduleConfigFormProps)
             </div>
             <input
               type="time"
+              aria-label={`${slot.label} time`}
               value={settings[slot.key]}
               onChange={(e) => setSettings((s) => ({ ...s, [slot.key]: e.target.value }))}
               disabled={!settings.enabled}

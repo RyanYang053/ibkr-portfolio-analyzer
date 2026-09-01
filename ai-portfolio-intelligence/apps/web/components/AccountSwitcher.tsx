@@ -147,14 +147,18 @@ export function AccountSwitcher() {
 
   return (
     <div className="mb-4">
-      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
-        Active Account
+      <label
+        htmlFor="active-account-select"
+        className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-zinc-500"
+      >
+        Active account
       </label>
       <p className="mb-1 text-[10px] text-zinc-500">
         Multiple IBKR accounts detected. Pick one account or Consolidated View.
       </p>
       <div className="relative">
         <select
+          id="active-account-select"
           value={activeAccountId}
           onChange={(e) => handleSelect(e.target.value)}
           className="w-full rounded-md border border-line bg-zinc-50 pl-8 pr-8 py-1.5 text-xs text-zinc-950 font-medium focus:border-accent focus:bg-white focus:outline-none focus:ring-1 focus:ring-accent transition-all cursor-pointer appearance-none"

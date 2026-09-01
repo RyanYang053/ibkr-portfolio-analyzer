@@ -69,96 +69,96 @@ export function TargetPolicyForm() {
         Investment Policy Statement (IPS) Targets
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Target Equity Allocation (%)</label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Target Equity Allocation (%)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={policy.target_equity_percent}
             onChange={(event) => setPolicy({ ...policy, target_equity_percent: parseFloat(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Target Cash Allocation (%)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Target Cash Allocation (%)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={policy.target_cash_percent}
             onChange={(event) => setPolicy({ ...policy, target_cash_percent: parseFloat(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Target Bond Allocation (%)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Target Bond Allocation (%)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={policy.target_bond_percent}
             onChange={(event) => setPolicy({ ...policy, target_bond_percent: parseFloat(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Max Single Stock Weight (%)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Max Single Stock Weight (%)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={policy.max_single_stock_weight}
             onChange={(event) => setPolicy({ ...policy, max_single_stock_weight: parseFloat(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Max Speculative Weight (%)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Max Speculative Weight (%)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={policy.max_speculative_weight}
             onChange={(event) => setPolicy({ ...policy, max_speculative_weight: parseFloat(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Max Sector Weight (%)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Max Sector Weight (%)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={policy.max_sector_weight}
             onChange={(event) => setPolicy({ ...policy, max_sector_weight: parseFloat(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Max Options Exposure (%)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Max Options Exposure (%)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={policy.max_options_exposure}
             onChange={(event) => setPolicy({ ...policy, max_options_exposure: parseFloat(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Minimum Cash Floor ($)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Minimum Cash Floor ($)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={policy.minimum_cash}
             onChange={(event) => setPolicy({ ...policy, minimum_cash: parseFloat(event.target.value) || 0 })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Benchmark Reference Index</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Benchmark Reference Index</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="text"
             value={policy.benchmark}
             onChange={(event) => setPolicy({ ...policy, benchmark: event.target.value.toUpperCase() })}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-zinc-600">Rebalancing Drift Trigger Threshold (%)</label>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-zinc-600">Rebalancing Drift Trigger Threshold (%)</span>
           <input
             className="rounded-md border border-line px-3 py-2 text-sm bg-white"
             type="number"
             value={policy.rebalancing_drift_threshold}
             onChange={(event) => setPolicy({ ...policy, rebalancing_drift_threshold: parseFloat(event.target.value) || 0 })}
           />
-        </div>
+        </label>
       </div>
       <div className="mt-4">
         <button

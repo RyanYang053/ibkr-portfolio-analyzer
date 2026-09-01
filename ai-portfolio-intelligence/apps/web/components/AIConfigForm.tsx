@@ -48,6 +48,7 @@ export function AIConfigForm({ defaultModel }: { defaultModel: string }) {
           autoComplete="off"
         />
         <select
+          aria-label="Gemini model"
           className="rounded-md border border-line px-3 py-2 text-sm"
           value={model}
           onChange={(event) => setModel(event.target.value)}
