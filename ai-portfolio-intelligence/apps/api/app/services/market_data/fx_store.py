@@ -4,6 +4,7 @@ import json
 import math
 import os
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from threading import Lock
@@ -17,6 +18,14 @@ FX_STORE_FILE = os.path.join(DATA_DIR, "historical_fx_rates.json")
 MAX_FX_STALENESS_DAYS = 7
 _FILE_LOCK = Lock()
 _MEMORY_CACHE: dict[str, dict[str, float]] = {}
+
+# A failed provider fetch costs three attempts with backoff sleeps. Without a
+# negative cache an offline machine pays that on every conversion, which turned
+# performance attribution into a multi-second call on each page load. Remember
+# the failure briefly so the same pair is not retried in a tight loop.
+_FAILED_FETCH_TTL_SECONDS = 120
+_failed_fetches: dict[str, float] = {}
+_FAILED_LOCK = Lock()
 
 
 class CurrentFxResolver(Protocol):
@@ -226,10 +235,49 @@ def lookup_rate_with_metadata(from_curr: str, to_curr: str, as_of: date) -> Hist
     return None
 
 
+def _recently_failed(key: str) -> bool:
+    with _FAILED_LOCK:
+        expires_at = _failed_fetches.get(key)
+        if expires_at is None:
+            return False
+        if time.monotonic() >= expires_at:
+            del _failed_fetches[key]
+            return False
+        return True
+
+
+def _remember_failure(key: str) -> None:
+    with _FAILED_LOCK:
+        _failed_fetches[key] = time.monotonic() + _FAILED_FETCH_TTL_SECONDS
+
+
+def reset_fx_fetch_failures() -> None:
+    """Clear the negative cache (used when the user reconnects a provider)."""
+    with _FAILED_LOCK:
+        _failed_fetches.clear()
+
+
 def fetch_and_persist_rate_series(from_curr: str, to_curr: str, as_of: date) -> None:
+    """Best-effort: populate the local store from the provider.
+
+    Never raises. Callers detect failure by finding the store still empty for
+    the date they need, which is also what a successful-but-incomplete fetch
+    looks like. A failed attempt is remembered briefly so an unreachable
+    provider does not cost retry backoff on every subsequent conversion.
+    """
+    key = _pair_key(from_curr, to_curr)
+    if _recently_failed(key):
+        return
     start_date = as_of - timedelta(days=14)
-    fetched = _fetch_yahoo_fx_series(from_curr, to_curr, start_date, as_of)
-    _merge_series_into_store(_pair_key(from_curr, to_curr), fetched)
+    try:
+        fetched = _fetch_yahoo_fx_series(from_curr, to_curr, start_date, as_of)
+    except Exception:
+        _remember_failure(key)
+        return
+    if not fetched:
+        _remember_failure(key)
+        return
+    _merge_series_into_store(key, fetched)
 
 
 def get_historical_fx_quote(from_curr: str, to_curr: str, as_of: date) -> HistoricalFxQuote:
@@ -251,11 +299,40 @@ def get_historical_fx_quote(from_curr: str, to_curr: str, as_of: date) -> Histor
         fetch_and_persist_rate_series(native, reporting, as_of)
         resolved = lookup_rate_with_metadata(native, reporting, as_of)
     if resolved is None:
+        # Demo mode has no provider to consult and must still be able to value a
+        # multi-currency mock portfolio. The rate is labelled so it can never be
+        # mistaken for an observed one.
+        demo = _demo_historical_quote(native, reporting, as_of)
+        if demo is not None:
+            return demo
+    if resolved is None:
         raise RuntimeError(
             f"Historical FX unavailable for {native}/{reporting} on {as_of.isoformat()} "
             f"within {MAX_FX_STALENESS_DAYS} day staleness limit"
         )
     return resolved
+
+
+def _demo_historical_quote(
+    native: str, reporting: str, as_of: date
+) -> Optional[HistoricalFxQuote]:
+    """Deterministic dated FX for demo mode only, or None outside it."""
+    if settings.broker_mode != "mock_ibkr_readonly":
+        return None
+    from app.services.broker.ibkr_readonly import demo_fx_rate
+
+    rate = demo_fx_rate(native, reporting)
+    if rate is None:
+        return None
+    return HistoricalFxQuote(
+        native,
+        reporting,
+        rate,
+        as_of,
+        datetime.now(timezone.utc),
+        "mock_fx",
+        0,
+    )
 
 
 def get_historical_exchange_rate(from_curr: str, to_curr: str, as_of: date) -> float:

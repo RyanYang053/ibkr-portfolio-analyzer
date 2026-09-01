@@ -10,6 +10,7 @@ import { createTradePlan, listTradePlans } from "@/lib/api";
 import { useAppRouter } from "@/lib/use-app-router";
 import { useClientResource } from "@/lib/use-client-resource";
 import { humanizeCode } from "@/lib/format";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 type Plan = Record<string, unknown>;
 
@@ -113,7 +114,7 @@ function TradePlansContent() {
       {!loading && !error ? (
         <div className="grid gap-2">
           {plans.length === 0 ? (
-            <p className="text-sm text-zinc-600">No trade plans yet. Draft one above.</p>
+            <EmptyState title="No trade plans yet" description="Draft one above. Plans record intent and sizing; they are never submitted to a broker." />
           ) : (
             plans.map((plan) => (
               <Link

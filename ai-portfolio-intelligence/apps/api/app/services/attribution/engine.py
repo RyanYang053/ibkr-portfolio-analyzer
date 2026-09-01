@@ -369,7 +369,12 @@ def calculate_performance_attribution(
 
     benchmark_relative_alpha = None
     data_quality_benchmark = "withheld_modeled_alpha"
-    allow_mock = "pytest" in sys.modules
+    # Demo mode must resolve locally like every other provider call site.
+    # Keying this off pytest alone meant the desktop app went to the live
+    # provider even when the user had explicitly selected Demo Mode — mixing
+    # live market data into a mock portfolio, and costing seconds of retry
+    # backoff on a machine that cannot reach it.
+    allow_mock = settings.broker_mode == "mock_ibkr_readonly" or "pytest" in sys.modules
 
     allocation_effect = None
     selection_effect = None

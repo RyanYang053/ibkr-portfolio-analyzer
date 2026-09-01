@@ -16,6 +16,18 @@ function str(v: unknown, f = "—"): string {
   return v === null || v === undefined || v === "" ? f : String(v);
 }
 
+/**
+ * The rule engine emits evidence as machine-readable pairs (`volatility=low`).
+ * Render them as a sentence so the reasoning reads, rather than parses.
+ */
+function evidenceLabel(entry: string): string {
+  const [dimension, value] = entry.split("=");
+  if (value === undefined) {
+    return humanizeCode(entry);
+  }
+  return `${humanizeCode(dimension)}: ${humanizeCode(value).toLowerCase()}`;
+}
+
 function MarketsContent() {
   const { data, error, loading } = useClientResource(
     () => Promise.all([getMarketOverview(), getMarketCalendar()]),
@@ -45,7 +57,11 @@ function MarketsContent() {
         <StatCard label="Regime" value={regimeLabel} detail={`confidence ${str(regime?.confidence)}`} tone={insufficient ? "warn" : "good"} />
         <StatCard label="Prev regime" value={humanizeCode(regime?.previous_regime)} />
         <StatCard label="Changed dims" value={String(((regime?.changed_dimensions as unknown[]) ?? []).length)} />
-        <StatCard label="Method" value={str(regime?.methodology)} />
+        <StatCard
+          label="Method"
+          value={humanizeCode(regime?.methodology)}
+          hint={str(regime?.methodology)}
+        />
       </section>
 
       {insufficient ? (
@@ -59,14 +75,18 @@ function MarketsContent() {
             <div>
               <p className="text-zinc-500">Supporting</p>
               <ul className="list-disc pl-5">
-                {((regime?.supporting_evidence as string[]) ?? []).map((e) => <li key={e}>{e}</li>)}
+                {((regime?.supporting_evidence as string[]) ?? []).map((e) => (
+                  <li key={e}>{evidenceLabel(e)}</li>
+                ))}
                 {((regime?.supporting_evidence as string[]) ?? []).length === 0 ? <li className="text-zinc-500">none</li> : null}
               </ul>
             </div>
             <div>
               <p className="text-zinc-500">Contradicting</p>
               <ul className="list-disc pl-5">
-                {((regime?.contradicting_evidence as string[]) ?? []).map((e) => <li key={e}>{e}</li>)}
+                {((regime?.contradicting_evidence as string[]) ?? []).map((e) => (
+                  <li key={e}>{evidenceLabel(e)}</li>
+                ))}
                 {((regime?.contradicting_evidence as string[]) ?? []).length === 0 ? <li className="text-zinc-500">none</li> : null}
               </ul>
             </div>

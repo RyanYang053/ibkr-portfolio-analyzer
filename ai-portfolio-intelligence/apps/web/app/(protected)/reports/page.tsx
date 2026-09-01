@@ -7,6 +7,7 @@ import { AIPnlChart } from "@/components/AIPnlChart";
 import { DailyActionsPanel } from "@/components/DailyActionsPanel";
 import { DegradedStateBanner } from "@/components/DegradedStateBanner";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { Markdown } from "@/components/ui/Markdown";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getMonthlyReview, getPnlHistory, getReports, getScheduleSettings } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
@@ -125,7 +126,9 @@ export default function ReportsPage() {
               <h3 className="text-lg font-semibold">{report.title}</h3>
               <span className="text-sm text-zinc-600">Confidence: {report.confidence}</span>
             </div>
-            <pre className="mt-3 whitespace-pre-wrap rounded-md bg-panel p-3 text-sm font-sans">{report.report_markdown}</pre>
+            <div className="mt-3 rounded-md bg-panel px-3.5 py-2.5">
+              <Markdown source={report.report_markdown} />
+            </div>
             <p className="mt-3 text-xs text-zinc-600">{report.disclaimer}</p>
           </article>
         ))}

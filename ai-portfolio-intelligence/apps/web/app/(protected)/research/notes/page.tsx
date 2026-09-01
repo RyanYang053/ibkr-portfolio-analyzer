@@ -7,6 +7,7 @@ import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { createResearchNote, listResearchNotes } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 type Note = Record<string, unknown>;
 
@@ -77,7 +78,7 @@ function NotesContent() {
 
       <div className="grid gap-2">
         {notes.length === 0 ? (
-          <p className="text-sm text-zinc-600">No notes yet.</p>
+          <EmptyState title="No research notes yet" description="Notes you save are attached to the security and cited by its decision packet." />
         ) : (
           notes.map((n) => (
             <div key={String(n.note_id)} className="rounded-lg border border-hairline bg-surface shadow-sm p-3">

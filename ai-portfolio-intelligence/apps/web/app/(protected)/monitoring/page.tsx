@@ -21,6 +21,7 @@ import {
   startDesktopNotificationPolling,
 } from "@/lib/desktop-api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 function MonitoringContent() {
   const searchParams = useSearchParams();
@@ -110,7 +111,7 @@ function MonitoringContent() {
           </div>
           <div className="grid gap-2 text-sm">
             {events.length === 0 ? (
-              <p className="text-zinc-600">No persisted monitoring events yet.</p>
+              <EmptyState title="No monitoring events" description="Alerts raised by the scheduler are persisted here." />
             ) : (
               events.slice(0, 20).map((event, idx) => {
                 const eventId = String(event.event_id || idx);

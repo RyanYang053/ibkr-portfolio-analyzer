@@ -16,6 +16,7 @@ import {
 } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 import { humanizeCode } from "@/lib/format";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 type Entry = Record<string, unknown>;
 
@@ -104,7 +105,7 @@ function JournalContent() {
 
       <div className="grid gap-2">
         {entries.length === 0 ? (
-          <p className="text-sm text-zinc-600">No journal entries yet.</p>
+          <EmptyState title="No journal entries yet" description="Log an entry above to start building the record this page measures." />
         ) : (
           entries.map((entry) => (
             <JournalRow key={String(entry.entry_id)} entry={entry} onChanged={() => setReloadKey((k) => k + 1)} />

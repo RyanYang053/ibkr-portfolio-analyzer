@@ -40,7 +40,7 @@ def _valuation_health_check() -> dict[str, Any]:
         return {
             "id": "valuation",
             "status": "approved_for_personal_use",
-            "detail": "Valuation models approved_for_personal_use with golden fixtures",
+            "detail": "Valuation models are approved for personal use, backed by golden fixtures",
         }
     if approved:
         return {
@@ -57,7 +57,7 @@ def _valuation_health_check() -> dict[str, Any]:
     return {
         "id": "valuation",
         "status": "experimental",
-        "detail": "Valuation models present but not yet approved_for_personal_use",
+        "detail": "Valuation models are present but not yet approved for personal use",
     }
 
 
@@ -85,7 +85,7 @@ def _tax_lots_health_check() -> dict[str, Any]:
         return {
             "id": "tax_lots",
             "status": "approved_for_personal_use",
-            "detail": "Tax lot methodology approved_for_personal_use; filing worksheets still need professional review",
+            "detail": "Tax-lot methodology is approved for personal use; filing worksheets still need professional review",
         }
     return {
         "id": "tax_lots",
@@ -130,7 +130,7 @@ def build_data_health_report(
             "id": "methodology_approval",
             "status": (methodology_summary or {}).get("overall_status") or "experimental",
             "detail": (methodology_summary or {}).get("note")
-            or "No methodology is approved_for_personal_use yet",
+            or "No methodology is approved for personal use yet",
         },
         _valuation_health_check(),
         _tax_lots_health_check(),

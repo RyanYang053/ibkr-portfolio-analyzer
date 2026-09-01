@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 import { humanizeCode } from "@/lib/format";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 const TABS = [
   "Decision",
@@ -532,7 +533,7 @@ function HistoryPanel({
       <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
         <h3 className="mb-2 font-semibold">Outcome transitions</h3>
         {history.length === 0 ? (
-          <p className="text-zinc-600">No recorded transitions yet.</p>
+          <EmptyState title="No recorded transitions" description="This holding’s outcome has not changed since its first packet." />
         ) : (
           <ul className="grid gap-2">
             {history.map((row, idx) => (

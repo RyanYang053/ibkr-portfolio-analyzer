@@ -94,6 +94,19 @@ _MOCK_FX_RATES: dict[tuple[str, str], float] = {
 }
 
 
+def demo_fx_rate(from_curr: str, to_curr: str) -> float | None:
+    """Demo-mode cross rate for a pair, or None outside demo mode.
+
+    Shared with the historical FX store so a dated conversion and a spot
+    conversion agree in demo mode.
+    """
+    if settings.broker_mode != "mock_ibkr_readonly":
+        return None
+    if from_curr.upper() == to_curr.upper():
+        return 1.0
+    return _MOCK_FX_RATES.get((from_curr.upper(), to_curr.upper()))
+
+
 def _mock_fx_quote(pair: tuple[str, str]) -> FxQuote | None:
     """Demo-mode FX, or None when demo mode is off or the pair is unknown.
 

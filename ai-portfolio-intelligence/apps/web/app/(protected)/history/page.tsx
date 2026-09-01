@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { getDecisionQueue } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 import { requireJson } from "@/lib/api";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 function HistoryContent() {
   const searchParams = useSearchParams();
@@ -73,7 +74,7 @@ function HistoryContent() {
           <h3 className="mb-3 font-semibold">History for {instrumentKey}</h3>
           {historyError ? <PageErrorBanner message={historyError} /> : null}
           {history && history.length === 0 ? (
-            <p className="text-zinc-600">No stored outcome transitions yet.</p>
+            <EmptyState title="No outcome transitions yet" description="A transition is recorded when a decision packet changes its outcome." />
           ) : (
             <ul className="space-y-2">
               {(history || []).map((row, idx) => (
@@ -90,7 +91,7 @@ function HistoryContent() {
           )}
           <h4 className="mb-2 mt-5 font-semibold">Observation windows</h4>
           {observations && observations.length === 0 ? (
-            <p className="text-zinc-600">No 30/90/180/365 observation windows recorded yet.</p>
+            <EmptyState title="No observation windows yet" description="30, 90, 180 and 365-day windows appear once decisions have been open that long." />
           ) : (
             <ul className="space-y-2">
               {(observations || []).map((row, idx) => (

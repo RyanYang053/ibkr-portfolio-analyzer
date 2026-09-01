@@ -6,24 +6,49 @@ import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getFinancialPlan, getPlanFeasibility, requireJson } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { EmptyState } from "@/components/ui/EmptyState";
+
+/**
+ * Whether a plan has actually been saved.
+ *
+ * `GET /planning/plan` answers with a skeleton (a `plan_id`, empty goals, null
+ * timestamps) rather than 404ing, so a non-empty `plan_id` is not evidence of a
+ * saved plan. Content or a creation timestamp is. Getting this wrong made the
+ * page request feasibility for a plan that does not exist, which 404s on every
+ * visit before setup.
+ */
+function planExists(plan: Record<string, unknown> | null | undefined): boolean {
+  if (!plan || plan.exists === false) {
+    return false;
+  }
+  const goals = plan.goals as unknown[] | undefined;
+  const roles = plan.account_roles as unknown[] | undefined;
+  return Boolean(plan.created_at || plan.policy || goals?.length || roles?.length);
+}
 
 export default function PlanPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const { data, error, loading } = useClientResource(
-    () =>
-      Promise.all([
-        getFinancialPlan(),
-        getPlanFeasibility().catch(() => ({ feasibility: [] as Array<Record<string, unknown>> })),
-      ]),
-    [refreshKey],
-  );
+  // Feasibility is only meaningful once a plan exists. Requesting it first
+  // meant every visit before setup fired a request that 404s as
+  // `plan_not_found` and logged an error for a state that is simply "not set
+  // up yet".
+  const { data, error, loading, refreshing, stale } = useClientResource(async () => {
+    const financialPlan = await getFinancialPlan();
+    if (!planExists(financialPlan as Record<string, unknown>)) {
+      return [financialPlan, { feasibility: [] as Array<Record<string, unknown>> }] as const;
+    }
+    const feasibility = await getPlanFeasibility().catch(() => ({
+      feasibility: [] as Array<Record<string, unknown>>,
+    }));
+    return [financialPlan, feasibility] as const;
+  }, [refreshKey]);
 
   if (loading) return <PageLoading />;
   if (error) return <PageErrorBanner message={error} />;
 
-  const [plan, feasibilityPayload] = data ?? [{}, { feasibility: [] }];
+  const [plan, feasibilityPayload] = data ?? [{} as Record<string, unknown>, { feasibility: [] }];
   const goals = (plan?.goals as Array<Record<string, unknown>> | undefined) ?? [];
   const roles = (plan?.account_roles as Array<Record<string, unknown>> | undefined) ?? [];
   const policy = (plan?.policy as Record<string, unknown> | undefined) ?? null;
@@ -32,7 +57,7 @@ export default function PlanPage() {
     : Array.isArray(plan?.feasibility)
       ? (plan.feasibility as Array<Record<string, unknown>>)
       : [];
-  const exists = plan?.exists !== false && (plan?.plan_id || policy || goals.length);
+  const exists = planExists(plan as Record<string, unknown>);
 
   async function createDefaultPlan() {
     setBusy(true);
@@ -137,6 +162,9 @@ export default function PlanPage() {
       <PageHeader
         eyebrow="Financial plan"
         title="Plan & Policy"
+        description="Goals, account roles and the IPS the rest of the app measures against."
+        refreshing={refreshing}
+        stale={stale}
       />
       <Disclaimer />
       {!exists ? (
@@ -167,7 +195,7 @@ export default function PlanPage() {
               </button>
             </div>
             {goals.length === 0 ? (
-              <p className="text-sm text-zinc-600">No goals defined.</p>
+              <EmptyState title="No goals defined" description="Goals give the feasibility engine something to test the portfolio against." />
             ) : (
               <ul className="grid gap-2 text-sm">
                 {goals.map((g) => (
@@ -195,7 +223,7 @@ export default function PlanPage() {
           <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
             <h3 className="mb-3 font-semibold">Goal feasibility</h3>
             {feasibility.length === 0 ? (
-              <p className="text-sm text-zinc-600">No feasibility assessments yet.</p>
+              <EmptyState title="No feasibility assessments yet" description="Assessments appear once a goal has a target amount and a date." />
             ) : (
               <ul className="grid gap-2 text-sm">
                 {feasibility.map((row) => (
