@@ -78,23 +78,23 @@ function RiskContent() {
         <StatCard
           label="Top 5 concentration"
           value={formatPercent(risk.top_5_concentration)}
-          detail="Share held in the five largest positions"
+          detail="Five largest holdings, share of invested capital"
         />
         <StatCard
           label="Herfindahl index"
           value={formatNumber(risk.herfindahl_concentration_score, 4)}
-          detail={humanizeCode(risk.herfindahl_concentration_label)}
+          detail={`${humanizeCode(risk.herfindahl_concentration_label)} · of invested capital`}
         />
         <StatCard
           label="Speculative basket"
           value={formatPercent(risk.speculative_percent)}
           tone="warn"
-          detail="Gross exposure to speculative names"
+          detail="Speculative names, share of net liquidation"
         />
         <StatCard
           label="Margin usage"
           value={formatPercent(risk.margin_usage_percent)}
-          detail="Requirement against net liquidation"
+          detail="Initial margin, share of net liquidation"
         />
       </section>
 

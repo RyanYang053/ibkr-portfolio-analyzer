@@ -532,6 +532,21 @@ jobs:
           print(json.dumps(manifest, indent=2))
           PY
 
+      - name: Note auto-update status
+        shell: bash
+        run: |
+          # The updater verifies release artifacts against this key. While it is
+          # the placeholder, installed apps check for updates and silently fail
+          # to verify — users would have to re-download by hand for every
+          # version. Surfaced here so a release is never published believing
+          # auto-update works when it does not.
+          PUBKEY=$(python3 -c "import json;print(json.load(open('ai-portfolio-intelligence/apps/desktop/src-tauri/tauri.conf.json'))['plugins']['updater']['pubkey'])")
+          if [ "$PUBKEY" = "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY" ]; then
+            echo "::warning::Updater pubkey is still the placeholder: this release will NOT auto-update. Generate a key pair and set plugins.updater.pubkey plus the TAURI_SIGNING_PRIVATE_KEY secret (see docs/RELEASE_AND_SIGNING.md)."
+          else
+            echo "Updater pubkey configured; installed apps can verify and apply this release."
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

@@ -64,10 +64,14 @@ class MockIBKRAdapter(BrokerAdapter):
             ),
         ]
 
+    @staticmethod
+    def _cash_for(account_id: str) -> float:
+        return 32500.0 if account_id == "MOCK-001" else 45000.0
+
     def get_account_summary(self, account_id: str) -> AccountSummary:
         positions = self.get_positions(account_id)
         market_value = sum(position.market_value for position in positions)
-        cash = 32500.0 if account_id == "MOCK-001" else 45000.0
+        cash = self._cash_for(account_id)
         unrealized = sum(position.unrealized_pnl for position in positions)
         net_liquidation = market_value + cash
         base_currency = "USD" if account_id == "MOCK-001" else "CAD"
@@ -93,7 +97,13 @@ class MockIBKRAdapter(BrokerAdapter):
             symbol: quantity * market_price
             for symbol, (quantity, _avg_cost, market_price) in lots.items()
         }
-        invested_value = sum(raw_values.values())
+        # Weight is a share of net liquidation, matching the live IBKR adapter
+        # and the basis the IPS single-name limit is checked against. Dividing
+        # by invested capital instead made the same holding show a larger weight
+        # in demo mode than live, and made the displayed weight incomparable to
+        # the policy threshold shown beside it.
+        cash = self._cash_for(account_id)
+        weight_denominator = sum(raw_values.values()) + cash or 1.0
         positions: list[Position] = []
         for symbol, (quantity, avg_cost, market_price) in lots.items():
             company, asset_class, exchange, currency, sector, industry, stock_type, is_etf, is_speculative = SAMPLE_SECURITIES[symbol]
@@ -116,7 +126,7 @@ class MockIBKRAdapter(BrokerAdapter):
                     exchange=exchange,
                     sector=sector,
                     industry=industry,
-                    portfolio_weight=round(market_value / invested_value * 100, 2),
+                    portfolio_weight=round(market_value / weight_denominator * 100, 2),
                     stock_type=stock_type,
                     is_etf=is_etf,
                     is_speculative=is_speculative,

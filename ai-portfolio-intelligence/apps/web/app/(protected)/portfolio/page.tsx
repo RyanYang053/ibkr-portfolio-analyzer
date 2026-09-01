@@ -273,12 +273,21 @@ function PortfolioContent() {
         <PageErrorBanner message="Risk summary is unavailable, so exposure is derived from the live holdings shown below." />
       ) : null}
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="ETF exposure" value={formatPercent(risk.etf_percent)} />
-        <StatCard label="Single-stock exposure" value={formatPercent(risk.single_stock_percent)} />
+        <StatCard
+          label="ETF exposure"
+          value={formatPercent(risk.etf_percent)}
+          detail="Share of net liquidation"
+        />
+        <StatCard
+          label="Single-stock exposure"
+          value={formatPercent(risk.single_stock_percent)}
+          detail="Share of net liquidation"
+        />
         <StatCard
           label="Speculative exposure"
           value={formatPercent(risk.speculative_percent)}
           tone="warn"
+          detail="Share of net liquidation"
         />
         <StatCard
           label="Largest currency"

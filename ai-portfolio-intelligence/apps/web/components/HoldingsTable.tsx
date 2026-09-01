@@ -38,10 +38,10 @@ function reportedValue(position: Position): number {
 
 type SortKey = "symbol" | "type" | "weight" | "value" | "pnl";
 
-const COLUMNS: Array<{ key: SortKey; label: string; align: "left" | "right" }> = [
+const COLUMNS: Array<{ key: SortKey; label: string; align: "left" | "right"; hint?: string }> = [
   { key: "symbol", label: "Ticker", align: "left" },
   { key: "type", label: "Type", align: "left" },
-  { key: "weight", label: "Weight", align: "right" },
+  { key: "weight", label: "Weight", align: "right", hint: "Share of net liquidation, the same basis as the IPS single-name limit" },
   { key: "value", label: "Market value", align: "right" },
   { key: "pnl", label: "Unrealized P&L", align: "right" },
 ];
@@ -116,6 +116,7 @@ export function HoldingsTable({ positions }: { positions: Position[] }) {
                 <th
                   key={column.key}
                   scope="col"
+                  title={column.hint}
                   aria-sort={active ? (ascending ? "ascending" : "descending") : "none"}
                   className={`px-3 py-2.5 font-semibold ${column.align === "right" ? "text-right" : ""}`}
                 >
