@@ -11,28 +11,19 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge, toneForStatus } from "@/components/ui/Badge";
 import { getDataHealth } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
-import { humanizeCode } from "@/lib/format";
+import { displayValue, humanizeCode } from "@/lib/format";
 
 /** Broken checks first: a page of green with one red buried in it is a trap. */
 const TONE_ORDER = { negative: 0, warning: 1, neutral: 2, info: 2, accent: 2, positive: 3 } as const;
 
-/** Values that are identifiers, not labels — a DSN scheme, a path, a version. */
-const IDENTIFIER_VALUE = /[+:/\\.]|\d/;
-
 function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return value.toLocaleString();
-  if (typeof value === "object") {
+  if (typeof value === "object" && value !== null) {
     const entries = Object.entries(value as Record<string, unknown>);
     // An empty counts object means "nothing recorded", not a literal "{}".
     if (entries.length === 0) return "None recorded";
     return entries.map(([key, count]) => `${humanizeCode(key)}: ${String(count)}`).join(", ");
   }
-  const text = String(value);
-  // `postgresql+psycopg` is a value to copy verbatim; `attention_required` is a
-  // status code to read. Title-casing the former would corrupt it.
-  return IDENTIFIER_VALUE.test(text) ? text : humanizeCode(text);
+  return displayValue(value);
 }
 
 function DataHealthContent() {

@@ -320,7 +320,7 @@ function PortfolioContent() {
       ) : null}
 
       {advancedRisk ? (
-        <section className="grid gap-4 xl:grid-cols-2">
+        <section className="grid items-start gap-4 xl:grid-cols-2">
           <DataQualityPanel dataQuality={advancedRisk.data_quality ?? {}} />
           <CalculationLineagePanel
             calculationRunId={advancedRisk.calculation_run_id}

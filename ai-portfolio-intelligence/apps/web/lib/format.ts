@@ -162,6 +162,22 @@ export function humanizeCode(value: unknown, fallback = MISSING): string {
     .join(" ");
 }
 
+/**
+ * Values that are identifiers rather than labels — a DSN scheme, a path, a
+ * version, a number. Title-casing `postgresql+psycopg` or `1.0.0` corrupts
+ * them, whereas `attention_required` is a code meant to be read as prose.
+ */
+const IDENTIFIER_VALUE = /[+:/\\.]|\d/;
+
+/** Humanise a code, but pass identifiers and numbers through untouched. */
+export function displayValue(value: unknown, fallback = MISSING): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return Number.isFinite(value) ? value.toLocaleString() : fallback;
+  const text = String(value);
+  return IDENTIFIER_VALUE.test(text) ? text : humanizeCode(text, fallback);
+}
+
 /** Comma-separated list of codes, humanised. */
 export function humanizeCodeList(values: unknown, fallback = MISSING): string {
   const list = Array.isArray(values)

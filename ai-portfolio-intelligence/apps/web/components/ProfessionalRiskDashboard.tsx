@@ -2,6 +2,8 @@
 
 import { ShieldAlert, TrendingUp, Flame } from "lucide-react";
 import { InfoTip } from "@/components/ui/InfoTip";
+import { StatusBadge } from "@/components/ui/Badge";
+import { humanizeCode } from "@/lib/format";
 
 interface StressScenario {
   name: string;
@@ -73,7 +75,7 @@ export function ProfessionalRiskDashboard({
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid items-start gap-4 xl:grid-cols-2">
         <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-4 text-lg font-semibold inline-flex items-center gap-2">
             <TrendingUp size={18} className="text-accent" />
@@ -91,7 +93,12 @@ export function ProfessionalRiskDashboard({
               <h4 className="text-xs font-semibold uppercase text-zinc-500 mb-2">Benchmark Analysis</h4>
               <dl className="text-sm space-y-1">
                 <div className="flex justify-between"><dt>Alpha vs SPY</dt><dd className="font-semibold text-zinc-700">{formatPercent(attribution.benchmark_relative_alpha)}</dd></div>
-                <div className="flex justify-between"><dt>Benchmark data</dt><dd className="text-zinc-600">{attribution.data_quality?.benchmark_data ?? "Unavailable"}</dd></div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt>Benchmark data</dt>
+                  <dd>
+                    <StatusBadge value={attribution.data_quality?.benchmark_data ?? "unavailable"} />
+                  </dd>
+                </div>
               </dl>
             </div>
           </div>
@@ -103,6 +110,11 @@ export function ProfessionalRiskDashboard({
                 : "Strategic Factor Exposures"}
             </h4>
             <div className="space-y-2">
+              {Object.keys(advancedRisk.factor_exposures).length === 0 ? (
+                <p className="rounded-md border border-dashed border-line bg-panel/50 px-3 py-4 text-center text-xs text-zinc-500">
+                  Factor exposures are withheld until enough aligned history exists to regress them.
+                </p>
+              ) : null}
               {Object.entries(advancedRisk.factor_exposures).map(([factor, value]) => {
                 const isExperimental = advancedRisk.data_quality?.factor_model === "experimental";
                 const label = isExperimental ? `${value.toFixed(2)}x` : `${value.toFixed(1)}%`;
@@ -112,7 +124,7 @@ export function ProfessionalRiskDashboard({
                 return (
                 <div key={factor} className="space-y-1">
                   <div className="flex justify-between text-xs font-medium">
-                    <span>{factor}</span>
+                    <span>{humanizeCode(factor)}</span>
                     <span>{label}</span>
                   </div>
                   <div className="h-1.5 w-full bg-zinc-100 rounded-full overflow-hidden">
