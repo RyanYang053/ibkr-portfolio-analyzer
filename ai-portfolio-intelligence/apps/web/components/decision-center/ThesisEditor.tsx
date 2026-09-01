@@ -36,7 +36,7 @@ export function ThesisEditor({
       </label>
       <textarea
         id={`thesis-${instrumentKey}`}
-        className="min-h-28 rounded-md border border-line bg-white p-3 text-sm"
+        className="min-h-28 rounded-lg border border-hairline bg-surface shadow-sm p-3 text-sm"
         value={text}
         onChange={(e) => setText(e.target.value)}
       />

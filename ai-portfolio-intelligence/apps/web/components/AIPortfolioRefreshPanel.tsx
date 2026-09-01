@@ -23,7 +23,7 @@ export function AIPortfolioRefreshPanel({ initialReport }: { initialReport?: any
   }
 
   return (
-    <section className="rounded-md border border-line bg-white p-4">
+    <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="flex items-center gap-2 text-lg font-semibold text-zinc-900">

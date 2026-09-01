@@ -8,6 +8,8 @@ import { Disclaimer } from "@/components/Disclaimer";
 import { ThesisEditor } from "@/components/decision-center/ThesisEditor";
 import { OptionsStrategyDashboard } from "@/components/OptionsStrategyDashboard";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Tabs, useUrlTab } from "@/components/ui/Tabs";
 import {
   getHoldingDecision,
   getMonitoringEvents,
@@ -17,6 +19,7 @@ import {
   runTaxReconciliation,
 } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 const TABS = [
   "Decision",
@@ -34,7 +37,7 @@ const TABS = [
 function HoldingContent({ instrumentKey }: { instrumentKey: string }) {
   const searchParams = useSearchParams();
   const accountId = searchParams.get("account_id") || undefined;
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Decision");
+  const [tab, setTab] = useUrlTab<(typeof TABS)[number]>(TABS);
   const [responseNote, setResponseNote] = useState<string | null>(null);
   const { data, error, loading } = useClientResource(
     () => getHoldingDecision(instrumentKey, accountId),
@@ -69,36 +72,27 @@ function HoldingContent({ instrumentKey }: { instrumentKey: string }) {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Holding workspace</p>
-        <h2 className="text-3xl font-semibold">{symbol}</h2>
-        <p className="text-sm text-zinc-600">
-          Outcome: {String(packet.outcome || packet.action || "—")}
-          {packet.previous_outcome ? ` (was ${String(packet.previous_outcome)})` : ""}
-          {" · "}Priority {String(packet.priority || "routine")}
-          {" · "}Confidence {String(packet.confidence_status || "provisional")}
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Holding workspace"
+        title={symbol}
+        description={[
+          `Outcome: ${humanizeCode(packet.outcome || packet.action)}`,
+          packet.previous_outcome && packet.previous_outcome !== packet.outcome
+            ? `was ${humanizeCode(packet.previous_outcome)}`
+            : null,
+          `Priority ${humanizeCode(packet.priority || "routine")}`,
+          `Confidence ${humanizeCode(packet.confidence_status || "provisional")}`,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      />
       <Disclaimer />
 
-      <div className="flex flex-wrap gap-2 border-b border-line pb-2">
-        {TABS.map((name) => (
-          <button
-            key={name}
-            type="button"
-            className={`rounded-md px-3 py-1.5 text-sm ${
-              tab === name ? "bg-panel font-semibold" : "text-zinc-600 hover:bg-panel"
-            }`}
-            onClick={() => setTab(name)}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} value={tab} onChange={setTab} label="Holding sections" />
 
       {tab === "Decision" ? (
         <section className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-md border border-line bg-white p-4 text-sm">
+          <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
             <h3 className="mb-2 font-semibold">Current Decision Packet</h3>
             <div>Decision ID: {decisionId || "—"}</div>
             <div>Implementation: {String(packet.implementation_status || "blocked")}</div>
@@ -108,7 +102,7 @@ function HoldingContent({ instrumentKey }: { instrumentKey: string }) {
               Blockers: {blockers.length ? blockers.join(", ") : "none"}
             </div>
           </div>
-          <div className="rounded-md border border-line bg-white p-4 text-sm">
+          <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
             <h3 className="mb-2 font-semibold">Record your response</h3>
             <div className="flex flex-wrap gap-2">
               {["accepted_for_review", "deferred", "no_action", "rejected"].map((r) => (
@@ -125,7 +119,7 @@ function HoldingContent({ instrumentKey }: { instrumentKey: string }) {
             </div>
             {responseNote ? <p className="mt-2 text-zinc-600">{responseNote}</p> : null}
           </div>
-          <div className="md:col-span-2 rounded-md border border-line bg-white p-4">
+          <div className="md:col-span-2 rounded-lg border border-hairline bg-surface shadow-sm p-4">
             <h3 className="mb-2 font-semibold">Gate timeline</h3>
             <ul className="space-y-1 text-sm">
               {gates.map((gate, idx) => (
@@ -144,7 +138,7 @@ function HoldingContent({ instrumentKey }: { instrumentKey: string }) {
       ) : null}
 
       {tab === "Evidence" ? (
-        <section className="rounded-md border border-line bg-white p-4 text-sm">
+        <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
           {evidence.length === 0 ? (
             <p>No evidence refs on this packet yet.</p>
           ) : (
@@ -161,7 +155,7 @@ function HoldingContent({ instrumentKey }: { instrumentKey: string }) {
       ) : null}
 
       {tab === "Scenarios" ? (
-        <section className="rounded-md border border-line bg-white p-4 text-sm">
+        <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
           <table className="min-w-full text-left">
             <thead>
               <tr className="border-b border-line text-xs uppercase text-zinc-500">
@@ -196,7 +190,7 @@ function HoldingContent({ instrumentKey }: { instrumentKey: string }) {
       ) : null}
 
       {tab === "Thesis" ? (
-        <section className="rounded-md border border-line bg-white p-4 text-sm">
+        <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
           <h3 className="mb-2 font-semibold">Thesis status (from Decision Packet)</h3>
           <p>Status: {String(packet.thesis_status || thesis.status || "unknown")}</p>
           <div className="mt-4">
@@ -210,7 +204,7 @@ function HoldingContent({ instrumentKey }: { instrumentKey: string }) {
       ) : null}
 
       {tab === "Risk" ? (
-        <section className="rounded-md border border-line bg-white p-4 text-sm">
+        <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
           <h3 className="mb-2 font-semibold">Risk and policy gates</h3>
           <ul className="grid gap-1">
             {gates
@@ -249,7 +243,7 @@ function HoldingContent({ instrumentKey }: { instrumentKey: string }) {
 
       {tab === "Options" ? (
         <section className="grid gap-4">
-          <div className="rounded-md border border-line bg-white p-4 text-sm">
+          <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
             <p className="text-zinc-700">
               Options strategy views are evidence-only and never place or modify option orders.
             </p>
@@ -292,7 +286,7 @@ function ValuationPanel({
   if (loading) return <p className="text-sm text-zinc-600">Loading valuation…</p>;
   if (error) {
     return (
-      <section className="rounded-md border border-line bg-white p-4 text-sm">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
         <p className="font-semibold">Valuation status: {packetStatus || "withheld"}</p>
         <p className="mt-2 text-amber-800">{error}</p>
         <p className="mt-2 text-zinc-600">
@@ -310,7 +304,7 @@ function ValuationPanel({
   const methodology = String(data?.methodology || "—");
 
   return (
-    <section className="rounded-md border border-line bg-white p-4 text-sm">
+    <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
       <h3 className="mb-2 font-semibold">Scenario valuation</h3>
       <dl className="grid gap-2 md:grid-cols-2">
         <div>
@@ -381,7 +375,7 @@ function TaxLotsPanel({
   }
 
   return (
-    <section className="rounded-md border border-line bg-white p-4 text-sm">
+    <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
       <h3 className="mb-2 font-semibold">Tax gate</h3>
       {gates
         .filter((g) => String(g.gate_id || "") === "tax")
@@ -476,7 +470,7 @@ function MonitoringPanel({
     : [];
 
   return (
-    <section className="rounded-md border border-line bg-white p-4 text-sm">
+    <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
       <p className="text-zinc-700">
         Monitoring alerts and snooze/ack live in the Monitoring inbox. This holding inherits Decision
         Packet blockers and change codes.
@@ -535,7 +529,7 @@ function HistoryPanel({
     : [];
   return (
     <section className="grid gap-4 md:grid-cols-2">
-      <div className="rounded-md border border-line bg-white p-4 text-sm">
+      <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
         <h3 className="mb-2 font-semibold">Outcome transitions</h3>
         {history.length === 0 ? (
           <p className="text-zinc-600">No recorded transitions yet.</p>
@@ -550,7 +544,7 @@ function HistoryPanel({
           </ul>
         )}
       </div>
-      <div className="rounded-md border border-line bg-white p-4 text-sm">
+      <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
         <h3 className="mb-2 font-semibold">Observation windows</h3>
         {observations.length === 0 ? (
           <p className="text-zinc-600">No scheduled observation windows.</p>

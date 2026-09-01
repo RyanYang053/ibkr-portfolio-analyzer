@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLink as Link } from "@/components/AppLink";
 import { Disclaimer } from "@/components/Disclaimer";
+import { PageHeader } from "@/components/ui/PageHeader";
 import {
   getBrokerStatus,
   getDataHealth,
@@ -11,6 +12,8 @@ import {
   getOnboardingState,
   updateOnboardingStage,
 } from "@/lib/api";
+import { readCurrentAccountId } from "@/lib/desktop-navigation";
+import { humanizeCode } from "@/lib/format";
 
 // Each step maps to a persisted backend stage (§21). SQLite is the source of
 // truth — not localStorage — so setup survives reinstalls.
@@ -89,7 +92,9 @@ export default function ProtectedOnboardingPage() {
         next.data_health_validation = false;
       }
       try {
-        const queue = await getDecisionQueue();
+        // Scope to the active account: with more than one IBKR account an
+        // unscoped queue request is rejected, so this step could never tick.
+        const queue = await getDecisionQueue(readCurrentAccountId() ?? undefined);
         next.first_decision_packet = Array.isArray(queue.queue) && queue.queue.length > 0;
       } catch {
         next.first_decision_packet = false;
@@ -126,21 +131,19 @@ export default function ProtectedOnboardingPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Onboarding</p>
-        <h2 className="text-3xl font-semibold">Personal Decision OS setup</h2>
-        <p className="text-sm text-zinc-600">
-          Local single-owner mode. No login. Read-only forever. Progress {completedCount}/{STEPS.length}. Saved to
-          SQLite, not the browser.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Onboarding"
+        title="Personal Decision OS setup"
+        description="Local single-owner mode. No login. Read-only forever. Progress {completedCount}/{STEPS.length}. Saved to
+          SQLite, not the browser."
+      />
       <Disclaimer />
 
       {Object.keys(readiness).length ? (
-        <section className="grid gap-2 rounded-md border border-line bg-white p-4 md:grid-cols-3 xl:grid-cols-6">
+        <section className="grid gap-2 rounded-lg border border-hairline bg-surface shadow-sm p-4 md:grid-cols-3 xl:grid-cols-6">
           {["portfolio_data", "tax_data", "research", "decision", "backup", "overall"].map((key) => (
             <div key={key} className="text-sm">
-              <div className="text-xs uppercase tracking-wide text-zinc-500">{key.replaceAll("_", " ")}</div>
+              <div className="text-xs uppercase tracking-wide text-zinc-500">{humanizeCode(key)}</div>
               <div className="text-lg font-semibold">{Math.round((readiness[key] ?? 0) * 100)}%</div>
             </div>
           ))}
@@ -149,7 +152,7 @@ export default function ProtectedOnboardingPage() {
 
       <ol className="space-y-3">
         {STEPS.map((step, index) => (
-          <li key={step.id} className="rounded-md border border-line bg-white p-4 text-sm">
+          <li key={step.id} className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="font-semibold">

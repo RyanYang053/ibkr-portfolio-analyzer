@@ -85,51 +85,214 @@ export async function requireJson<T>(path: string, init?: RequestInit): Promise<
     if (cached !== undefined) {
       return cached;
     }
+    // Collapse concurrent callers (several panels asking for the same summary)
+    // onto a single request instead of racing duplicates over loopback.
+    const inflight = INFLIGHT.get(path) as Promise<T> | undefined;
+    if (inflight) {
+      return inflight;
+    }
   }
 
-  const response = await apiFetch(path, init);
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw new ApiError(response.status, detail);
+  const request = (async () => {
+    const response = await apiFetch(path, init);
+    if (!response.ok) {
+      const detail = await response.json().catch(() => null);
+      throw new ApiError(response.status, detail);
+    }
+    const data = (await response.json()) as T;
+    if (useCache) {
+      writeGetCache(path, data);
+    }
+    return data;
+  })();
+
+  if (!useCache) {
+    return request;
   }
-  const data = (await response.json()) as T;
-  if (useCache) {
-    writeGetCache(path, data);
+
+  INFLIGHT.set(path, request as Promise<unknown>);
+  try {
+    return await request;
+  } finally {
+    INFLIGHT.delete(path);
   }
-  return data;
 }
 
-type CacheEntry = { expiresAt: number; data: unknown };
+/* ---------------------------------------------------------------------------
+   GET cache.
+
+   The desktop shell navigates by replacing the document, which wipes any
+   module-level Map. Persisting entries in sessionStorage lets a revisited page
+   paint from cache immediately instead of re-running every request from
+   scratch (measured: ~2.4s of blank screen on Portfolio, per visit).
+
+   Two horizons per entry:
+     expiresAt — beyond this the value is stale and must be revalidated.
+     storedAt + GET_CACHE_STALE_MS — beyond this it is too old to show at all
+     and is dropped rather than painted.
+   `readStaleGetCache` returns stale-but-showable data so the UI can paint
+   last-known numbers, clearly marked as refreshing, while the fetch runs.
+   --------------------------------------------------------------------------- */
+type CacheEntry = { expiresAt: number; storedAt: number; data: unknown };
+
 const GET_CACHE = new Map<string, CacheEntry>();
+const INFLIGHT = new Map<string, Promise<unknown>>();
 const GET_CACHE_TTL_MS = 45_000;
+const GET_CACHE_STALE_MS = 30 * 60_000;
+const CACHE_STORAGE_PREFIX = "pai.get.v1:";
+/** Skip persisting oversized payloads; they blow the ~5MB sessionStorage quota. */
+const MAX_PERSISTED_BYTES = 512_000;
+
+function storage(): Storage | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readPersistedEntry(path: string): CacheEntry | undefined {
+  const store = storage();
+  if (!store) {
+    return undefined;
+  }
+  try {
+    const raw = store.getItem(CACHE_STORAGE_PREFIX + path);
+    if (!raw) {
+      return undefined;
+    }
+    const parsed = JSON.parse(raw) as CacheEntry;
+    if (typeof parsed?.expiresAt !== "number" || typeof parsed?.storedAt !== "number") {
+      return undefined;
+    }
+    GET_CACHE.set(path, parsed);
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function lookup(path: string): CacheEntry | undefined {
+  return GET_CACHE.get(path) ?? readPersistedEntry(path);
+}
 
 function readGetCache<T>(path: string): T | undefined {
-  const entry = GET_CACHE.get(path);
+  const entry = lookup(path);
   if (!entry) {
     return undefined;
   }
   if (Date.now() > entry.expiresAt) {
-    GET_CACHE.delete(path);
+    return undefined;
+  }
+  return entry.data as T;
+}
+
+/**
+ * Last known value for a path, even if past its TTL — for painting a page
+ * instantly while a fresh request is in flight. Returns `undefined` once the
+ * entry is too old to be worth showing.
+ */
+export function readStaleGetCache<T>(path: string): T | undefined {
+  const entry = lookup(path);
+  if (!entry) {
+    return undefined;
+  }
+  if (Date.now() - entry.storedAt > GET_CACHE_STALE_MS) {
+    dropCacheKey(path);
     return undefined;
   }
   return entry.data as T;
 }
 
 function writeGetCache(path: string, data: unknown): void {
-  GET_CACHE.set(path, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
+  const now = Date.now();
+  const entry: CacheEntry = { expiresAt: now + GET_CACHE_TTL_MS, storedAt: now, data };
+  GET_CACHE.set(path, entry);
+
+  const store = storage();
+  if (!store) {
+    return;
+  }
+  try {
+    const serialized = JSON.stringify(entry);
+    if (serialized.length > MAX_PERSISTED_BYTES) {
+      return;
+    }
+    store.setItem(CACHE_STORAGE_PREFIX + path, serialized);
+  } catch {
+    // Quota exceeded or private mode: the in-memory tier still works.
+    evictPersistedCache();
+  }
+}
+
+function dropCacheKey(path: string): void {
+  GET_CACHE.delete(path);
+  try {
+    storage()?.removeItem(CACHE_STORAGE_PREFIX + path);
+  } catch {
+    // ignore
+  }
+}
+
+function evictPersistedCache(): void {
+  const store = storage();
+  if (!store) {
+    return;
+  }
+  try {
+    for (const key of Object.keys(store)) {
+      if (key.startsWith(CACHE_STORAGE_PREFIX)) {
+        store.removeItem(key);
+      }
+    }
+  } catch {
+    // ignore
+  }
 }
 
 /** Drop short-lived GET cache (e.g. after account switch or broker reconnect). */
 export function invalidateApiGetCache(prefix?: string): void {
   if (!prefix) {
     GET_CACHE.clear();
+    INFLIGHT.clear();
+    evictPersistedCache();
     return;
   }
-  for (const key of GET_CACHE.keys()) {
+  for (const key of [...GET_CACHE.keys()]) {
     if (key.startsWith(prefix)) {
-      GET_CACHE.delete(key);
+      dropCacheKey(key);
     }
   }
+  const store = storage();
+  if (!store) {
+    return;
+  }
+  try {
+    for (const key of Object.keys(store)) {
+      if (key.startsWith(CACHE_STORAGE_PREFIX) && key.slice(CACHE_STORAGE_PREFIX.length).startsWith(prefix)) {
+        store.removeItem(key);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Warm the cache for a path without blocking or throwing. Used to prefetch the
+ * data a nav target will need while the pointer is still on the link.
+ */
+export function prefetchJson(path: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (readGetCache(path) !== undefined || INFLIGHT.has(path)) {
+    return;
+  }
+  void requireJson(path).catch(() => {});
 }
 
 export function extractApiMessage(detail: unknown): string | null {

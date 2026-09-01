@@ -1,65 +1,153 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
+import { ShieldAlert, PieChart } from "lucide-react";
 
 import { Disclaimer } from "@/components/Disclaimer";
 import { DonutChart } from "@/components/DonutChart";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { RiskGauge } from "@/components/RiskGauge";
 import { StatCard } from "@/components/StatCard";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { StatusBadge } from "@/components/ui/Badge";
 import { getRisk } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { formatNumber, formatPercent, humanizeCode } from "@/lib/format";
+import type { Alert } from "@/lib/types";
+
+/** Most severe first, so the alert that matters is the one at the top. */
+const SEVERITY_ORDER: Record<string, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  moderate: 2,
+  elevated: 2,
+  low: 3,
+  info: 4,
+};
+
+function severityRank(alert: Alert): number {
+  return SEVERITY_ORDER[String(alert.severity ?? "").toLowerCase()] ?? 5;
+}
 
 function RiskContent() {
   const searchParams = useSearchParams();
   const accountId = searchParams.get("account_id") || undefined;
-  const { data: risk, error, loading } = useClientResource(() => getRisk(accountId), [accountId]);
+  const { data: risk, error, loading, refreshing, stale, reload } = useClientResource(
+    () => getRisk(accountId),
+    [accountId],
+  );
+
+  const alerts = useMemo(
+    () => [...(risk?.alerts ?? [])].sort((a, b) => severityRank(a) - severityRank(b)),
+    [risk],
+  );
 
   if (loading) {
-    return <PageLoading />;
+    return <PageLoading label="Loading risk analytics" />;
   }
 
   if (!risk) {
     return (
       <div className="grid gap-6">
         <Disclaimer />
-        <PageErrorBanner message={error ?? "Risk analytics are unavailable."} />
+        <PageErrorBanner message={error ?? "Risk analytics are unavailable."} onRetry={reload} />
       </div>
     );
   }
 
+  const breaches = alerts.filter((alert) => severityRank(alert) <= 1).length;
+
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Risk monitoring</p>
-        <h2 className="text-3xl font-semibold">Risk Center</h2>
-      </div>
+      <PageHeader
+        eyebrow="Risk monitoring"
+        title="Risk Center"
+        description="Concentration, leverage and policy breaches for the selected account, measured against your IPS limits."
+        refreshing={refreshing}
+        stale={stale}
+      />
       <Disclaimer />
-      {error ? <PageErrorBanner message={error} /> : null}
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_1fr_1fr]">
-        <RiskGauge score={risk.risk_score} label="Portfolio Risk Score" />
-        <StatCard label="Top 5 Concentration" value={`${risk.top_5_concentration.toFixed(2)}%`} />
-        <StatCard label="Herfindahl" value={risk.herfindahl_concentration_score.toFixed(4)} detail={risk.herfindahl_concentration_label} />
-        <StatCard label="Speculative Basket" value={`${risk.speculative_percent.toFixed(2)}%`} tone="warn" />
-        <StatCard label="Margin Usage" value={`${risk.margin_usage_percent.toFixed(2)}%`} />
+      {error ? <PageErrorBanner message={error} onRetry={reload} /> : null}
+
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_1fr_1fr]">
+        <RiskGauge score={risk.risk_score} label="Portfolio risk score" />
+        <StatCard
+          label="Top 5 concentration"
+          value={formatPercent(risk.top_5_concentration)}
+          detail="Share held in the five largest positions"
+        />
+        <StatCard
+          label="Herfindahl index"
+          value={formatNumber(risk.herfindahl_concentration_score, 4)}
+          detail={humanizeCode(risk.herfindahl_concentration_label)}
+        />
+        <StatCard
+          label="Speculative basket"
+          value={formatPercent(risk.speculative_percent)}
+          tone="warn"
+          detail="Gross exposure to speculative names"
+        />
+        <StatCard
+          label="Margin usage"
+          value={formatPercent(risk.margin_usage_percent)}
+          detail="Requirement against net liquidation"
+        />
       </section>
-      <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-md border border-line bg-white p-4">
-          <h3 className="mb-4 text-lg font-semibold">Sector Risk</h3>
+
+      <section className="grid items-start gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader
+            icon={<PieChart size={16} aria-hidden className="text-zinc-400" />}
+            title="Sector risk"
+            description="Share of invested market value by GICS sector."
+          />
           <DonutChart data={risk.sector_exposure} title="Sectors" />
-        </div>
-        <div className="rounded-md border border-line bg-white p-4">
-          <h3 className="mb-4 text-lg font-semibold">Active Alerts</h3>
-          <div className="grid gap-3">
-            {risk.alerts.map((alert) => (
-              <div key={alert.alert_type} className="rounded-md border border-line bg-panel p-3 text-sm">
-                <div className="font-semibold">{alert.alert_type.replaceAll("_", " ")}</div>
-                <p className="text-zinc-700">{alert.message}</p>
-              </div>
-            ))}
+        </Card>
+
+        <Card>
+          <CardHeader
+            icon={<ShieldAlert size={16} aria-hidden className="text-zinc-400" />}
+            title="Active alerts"
+            description="Policy limits currently breached, most severe first."
+            actions={
+              breaches > 0 ? (
+                <span className="text-xs font-medium text-negative">
+                  {breaches} high or critical
+                </span>
+              ) : null
+            }
+          />
+          <div className="grid gap-2">
+            {alerts.length === 0 ? (
+              <EmptyState
+                title="No policy breaches"
+                description="Every IPS limit is currently within tolerance for this account."
+              />
+            ) : (
+              alerts.map((alert) => (
+                <div
+                  key={`${alert.alert_type}:${alert.symbol ?? ""}`}
+                  className="rounded-md border border-hairline bg-panel p-3 text-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="font-semibold text-zinc-900">
+                      {humanizeCode(alert.alert_type)}
+                      {alert.symbol ? (
+                        <span className="ml-1.5 font-normal text-zinc-500">· {alert.symbol}</span>
+                      ) : null}
+                    </span>
+                    <StatusBadge value={alert.severity} />
+                  </div>
+                  <p className="mt-1 leading-6 text-zinc-600">{alert.message}</p>
+                </div>
+              ))
+            )}
           </div>
-        </div>
+        </Card>
       </section>
     </div>
   );

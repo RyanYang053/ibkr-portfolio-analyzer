@@ -7,16 +7,18 @@ type DonutChartProps = {
   title?: string;
 };
 
-// Sleek curated HSL colors for charts
+// The shared categorical palette (see globals.css). Using the tokens rather
+// than literal colours keeps a slice the same hue in both themes and matches
+// the colours other charts assign to the same category.
 const COLORS = [
-  "hsl(221, 83%, 53%)", // Accent Blue
-  "hsl(142, 71%, 45%)", // Emerald Green
-  "hsl(262, 83%, 58%)", // Violet
-  "hsl(38, 92%, 50%)",  // Amber
-  "hsl(346, 84%, 50%)", // Rose
-  "hsl(199, 89%, 48%)", // Sky Blue
-  "hsl(16, 92%, 50%)",  // Orange
-  "hsl(240, 5%, 65%)",  // Slate
+  "var(--series-1)",
+  "var(--series-2)",
+  "var(--series-3)",
+  "var(--series-4)",
+  "var(--series-5)",
+  "var(--series-6)",
+  "var(--series-7)",
+  "var(--series-8)",
 ];
 
 export function DonutChart({ data, title = "Allocation" }: DonutChartProps) {
@@ -96,7 +98,14 @@ export function DonutChart({ data, title = "Allocation" }: DonutChartProps) {
     <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
       {/* SVG Donut */}
       <div className="relative mx-auto h-[200px] w-[200px] shrink-0">
-        <svg className="-rotate-90" viewBox="0 0 200 200" width="100%" height="100%">
+        <svg
+          className="-rotate-90"
+          viewBox="0 0 200 200"
+          width="100%"
+          height="100%"
+          role="img"
+          aria-label={`${title}: ${slices.map((slice) => `${slice.label} ${slice.value.toFixed(1)}%`).join(", ")}`}
+        >
           <g>
             {slices.map((slice, index) => {
               const isHovered = hoveredIndex === index;
@@ -120,10 +129,10 @@ export function DonutChart({ data, title = "Allocation" }: DonutChartProps) {
 
         {/* Center label */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-xs uppercase tracking-wider text-zinc-400 font-medium">
+          <span className="text-[11px] uppercase tracking-wider text-zinc-500 font-medium">
             {hoveredIndex !== null ? slices[hoveredIndex].label : title}
           </span>
-          <span className="text-xl font-semibold text-zinc-800">
+          <span className="num text-xl font-semibold text-zinc-900">
             {hoveredIndex !== null
               ? `${slices[hoveredIndex].value.toFixed(1)}%`
               : `${total.toFixed(0)}%`}
@@ -151,7 +160,7 @@ export function DonutChart({ data, title = "Allocation" }: DonutChartProps) {
                 />
                 <span className="truncate font-medium text-zinc-700">{slice.label}</span>
               </div>
-              <span className="font-semibold text-zinc-900 ml-2">
+              <span className="num ml-2 font-semibold text-zinc-900">
                 {slice.value.toFixed(1)}%
               </span>
             </div>

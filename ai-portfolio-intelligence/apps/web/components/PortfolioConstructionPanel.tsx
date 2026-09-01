@@ -49,7 +49,7 @@ export function PortfolioConstructionPanel({
   const activeTrades = activeRows.filter((trade) => trade.action !== "Hold");
 
   return (
-    <section className="rounded-md border border-line bg-white p-4">
+    <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-semibold">Portfolio Construction Review</h3>

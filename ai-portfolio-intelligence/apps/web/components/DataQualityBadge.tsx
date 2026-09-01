@@ -1,3 +1,4 @@
+import { humanizeCode } from "@/lib/format";
 type DataQualityBadgeProps = {
   label: string;
   status: string;
@@ -37,7 +38,7 @@ export function DataQualityPanel({ dataQuality }: { dataQuality: Record<string, 
       <h3 className="text-sm font-semibold text-zinc-900">Data Coverage</h3>
       <div className="mt-3 flex flex-wrap gap-2">
         {entries.map(([label, status]) => (
-          <DataQualityBadge key={label} label={label.replaceAll("_", " ")} status={status} />
+          <DataQualityBadge key={label} label={humanizeCode(label)} status={status} />
         ))}
       </div>
     </div>

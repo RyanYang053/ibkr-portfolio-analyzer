@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Brain, RefreshCw } from "lucide-react";
 import { refreshAIStockReport } from "@/lib/api";
 import type { AIStockReport } from "@/lib/types";
+import { humanizeCode } from "@/lib/format";
 
 export function AIRefreshPanel({ symbol, initialProvider, initialReport }: { symbol: string; initialProvider: string; initialReport?: AIStockReport | null }) {
   const [report, setReport] = useState<AIStockReport | null>(initialReport ?? null);
@@ -25,7 +26,7 @@ export function AIRefreshPanel({ symbol, initialProvider, initialReport }: { sym
   const active = report;
 
   return (
-    <section className="rounded-md border border-line bg-white p-4">
+    <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="flex items-center gap-2 text-lg font-semibold">
@@ -64,7 +65,7 @@ export function AIRefreshPanel({ symbol, initialProvider, initialReport }: { sym
             <p className="mt-1 text-sm text-zinc-700">
               Confidence: {active.confidence} · cap {active.confidence_limits?.confidence_cap}
             </p>
-            <p className="mt-1 text-sm text-zinc-700">Thesis: {active.thesis?.status?.replaceAll("_", " ")}</p>
+            <p className="mt-1 text-sm text-zinc-700">Thesis: {humanizeCode(active.thesis?.status)}</p>
           </div>
           <div className="grid gap-3 text-sm lg:grid-cols-2">
             <p><strong>Summary:</strong> {evidenceText(active.summary)}</p>

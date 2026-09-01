@@ -5,8 +5,10 @@ import { Disclaimer } from "@/components/Disclaimer";
 import { DegradedStateBanner } from "@/components/DegradedStateBanner";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { StatCard } from "@/components/StatCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getMarketCalendar, getMarketOverview } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 type Rec = Record<string, unknown>;
 
@@ -26,24 +28,22 @@ function MarketsContent() {
   const regime = (overview?.regime ?? null) as Rec | null;
   const indicators = (overview?.indicators as Rec[] | undefined) ?? [];
   const events = (calendar?.events as Rec[] | undefined) ?? [];
-  const regimeLabel = str(regime?.label).replaceAll("_", " ");
+  const regimeLabel = humanizeCode(regime?.label);
   const insufficient = regime?.label === "insufficient_data";
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Markets</p>
-        <h2 className="text-3xl font-semibold">Market context &amp; regime</h2>
-        <p className="text-sm text-zinc-600">
-          The regime is classified by an explainable rule engine — never by an AI model. Indicators
-          without a configured provider are shown as unavailable, not invented.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Markets"
+        title="Market context &amp; regime"
+        description="The regime is classified by an explainable rule engine — never by an AI model. Indicators
+          without a configured provider are shown as unavailable, not invented."
+      />
       <Disclaimer />
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Regime" value={regimeLabel} detail={`confidence ${str(regime?.confidence)}`} tone={insufficient ? "warn" : "good"} />
-        <StatCard label="Prev regime" value={str(regime?.previous_regime).replaceAll("_", " ")} />
+        <StatCard label="Prev regime" value={humanizeCode(regime?.previous_regime)} />
         <StatCard label="Changed dims" value={String(((regime?.changed_dimensions as unknown[]) ?? []).length)} />
         <StatCard label="Method" value={str(regime?.methodology)} />
       </section>
@@ -53,7 +53,7 @@ function MarketsContent() {
       ) : null}
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-3 text-lg font-semibold">Why this regime</h3>
           <div className="grid gap-3 text-sm">
             <div>
@@ -79,7 +79,7 @@ function MarketsContent() {
           </div>
         </div>
 
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-3 text-lg font-semibold">Indicators</h3>
           <div className="grid gap-1 text-sm">
             {indicators.map((ind) => (
@@ -95,7 +95,7 @@ function MarketsContent() {
         </div>
       </section>
 
-      <section className="rounded-md border border-line bg-white p-4">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
         <h3 className="mb-3 text-lg font-semibold">Economic &amp; earnings calendar</h3>
         {events.length === 0 ? (
           <p className="text-sm text-zinc-600">

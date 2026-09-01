@@ -8,6 +8,7 @@ import { ScheduleConfigForm } from "@/components/ScheduleConfigForm";
 import { InvestorProfileForm } from "@/components/InvestorProfileForm";
 import { TargetPolicyForm } from "@/components/TargetPolicyForm";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getAIStatus, getBrokerStatus, getScheduleSettings } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 import { useState } from "react";
@@ -39,10 +40,10 @@ export default function SettingsPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Configuration</p>
-        <h2 className="text-3xl font-semibold">Settings</h2>
-      </div>
+      <PageHeader
+        eyebrow="Configuration"
+        title="Settings"
+      />
       <Disclaimer />
       {error ? <PageErrorBanner message={error} /> : null}
 
@@ -53,7 +54,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="flex flex-col gap-4">
-          <div className="rounded-md border border-line bg-white p-4">
+          <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
             <h3 className="text-lg font-semibold">Broker Connection</h3>
             <dl className="mt-3 grid gap-2 text-sm">
               <div className="flex justify-between"><dt>Status</dt><dd>{brokerStatus.status}</dd></div>
@@ -72,7 +73,7 @@ export default function SettingsPage() {
             />
             {DESKTOP_MODE ? <FlexTokenForm /> : null}
           </div>
-          <div className="rounded-md border border-line bg-white p-4">
+          <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
             <h3 className="text-lg font-semibold">AI Provider</h3>
             <dl className="mt-3 grid gap-2 text-sm">
               <div className="flex justify-between"><dt>Provider</dt><dd>{aiStatus.provider}</dd></div>
@@ -93,7 +94,7 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      <section className="rounded-md border border-line bg-white p-4">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
         <h3 className="text-lg font-semibold">Desktop backup</h3>
         <p className="mt-2 text-sm text-zinc-700">
           Create a local zip backup of personal state. Optional passphrase writes an encrypted PAEB1
@@ -102,7 +103,7 @@ export default function SettingsPage() {
         <DesktopBackupPanel />
       </section>
 
-      <section className="rounded-md border border-line bg-white p-4">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
         <h3 className="text-lg font-semibold">No-Trading Policy Acknowledgement</h3>
         <p className="mt-2 text-sm text-zinc-700">
           This product is a read-only portfolio analyst. It does not place, modify, cancel, route,

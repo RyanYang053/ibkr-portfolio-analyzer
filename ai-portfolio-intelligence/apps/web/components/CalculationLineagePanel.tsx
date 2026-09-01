@@ -1,3 +1,4 @@
+import { humanizeCode } from "@/lib/format";
 type CalculationLineagePanelProps = {
   calculationRunId?: string | null;
   methodology?: Record<string, string>;
@@ -100,7 +101,7 @@ export function CalculationLineagePanel({
             .filter(([key]) => !structuredKeys.has(key))
             .map(([key, value]) => (
               <div key={key}>
-                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{key.replaceAll("_", " ")}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{humanizeCode(key)}</p>
                 <p className="mt-1 text-sm text-zinc-700">{value}</p>
               </div>
             ))}

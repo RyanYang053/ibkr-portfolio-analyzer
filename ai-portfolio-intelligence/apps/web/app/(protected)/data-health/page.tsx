@@ -3,8 +3,10 @@
 import { Suspense } from "react";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getDataHealth } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 function DataHealthContent() {
   const { data, error, loading } = useClientResource(() => getDataHealth(), []);
@@ -17,25 +19,23 @@ function DataHealthContent() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Data health</p>
-        <h2 className="text-3xl font-semibold">Evidence and readiness</h2>
-        <p className="text-sm text-zinc-600">
-          Overall: {String(data?.overall_status || "unknown")} · Missing fields never silently become zero.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Data health"
+        title="Evidence and readiness"
+        description={`Overall: ${humanizeCode(data?.overall_status, "unknown")} · Missing fields never silently become zero.`}
+      />
       <Disclaimer />
       <div className="grid gap-3 md:grid-cols-2">
         {checks.map((check) => (
-          <div key={check.id} className="rounded-md border border-line bg-white p-4 text-sm">
+          <div key={check.id} className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
             <div className="font-semibold capitalize">
-              {check.id.replaceAll("_", " ")} · {check.status}
+              {humanizeCode(check.id)} · {check.status}
             </div>
             <p className="mt-1 text-zinc-700">{check.detail}</p>
           </div>
         ))}
       </div>
-      <section className="rounded-md border border-line bg-white p-4 text-sm">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
         <h3 className="mb-2 font-semibold">Decision calibration</h3>
         {Object.keys(calibration).length === 0 ? (
           <p className="text-zinc-600">No calibration observations yet. Respond to decisions to start the record.</p>
@@ -43,14 +43,14 @@ function DataHealthContent() {
           <dl className="grid gap-2 md:grid-cols-2">
             {Object.entries(calibration).map(([key, value]) => (
               <div key={key} className="flex justify-between gap-3 border-b border-line py-1">
-                <dt className="text-zinc-600">{key.replaceAll("_", " ")}</dt>
+                <dt className="text-zinc-600">{humanizeCode(key)}</dt>
                 <dd className="font-medium">{typeof value === "object" ? JSON.stringify(value) : String(value)}</dd>
               </div>
             ))}
           </dl>
         )}
       </section>
-      <section className="rounded-md border border-line bg-white p-4 text-sm">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
         <h3 className="mb-2 font-semibold">Database</h3>
         <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-zinc-700">
           {JSON.stringify(database, null, 2)}

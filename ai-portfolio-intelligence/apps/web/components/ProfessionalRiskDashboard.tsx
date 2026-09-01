@@ -73,7 +73,7 @@ export function ProfessionalRiskDashboard({
       )}
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <section className="rounded-md border border-line bg-white p-4">
+        <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-4 text-lg font-semibold inline-flex items-center gap-2">
             <TrendingUp size={18} className="text-accent" />
             P&amp;L Breakdown &amp; Factor Profile
@@ -123,7 +123,7 @@ export function ProfessionalRiskDashboard({
           </div>
         </section>
 
-        <section className="rounded-md border border-line bg-white p-4">
+        <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-4 text-lg font-semibold inline-flex items-center gap-2">
             <Flame size={18} className="text-danger" />
             Illustrative Stress Scenarios
@@ -156,7 +156,7 @@ export function ProfessionalRiskDashboard({
         </section>
       </div>
 
-      <section className="rounded-md border border-line bg-white p-6">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-6">
         <h3 className="mb-4 text-lg font-semibold inline-flex items-center gap-2">
           <ShieldAlert size={18} className="text-accent" />
           Risk-Adjusted Performance Indicators
@@ -296,22 +296,22 @@ export function ProfessionalRiskDashboard({
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <div className="text-xs font-semibold uppercase text-zinc-500">Historical Drawdown</div>
           <div className="mt-2 text-2xl font-bold text-danger">{formatPercent(advancedRisk.max_drawdown, true)}</div>
           <div className="mt-1 text-xs text-zinc-500">Cash-flow-adjusted account series when ledger is complete</div>
         </div>
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <div className="text-xs font-semibold uppercase text-zinc-500">Annualized Volatility</div>
           <div className="mt-2 text-2xl font-bold text-zinc-700">{formatPercent(advancedRisk.volatility)}</div>
           <div className="mt-1 text-xs text-zinc-500">Requires at least 20 daily observations</div>
         </div>
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <div className="text-xs font-semibold uppercase text-zinc-500">Portfolio Beta</div>
           <div className="mt-2 text-2xl font-bold text-zinc-700">{formatNumber(advancedRisk.portfolio_beta_spy)} <span className="text-xs font-normal text-zinc-500">(SPY)</span></div>
           <div className="mt-1 text-xs text-zinc-500">{formatNumber(advancedRisk.portfolio_beta_qqq)} vs QQQ</div>
         </div>
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <div className="text-xs font-semibold uppercase text-zinc-500">Parametric VaR (95% Daily)</div>
           <div className="mt-2 text-2xl font-bold text-zinc-700">{formatCurrency(advancedRisk.value_at_risk_95, currencySymbol)}</div>
           <div className="mt-1 text-xs text-zinc-500">CVaR: {formatCurrency(advancedRisk.conditional_var_95, currencySymbol)}</div>

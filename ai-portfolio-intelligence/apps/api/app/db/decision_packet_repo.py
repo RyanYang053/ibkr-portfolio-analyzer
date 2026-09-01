@@ -17,6 +17,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _packet_sort_key(packet: HoldingDecisionPacket) -> tuple[str, str]:
+    """Newest-first ordering. ``decision_id`` breaks ties within the same
+    ``as_of`` so the choice of current packet is stable across requests."""
+    return (str(packet.as_of or ""), str(packet.decision_id or ""))
+
+
 class DecisionPacketRepository:
     def save(self, packet: HoldingDecisionPacket) -> HoldingDecisionPacket:
         payload = packet.model_dump(mode="json")
@@ -69,6 +75,12 @@ class DecisionPacketRepository:
         return HoldingDecisionPacket.model_validate(payload)
 
     def list_for_account(self, account_id: str, limit: int = 100) -> list[HoldingDecisionPacket]:
+        """Every stored packet, newest first — the audit history.
+
+        Contains superseded packets for an instrument as well as the current
+        one. Callers rendering "what needs a decision now" want
+        :meth:`list_current_for_account` instead.
+        """
         store = get_state_store()
         index = store.read_json(_NAMESPACE, f"index:{account_id}", default={}) or {}
         packets: list[HoldingDecisionPacket] = []
@@ -77,6 +89,31 @@ class DecisionPacketRepository:
             if packet:
                 packets.append(packet)
         return packets
+
+    def list_current_for_account(
+        self, account_id: str, limit: int = 100
+    ) -> list[HoldingDecisionPacket]:
+        """The one live packet per instrument.
+
+        Each evaluation writes a new packet and appends it to the account index,
+        so the raw history holds several packets for the same holding. A review
+        queue built from that history repeats every symbol once per evaluation;
+        collapsing to the newest packet per instrument keeps the queue equal to
+        the number of open decisions.
+        """
+        # Read past `limit` before collapsing: the window is over packets, and
+        # older evaluations of the same instrument would otherwise crowd out
+        # instruments that have not been re-evaluated recently.
+        history = self.list_for_account(account_id, limit=max(limit, 500))
+
+        current: dict[str, HoldingDecisionPacket] = {}
+        for packet in history:
+            existing = current.get(packet.instrument_key)
+            if existing is None or _packet_sort_key(packet) > _packet_sort_key(existing):
+                current[packet.instrument_key] = packet
+
+        ordered = sorted(current.values(), key=_packet_sort_key, reverse=True)
+        return ordered[:limit]
 
     def _save_db(self, payload: dict[str, Any]) -> None:
         from sqlalchemy import text

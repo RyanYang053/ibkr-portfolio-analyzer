@@ -14,7 +14,7 @@ export function LensGrid({ lenses }: { lenses: Lens[] }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {lenses.map((lens) => (
-        <div key={lens.lens_id} className="rounded-md border border-line bg-white p-3">
+        <div key={lens.lens_id} className="rounded-lg border border-hairline bg-surface shadow-sm p-3">
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
             {lens.display_name || lens.lens_id}
           </div>

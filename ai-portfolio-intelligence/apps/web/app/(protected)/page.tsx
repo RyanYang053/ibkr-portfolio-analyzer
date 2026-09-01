@@ -3,7 +3,7 @@
 import { AppLink as Link } from "@/components/AppLink";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowUpRight } from "lucide-react";
+import { Activity, AlertTriangle, ArrowUpRight, Inbox, ListChecks } from "lucide-react";
 
 import { Disclaimer } from "@/components/Disclaimer";
 import { DegradedStateBanner } from "@/components/DegradedStateBanner";
@@ -22,13 +22,18 @@ import { RiskGauge } from "@/components/RiskGauge";
 import { DonutChart } from "@/components/DonutChart";
 import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { useClientResource } from "@/lib/use-client-resource";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { StatusBadge, toneForStatus } from "@/components/ui/Badge";
+import { formatCurrency, formatPercent, humanizeCode } from "@/lib/format";
 import type { DecisionQueueItem } from "@/lib/types";
 
 function DashboardContent() {
   const searchParams = useSearchParams();
   const accountId = searchParams.get("account_id") || undefined;
 
-  const { data, error, loading } = useClientResource(
+  const { data, error, loading, refreshing, stale, reload } = useClientResource(
     () =>
       Promise.all([
         getPortfolioSummary(accountId),
@@ -44,7 +49,7 @@ function DashboardContent() {
   );
 
   if (loading) {
-    return <PageLoading />;
+    return <PageLoading variant="dashboard" label="Loading dashboard" />;
   }
 
   let loadError = error;
@@ -65,7 +70,7 @@ function DashboardContent() {
     return (
       <div className="grid gap-6">
         <Disclaimer />
-        <PageErrorBanner message={loadError ?? "Portfolio data is unavailable."} />
+        <PageErrorBanner message={loadError ?? "Portfolio data is unavailable."} onRetry={reload} />
       </div>
     );
   }
@@ -89,146 +94,221 @@ function DashboardContent() {
   const changes = Array.isArray((changeFeed as { changes?: unknown }).changes)
     ? ((changeFeed as { changes: Array<Record<string, string>> }).changes)
     : [];
+  const dataHealthStatus = dataHealthDegraded
+    ? "unavailable"
+    : String((dataHealth as { overall_status?: string }).overall_status || "unknown");
+  const dataHealthTone =
+    toneForStatus(dataHealthStatus) === "negative"
+      ? ("bad" as const)
+      : toneForStatus(dataHealthStatus) === "warning"
+        ? ("warn" as const)
+        : toneForStatus(dataHealthStatus) === "positive"
+          ? ("good" as const)
+          : ("neutral" as const);
 
   return (
     <div className="grid gap-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-accent">Decision operating system</p>
-          <h2 className="text-3xl font-semibold">Attention required</h2>
-        </div>
-        <Link className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm hover:bg-panel" href="/decisions">
-          Full decision queue <ArrowUpRight size={16} aria-hidden />
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="Decision operating system"
+        title="Attention required"
+        description="What changed, what breaches policy, and what is waiting on your review."
+        refreshing={refreshing}
+        stale={stale}
+        actions={
+          <Link
+            className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-1.5 text-sm font-medium transition-colors hover:bg-panel"
+            href="/decisions"
+          >
+            Full decision queue <ArrowUpRight size={15} aria-hidden />
+          </Link>
+        }
+      />
 
       <Disclaimer />
-      {loadError ? <PageErrorBanner message={loadError} /> : null}
+      {loadError ? <PageErrorBanner message={loadError} onRetry={reload} /> : null}
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-md border border-line bg-white p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Urgent reviews</div>
-          <div className="mt-1 text-2xl font-bold">{urgent.length}</div>
-        </div>
-        <div className="rounded-md border border-line bg-white p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Changed today</div>
-          <div className="mt-1 text-2xl font-bold">{changed.length}</div>
-        </div>
-        <div className="rounded-md border border-line bg-white p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Policy / risk alerts</div>
-          <div className="mt-1 text-2xl font-bold">{summaryData.risk.alerts.length}</div>
-        </div>
-        <div className="rounded-md border border-line bg-white p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Data health</div>
-          <div className="mt-1 text-2xl font-bold capitalize">
-            {dataHealthDegraded
-              ? "unavailable"
-              : String((dataHealth as { overall_status?: string }).overall_status || "unknown")}
-          </div>
-        </div>
+        <StatCard
+          label="Urgent reviews"
+          value={urgent.length}
+          tone={urgent.length > 0 ? "warn" : "neutral"}
+          detail={urgent.length === 0 ? "Nothing needs attention today" : "Priority: urgent or this week"}
+        />
+        <StatCard
+          label="Changed today"
+          value={changed.length}
+          detail="Decisions whose outcome moved"
+        />
+        <StatCard
+          label="Policy / risk alerts"
+          value={summaryData.risk.alerts.length}
+          tone={summaryData.risk.alerts.length > 0 ? "warn" : "neutral"}
+          detail="Breaches of your IPS limits"
+        />
+        <StatCard
+          label="Data health"
+          value={humanizeCode(dataHealthStatus)}
+          tone={dataHealthTone}
+          detail="Coverage of the inputs behind these figures"
+        />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-md border border-line bg-white p-4">
-          <h3 className="mb-3 text-lg font-semibold">Decision queue</h3>
+        <Card>
+          <CardHeader
+            icon={<ListChecks size={16} aria-hidden className="text-zinc-400" />}
+            title="Decision queue"
+            description="Positions whose review is open, highest priority first."
+            actions={
+              queue.length > 8 ? (
+                <span className="text-xs text-zinc-500">Showing 8 of {queue.length}</span>
+              ) : null
+            }
+          />
           <div className="grid gap-2">
             {decisionQueueDegraded ? (
               <DegradedStateBanner message="Decision queue unavailable — this panel is empty because the request failed, not because there are no reviews. Open Decision Center to retry." />
-            ) : queue.slice(0, 8).length === 0 ? (
-              <p className="text-sm text-zinc-600">No active reviews. Monitors stay in Decision Center.</p>
+            ) : queue.length === 0 ? (
+              <EmptyState
+                title="No active reviews"
+                description="Monitors continue to run in Decision Center; nothing currently needs a decision."
+              />
             ) : (
               queue.slice(0, 8).map((item) => (
                 <Link
                   key={item.decision_id}
-                  className="rounded-md border border-line p-3 hover:bg-panel"
+                  className="rounded-md border border-hairline p-2.5 transition-colors hover:border-line hover:bg-panel"
                   href={`/decisions/${encodeURIComponent(item.decision_id)}`}
                 >
-                  <div className="flex justify-between text-sm">
-                    <span className="font-semibold">{item.symbol}</span>
-                    <span>{item.outcome}</span>
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="font-semibold text-zinc-900">{item.symbol}</span>
+                    <StatusBadge value={item.priority ?? "routine"} />
                   </div>
-                  <p className="mt-1 text-xs text-zinc-600">
-                    {item.previous_outcome ? `${item.previous_outcome} → ${item.outcome} · ` : ""}
-                    Priority {item.priority ?? "routine"} · Top blocker {(item.blockers || [])[0] || "none"}
+                  <p className="mt-1 text-xs leading-5 text-zinc-600">
+                    {/* Only show the transition when the outcome actually moved;
+                        "Review — trim → Review — trim" is noise. */}
+                    {item.previous_outcome && item.previous_outcome !== item.outcome
+                      ? `${humanizeCode(item.previous_outcome)} → ${humanizeCode(item.outcome)}`
+                      : humanizeCode(item.outcome)}
+                    {" · Top blocker: "}
+                    {humanizeCode((item.blockers || [])[0], "none")}
                   </p>
                 </Link>
               ))
             )}
           </div>
-        </div>
-        <div className="rounded-md border border-line bg-white p-4">
-          <h3 className="mb-3 text-lg font-semibold">What changed</h3>
+        </Card>
+        <Card>
+          <CardHeader
+            icon={<Inbox size={16} aria-hidden className="text-zinc-400" />}
+            title="What changed"
+            description="Material moves detected since the last research packets."
+          />
           <div className="grid gap-2 text-sm">
             {changeFeedDegraded ? (
               <DegradedStateBanner message="Research change feed unavailable — the request failed, so changes cannot be shown. This is not a confirmation that nothing changed." />
-            ) : changes.slice(0, 8).length === 0 ? (
-              <p className="text-zinc-600">No material changes detected since last packets.</p>
+            ) : changes.length === 0 ? (
+              <EmptyState
+                title="No material changes"
+                description="Nothing has moved enough to reopen a thesis since the last packets were generated."
+              />
             ) : (
               changes.slice(0, 8).map((change, idx) => (
-                <div key={`${change.decision_id || change.symbol}-${idx}`} className="rounded-md border border-line p-3">
-                  <div className="font-medium">
-                    {change.symbol || "—"} · {change.change_code || "change"}
+                <div
+                  key={`${change.decision_id || change.symbol}-${idx}`}
+                  className="flex items-center justify-between gap-3 rounded-md border border-hairline p-2.5"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium text-zinc-900">{change.symbol || "—"}</div>
+                    <p className="truncate text-xs text-zinc-600">{humanizeCode(change.change_code, "Change")}</p>
                   </div>
-                  <p className="text-xs text-zinc-600">Severity {change.severity || "info"}</p>
+                  <StatusBadge value={change.severity || "info"} />
                 </div>
               ))
             )}
           </div>
-        </div>
+        </Card>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_1.2fr]">
-        <div className="rounded-md border border-line bg-white p-4 flex flex-col justify-between min-h-[145px]">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Net liquidation</div>
-            <div className="mt-1 text-2xl font-bold">${summaryData.summary.net_liquidation.toLocaleString()}</div>
-            <div className="text-xs text-zinc-400 mt-0.5">{summaryData.summary.base_currency}</div>
-          </div>
-          <div className="mt-2">
-            <PerformanceSparkline values={sparklineValues} />
-          </div>
-        </div>
-        <StatCard label="Cash reserve" value={`$${summaryData.summary.cash.toLocaleString()}`} detail={`${summaryData.risk.cash_percent.toFixed(2)}% cash`} />
-        <StatCard label="Unrealized P&L" value={`$${summaryData.summary.total_unrealized_pnl.toLocaleString()}`} tone="good" />
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.3fr_1fr_1fr_1.1fr]">
+        <StatCard
+          label="Net liquidation"
+          value={formatCurrency(summaryData.summary.net_liquidation, {
+            currency: summaryData.summary.base_currency,
+            decimals: 0,
+          })}
+          detail={summaryData.summary.base_currency}
+          visual={<PerformanceSparkline values={sparklineValues} height={56} />}
+        />
+        <StatCard
+          label="Cash reserve"
+          value={formatCurrency(summaryData.summary.cash, {
+            currency: summaryData.summary.base_currency,
+            decimals: 0,
+          })}
+          detail={`${formatPercent(summaryData.risk.cash_percent)} of net liquidation`}
+        />
+        <StatCard
+          label="Unrealized P&L"
+          value={formatCurrency(summaryData.summary.total_unrealized_pnl, {
+            currency: summaryData.summary.base_currency,
+            decimals: 0,
+            signed: true,
+          })}
+          tone={summaryData.summary.total_unrealized_pnl < 0 ? "bad" : "good"}
+          detail="Across all open positions"
+        />
         <RiskGauge score={summaryData.risk.risk_score} label="Risk budget used" />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-md border border-line bg-white p-4">
-          <h3 className="mb-3 flex items-center gap-2 text-lg font-semibold">
-            <AlertTriangle size={18} aria-hidden /> Data health
-          </h3>
+        <Card>
+          <CardHeader
+            icon={<AlertTriangle size={16} aria-hidden className="text-zinc-400" />}
+            title="Data health"
+            description="Whether the inputs behind these numbers are complete."
+            actions={
+              <Link className="text-xs font-medium text-accent hover:underline" href="/data-health">
+                Open
+              </Link>
+            }
+          />
           <div className="grid gap-2">
             {dataHealthDegraded ? (
               <DegradedStateBanner message="Data health checks unavailable — the request failed. Absence of warnings here does not mean the data is healthy." />
             ) : null}
             {healthChecks.slice(0, 6).map((check) => (
-              <div key={check.id} className="rounded-md border border-line bg-panel p-3 text-sm">
-                <div className="font-medium capitalize">
-                  {check.id.replaceAll("_", " ")} · {check.status}
+              <div key={check.id} className="rounded-md border border-hairline bg-panel p-2.5 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-zinc-900">{humanizeCode(check.id)}</span>
+                  <StatusBadge value={check.status} />
                 </div>
-                <p className="text-zinc-700">{check.detail}</p>
+                <p className="mt-0.5 text-xs leading-5 text-zinc-600">{check.detail}</p>
               </div>
             ))}
           </div>
-          <Link className="mt-3 inline-block text-sm text-accent hover:underline" href="/data-health">
-            Open data health
-          </Link>
-        </div>
-        <div className="rounded-md border border-line bg-white p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Sector exposure</h3>
-            <Link className="text-sm text-accent hover:underline" href="/portfolio">
-              Portfolio
-            </Link>
-          </div>
+        </Card>
+        <Card>
+          <CardHeader
+            icon={<Activity size={16} aria-hidden className="text-zinc-400" />}
+            title="Sector exposure"
+            description="Share of invested market value by GICS sector."
+            actions={
+              <Link className="text-xs font-medium text-accent hover:underline" href="/portfolio">
+                Portfolio
+              </Link>
+            }
+          />
           <DonutChart data={summaryData.risk.sector_exposure} title="Sectors" />
-        </div>
+        </Card>
       </section>
 
       <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Largest positions</h3>
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <h3 className="text-[15px] font-semibold text-zinc-900">Holdings</h3>
+            <p className="text-xs text-zinc-500">Sort any column; every row opens its full workspace.</p>
+          </div>
           <span className="text-xs text-zinc-500">
             Scheduler runs: {(scheduleData.runs ?? []).length}
           </span>
@@ -241,7 +321,7 @@ function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<PageLoading />}>
+    <Suspense fallback={<PageLoading variant="dashboard" />}>
       <DashboardContent />
     </Suspense>
   );

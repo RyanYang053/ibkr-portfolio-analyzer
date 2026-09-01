@@ -2,18 +2,304 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   Design tokens.
+
+   Every surface/text/border colour in the app resolves through these variables
+   (tailwind.config.ts maps `zinc-*`, `white`, and the tinted status palettes
+   onto them). Defining the dark theme here therefore themes every existing
+   utility class at once, instead of requiring `dark:` variants on ~200 call
+   sites.
+
+   Scale convention (kept identical in both themes so semantics never invert):
+     --c-0   page background        --c-3  hairline borders
+     --c-1   raised surface (card)  --c-4  disabled / faint text
+     --c-2   sunken surface (well)  --c-5..9  text, low → high contrast
+   ========================================================================= */
 :root {
   color-scheme: light;
-  background: #fbfcfa;
+
+  --c-0: #fbfcfa;
+  --c-1: #ffffff;
+  --c-2: #f6f8f5;
+  --c-3: #e7ece8;
+  --c-4: #dbe4df;
+  --c-5: #9aa5a0;
+  --c-6: #6b7671;
+  --c-7: #55605b;
+  --c-8: #313b37;
+  --c-9: #18211f;
+
+  --accent: #0f766e;
+  --accent-hover: #115e59;
+  --accent-soft: #edf7f5;
+  --accent-border: #a7d8d1;
+  --accent-on: #ffffff;
+
+  --positive: #047857;
+  --positive-soft: #ecfdf5;
+  --positive-border: #a7dfc6;
+  --negative: #b91c1c;
+  --negative-soft: #fef2f2;
+  --negative-border: #f2c0c0;
+  --warning: #b45309;
+  --warning-soft: #fffbeb;
+  --warning-border: #f0dab0;
+  --info: #0369a1;
+  --info-soft: #f0f9ff;
+  --info-border: #b9dcf0;
+
+  --shadow-sm: 0 1px 2px rgb(20 30 26 / 0.05);
+  --shadow-md: 0 1px 3px rgb(20 30 26 / 0.07), 0 4px 12px -4px rgb(20 30 26 / 0.06);
+  --shadow-lg: 0 8px 28px -8px rgb(20 30 26 / 0.18);
+  --skeleton-sheen: rgb(255 255 255 / 0.62);
+
+  /* Categorical series palette — shared by every chart so one security keeps
+     the same colour across the donut, the legend and the risk bars. */
+  --series-1: #2563eb;
+  --series-2: #0d9488;
+  --series-3: #7c3aed;
+  --series-4: #d97706;
+  --series-5: #db2777;
+  --series-6: #0891b2;
+  --series-7: #ea580c;
+  --series-8: #64748b;
 }
 
-body {
-  margin: 0;
-  color: #18211f;
-  background: #fbfcfa;
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --c-0: #0d1117;
+  --c-1: #151b23;
+  --c-2: #1b222b;
+  --c-3: #262e39;
+  --c-4: #333d49;
+  --c-5: #707d8c;
+  --c-6: #96a3b2;
+  --c-7: #b3bfcc;
+  --c-8: #d3dbe4;
+  --c-9: #eef2f6;
+
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-soft: #10322f;
+  --accent-border: #1d5c56;
+  --accent-on: #04211f;
+
+  --positive: #34d399;
+  --positive-soft: #0d2b22;
+  --positive-border: #1c5343;
+  --negative: #f87171;
+  --negative-soft: #331616;
+  --negative-border: #6b2727;
+  --warning: #fbbf24;
+  --warning-soft: #2e2311;
+  --warning-border: #5c4718;
+  --info: #38bdf8;
+  --info-soft: #10283a;
+  --info-border: #1d4a68;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+  --shadow-md: 0 1px 3px rgb(0 0 0 / 0.55), 0 4px 14px -4px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 10px 34px -10px rgb(0 0 0 / 0.7);
+  --skeleton-sheen: rgb(255 255 255 / 0.06);
+
+  --series-1: #60a5fa;
+  --series-2: #2dd4bf;
+  --series-3: #a78bfa;
+  --series-4: #fbbf24;
+  --series-5: #f472b6;
+  --series-6: #22d3ee;
+  --series-7: #fb923c;
+  --series-8: #94a3b8;
 }
 
-button,
-a {
-  -webkit-tap-highlight-color: transparent;
+/* Follow the OS when the user has not chosen a theme explicitly. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --c-0: #0d1117;
+    --c-1: #151b23;
+    --c-2: #1b222b;
+    --c-3: #262e39;
+    --c-4: #333d49;
+    --c-5: #707d8c;
+    --c-6: #96a3b2;
+    --c-7: #b3bfcc;
+    --c-8: #d3dbe4;
+    --c-9: #eef2f6;
+
+    --accent: #2dd4bf;
+    --accent-hover: #5eead4;
+    --accent-soft: #10322f;
+    --accent-border: #1d5c56;
+    --accent-on: #04211f;
+
+    --positive: #34d399;
+    --positive-soft: #0d2b22;
+    --positive-border: #1c5343;
+    --negative: #f87171;
+    --negative-soft: #331616;
+    --negative-border: #6b2727;
+    --warning: #fbbf24;
+    --warning-soft: #2e2311;
+    --warning-border: #5c4718;
+    --info: #38bdf8;
+    --info-soft: #10283a;
+    --info-border: #1d4a68;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+    --shadow-md: 0 1px 3px rgb(0 0 0 / 0.55), 0 4px 14px -4px rgb(0 0 0 / 0.5);
+    --shadow-lg: 0 10px 34px -10px rgb(0 0 0 / 0.7);
+    --skeleton-sheen: rgb(255 255 255 / 0.06);
+
+    --series-1: #60a5fa;
+    --series-2: #2dd4bf;
+    --series-3: #a78bfa;
+    --series-4: #fbbf24;
+    --series-5: #f472b6;
+    --series-6: #22d3ee;
+    --series-7: #fb923c;
+    --series-8: #94a3b8;
+  }
+}
+
+@layer base {
+  html {
+    background: var(--c-0);
+  }
+
+  body {
+    margin: 0;
+    color: var(--c-9);
+    background: var(--c-0);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* One focus treatment for the whole app: visible for keyboard users,
+     invisible for pointer users. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--c-9);
+  }
+
+  /* Money, percentages and tickers must align vertically in tables. */
+  th,
+  td,
+  input,
+  select,
+  textarea {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Native controls inherit the theme instead of rendering as light chrome. */
+  input,
+  select,
+  textarea {
+    color: var(--c-9);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--c-5);
+  }
+
+  /* Scrollbars: unobtrusive, and dark in the dark theme. */
+  * {
+    scrollbar-color: var(--c-4) transparent;
+    scrollbar-width: thin;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--c-4);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--c-5);
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* Loading placeholders. `.skeleton` paints the block; the sheen sweeps it. */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: var(--c-2);
+    border-radius: 6px;
+  }
+
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, var(--skeleton-sheen), transparent);
+    animation: skeleton-sweep 1.5s ease-in-out infinite;
+  }
+
+  /* Number cells that must line up column-to-column. */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+}
+
+@keyframes skeleton-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Page content settles in rather than snapping, which reads as faster. */
+.page-enter {
+  animation: fade-rise 180ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

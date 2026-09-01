@@ -174,7 +174,7 @@ export function WatchlistContainer({ initialItems }: { initialItems: WatchItem[]
       )}
 
       {items.length === 0 ? (
-        <div className="rounded-md border border-line bg-white p-8 text-center">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-8 text-center">
           <Eye className="mx-auto text-zinc-300 mb-2" size={32} />
           <p className="text-sm font-semibold text-zinc-700">Watchlist is empty</p>
           <p className="text-xs text-zinc-500 mt-1">Add stocks above to begin monitoring technical trends and research metrics.</p>
@@ -184,7 +184,7 @@ export function WatchlistContainer({ initialItems }: { initialItems: WatchItem[]
           {items.map((item) => (
             <div
               key={String(item.id)}
-              className="rounded-md border border-line bg-white p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+              className="rounded-lg border border-hairline bg-surface shadow-sm p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-start justify-between gap-2">

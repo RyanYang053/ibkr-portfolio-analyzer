@@ -3,6 +3,7 @@
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { WatchlistContainer } from "@/components/WatchlistContainer";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getWatchlist } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 
@@ -18,10 +19,10 @@ export default function WatchlistPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Monitoring list</p>
-        <h2 className="text-3xl font-semibold">Watchlist</h2>
-      </div>
+      <PageHeader
+        eyebrow="Monitoring list"
+        title="Watchlist"
+      />
       <Disclaimer />
       {error ? <PageErrorBanner message={error} /> : null}
       <WatchlistContainer initialItems={items ?? []} />

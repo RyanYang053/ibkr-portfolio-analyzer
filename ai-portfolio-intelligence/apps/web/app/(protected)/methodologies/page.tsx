@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { approveMethodology, getMethodologies } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 
@@ -38,13 +39,11 @@ export default function MethodologiesPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Governance</p>
-        <h2 className="text-3xl font-semibold">Methodologies</h2>
-        <p className="text-sm text-zinc-600">
-          Approvals are personal-use records only. Valuation and tax remain experimental until fixtures pass.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Governance"
+        title="Methodologies"
+        description="Approvals are personal-use records only. Valuation and tax remain experimental until fixtures pass."
+      />
       <Disclaimer />
       {message ? <p className="rounded-md border border-line bg-panel p-3 text-sm">{message}</p> : null}
       <div className="grid gap-2">
@@ -54,7 +53,7 @@ export default function MethodologiesPage() {
           const status = String(m.status || "experimental");
           const approved = status === "approved_for_personal_use";
           return (
-            <div key={methodologyId} className="rounded-md border border-line bg-white p-4 text-sm">
+            <div key={methodologyId} className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="font-semibold">{String(m.name || methodologyId)}</div>

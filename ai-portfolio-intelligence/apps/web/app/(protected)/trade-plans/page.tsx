@@ -5,9 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { AppLink as Link } from "@/components/AppLink";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { createTradePlan, listTradePlans } from "@/lib/api";
 import { useAppRouter } from "@/lib/use-app-router";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 type Plan = Record<string, unknown>;
 
@@ -61,17 +63,15 @@ function TradePlansContent() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Trade Plans</p>
-        <h2 className="text-3xl font-semibold">Plan, size, and review — never execute</h2>
-        <p className="text-sm text-zinc-600">
-          Trade Plans are auditable intentions. The strongest state is “approved for manual
-          consideration”; execution stays in your broker.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Trade Plans"
+        title="Plan, size, and review — never execute"
+        description="Trade Plans are auditable intentions. The strongest state is “approved for manual
+          consideration”; execution stays in your broker."
+      />
       <Disclaimer />
 
-      <form onSubmit={onCreate} className="grid gap-3 rounded-md border border-line bg-white p-4 md:grid-cols-5">
+      <form onSubmit={onCreate} className="grid gap-3 rounded-lg border border-hairline bg-surface shadow-sm p-4 md:grid-cols-5">
         <input
           className="rounded-md border border-line px-3 py-2 text-sm md:col-span-2"
           placeholder="Instrument id (e.g. MSFT or MSFT:272093)"
@@ -119,7 +119,7 @@ function TradePlansContent() {
               <Link
                 key={String(plan.trade_plan_id)}
                 href={`/trade-plans/${encodeURIComponent(String(plan.trade_plan_id))}`}
-                className="flex items-center justify-between rounded-md border border-line bg-white p-3 hover:bg-panel"
+                className="flex items-center justify-between rounded-lg border border-hairline bg-surface shadow-sm p-3 hover:bg-panel"
               >
                 <div>
                   <div className="text-sm font-semibold">
@@ -130,7 +130,7 @@ function TradePlansContent() {
                   </p>
                 </div>
                 <span className={`rounded-full px-2 py-1 text-xs ${STATUS_TONE[String(plan.status)] ?? "bg-zinc-100 text-zinc-700"}`}>
-                  {String(plan.status).replaceAll("_", " ")}
+                  {humanizeCode(plan.status)}
                 </span>
               </Link>
             ))

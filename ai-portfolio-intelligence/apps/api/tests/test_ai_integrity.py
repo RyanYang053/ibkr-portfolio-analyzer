@@ -225,6 +225,12 @@ def test_compliance_sanitizer_handles_nested_execution_language():
 
 
 def test_advanced_risk_does_not_fill_missing_history_with_plausible_defaults():
+    """Without an activity ledger, every history-derived metric stays withheld.
+
+    Hermetic: asserts only what must hold when there is no history to work
+    from. The current-holdings correlation model needs a security return
+    series, so its coverage is asserted separately in the live test below.
+    """
     metrics = calculate_advanced_risk_metrics([_position()], _summary(), [])
 
     assert metrics.max_drawdown is None
@@ -235,9 +241,11 @@ def test_advanced_risk_does_not_fill_missing_history_with_plausible_defaults():
     assert metrics.conditional_var_95 is None
     assert metrics.data_quality["historical_metrics"] == "insufficient"
     assert metrics.data_quality["cash_flow_ledger"] == "insufficient_history"
+    # Coverage may be missing offline, but it must never be overstated.
     assert metrics.data_quality["security_return_series"] in {
         "sufficient_modeled_current_holdings",
         "partial_modeled_current_holdings",
+        "missing",
     }
     if metrics.correlation_matrix:
         assert all(
@@ -389,3 +397,24 @@ def test_disconnected_snapshot_endpoint_never_records_dummy_portfolio():
         create_pnl_snapshot(adapter=_OfflineAdapter())
 
     assert exc.value.status_code == 503
+
+
+@pytest.mark.live_market_data
+def test_advanced_risk_models_current_holdings_when_return_series_are_available():
+    """With a reachable quote provider the current-holdings model must build.
+
+    This is the other half of the assertion above: missing *account* history
+    must not stop the ex-ante correlation model, which is derived from security
+    return series rather than from account snapshots.
+    """
+    metrics = calculate_advanced_risk_metrics([_position()], _summary(), [])
+
+    assert metrics.data_quality["security_return_series"] in {
+        "sufficient_modeled_current_holdings",
+        "partial_modeled_current_holdings",
+    }
+    if metrics.correlation_matrix:
+        assert all(
+            metrics.correlation_matrix[symbol][symbol] == 1.0
+            for symbol in metrics.correlation_matrix
+        )

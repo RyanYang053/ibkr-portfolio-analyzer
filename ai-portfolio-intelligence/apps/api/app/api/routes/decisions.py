@@ -40,7 +40,9 @@ def decision_queue(
 
         summary, _positions = _resolve_account_data(adapter, account_id, principal)
         summary_account = summary.account_id
-        packets = DecisionPacketRepository().list_for_account(summary.account_id)
+        # The queue is "what needs a decision now", so it must hold one packet
+        # per holding. The full history repeats a symbol once per evaluation.
+        packets = DecisionPacketRepository().list_current_for_account(summary.account_id)
     except Exception:
         summary_account = account_id or "default"
 

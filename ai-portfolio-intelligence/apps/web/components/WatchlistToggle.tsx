@@ -84,7 +84,7 @@ export function WatchlistToggle({ symbol, initialWatchlistItem }: WatchlistToggl
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-2 z-50 w-72 rounded-md border border-line bg-white p-4 shadow-lg ring-1 ring-black ring-opacity-5">
+        <div className="absolute left-0 mt-2 z-50 w-72 rounded-lg border border-hairline bg-surface shadow-sm p-4 shadow-lg ring-1 ring-black ring-opacity-5">
           <div className="flex items-center justify-between border-b border-line pb-2 mb-3">
             <span className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Watch {symbol}</span>
             <button onClick={() => setIsOpen(false)} className="text-zinc-400 hover:text-zinc-600">

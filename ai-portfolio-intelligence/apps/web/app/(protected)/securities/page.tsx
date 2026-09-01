@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { searchInstruments } from "@/lib/api";
 import { useAppRouter } from "@/lib/use-app-router";
 import { useClientResource } from "@/lib/use-client-resource";
@@ -25,14 +26,12 @@ function SecuritiesIndex() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Securities</p>
-        <h2 className="text-3xl font-semibold">Find any security</h2>
-        <p className="text-sm text-zinc-600">
-          The universal workspace works for owned holdings, watchlist names, benchmarks, ETFs, and
-          securities with no position.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Securities"
+        title="Find any security"
+        description="The universal workspace works for owned holdings, watchlist names, benchmarks, ETFs, and
+          securities with no position."
+      />
       <Disclaimer />
 
       <form

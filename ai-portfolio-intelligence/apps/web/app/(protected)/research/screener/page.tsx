@@ -12,6 +12,7 @@ import {
   runScreener,
 } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 type Rec = Record<string, unknown>;
 
@@ -81,10 +82,10 @@ function ScreenerContent() {
       </div>
       <Disclaimer />
 
-      <form onSubmit={createAndRun} className="grid gap-3 rounded-md border border-line bg-white p-4 md:grid-cols-5">
+      <form onSubmit={createAndRun} className="grid gap-3 rounded-lg border border-hairline bg-surface shadow-sm p-4 md:grid-cols-5">
         <input className="rounded-md border border-line px-3 py-2 text-sm md:col-span-2" value={name} onChange={(e) => setName(e.target.value)} aria-label="Screen name" />
         <select className="rounded-md border border-line px-3 py-2 text-sm" value={field} onChange={(e) => setField(e.target.value)} aria-label="Field">
-          {FIELDS.map((f) => <option key={f} value={f}>{f.replaceAll("_", " ")}</option>)}
+          {FIELDS.map((f) => <option key={f} value={f}>{humanizeCode(f)}</option>)}
         </select>
         <select className="rounded-md border border-line px-3 py-2 text-sm" value={op} onChange={(e) => setOp(e.target.value)} aria-label="Operator">
           <option value="gte">≥</option>
@@ -102,7 +103,7 @@ function ScreenerContent() {
       {note ? <PageErrorBanner message={note} /> : null}
 
       {run ? (
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-3 text-lg font-semibold">
             Results · {results.length} candidate(s) · universe {String(run.universe_size)}
           </h3>

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { AppLink as Link } from "@/components/AppLink";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import {
   acknowledgeMonitoringEvent,
   flushMonitoringNotifications,
@@ -89,14 +90,14 @@ function MonitoringContent() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Monitoring</p>
-        <h2 className="text-3xl font-semibold">Inbox and option risks</h2>
-      </div>
+      <PageHeader
+        eyebrow="Monitoring"
+        title="Inbox and option risks"
+      />
       <Disclaimer />
       {note ? <p className="text-sm text-zinc-600">{note}</p> : null}
       <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="font-semibold">Monitoring events</h3>
             <button
@@ -148,7 +149,7 @@ function MonitoringContent() {
             )}
           </div>
         </div>
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-3 font-semibold">Option expiry calendar</h3>
           <div className="grid gap-2 text-sm">
             {expiry.length === 0 ? (

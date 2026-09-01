@@ -7,8 +7,10 @@ import { AIPnlChart } from "@/components/AIPnlChart";
 import { DailyActionsPanel } from "@/components/DailyActionsPanel";
 import { DegradedStateBanner } from "@/components/DegradedStateBanner";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getMonthlyReview, getPnlHistory, getReports, getScheduleSettings } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 function MonthlyReviewPanel() {
   const [review, setReview] = useState<Record<string, unknown> | null>(null);
@@ -18,7 +20,7 @@ function MonthlyReviewPanel() {
   const sections = ["performance", "risk", "allocation", "trade_process_analytics", "tax_activity", "goal_progress"];
 
   return (
-    <section className="rounded-md border border-line bg-white p-4">
+    <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Monthly investment review</h3>
         <button
@@ -49,7 +51,7 @@ function MonthlyReviewPanel() {
             return (
               <div key={key} className="rounded-md border border-line p-3">
                 <div className="flex justify-between">
-                  <span className="font-medium capitalize">{key.replaceAll("_", " ")}</span>
+                  <span className="font-medium capitalize">{humanizeCode(key)}</span>
                   <span className={status === "available" ? "text-emerald-700" : "text-amber-700"}>{status}</span>
                 </div>
                 {status !== "available" ? (
@@ -100,10 +102,10 @@ export default function ReportsPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Structured research output</p>
-        <h2 className="text-3xl font-semibold">Reports</h2>
-      </div>
+      <PageHeader
+        eyebrow="Structured research output"
+        title="Reports"
+      />
       <Disclaimer />
       {error ? <PageErrorBanner message={error} /> : null}
 
@@ -118,7 +120,7 @@ export default function ReportsPage() {
 
       <div className="grid gap-4">
         {otherReports.map((report, index) => (
-          <article key={`${report.title}-${index}`} className="rounded-md border border-line bg-white p-4">
+          <article key={`${report.title}-${index}`} className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">{report.title}</h3>
               <span className="text-sm text-zinc-600">Confidence: {report.confidence}</span>

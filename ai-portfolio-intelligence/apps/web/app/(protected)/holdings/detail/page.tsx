@@ -20,7 +20,9 @@ import { WatchlistToggle } from "@/components/WatchlistToggle";
 import { TagChatButton } from "@/components/TagChatButton";
 import { OptionsStrategyDashboard } from "@/components/OptionsStrategyDashboard";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 function formatPercent(value: number | null | undefined) {
   return value === null || value === undefined ? "Unavailable" : `${(value * 100).toFixed(1)}%`;
@@ -136,10 +138,10 @@ function HoldingDetailContent() {
   return (
     <div className="grid gap-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-accent">Holding research</p>
-          <h2 className="text-3xl font-semibold">{position.symbol} · {position.company_name}</h2>
-        </div>
+        <PageHeader
+        eyebrow="Holding research"
+        title="{position.symbol} · {position.company_name}"
+      />
         <div className="mt-1 sm:mt-0 flex items-center gap-2">
           <TagChatButton symbol={position.symbol} />
           <WatchlistToggle symbol={position.symbol} initialWatchlistItem={initialWatchlistItem} />
@@ -191,7 +193,7 @@ function HoldingDetailContent() {
           </section>
           <section className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
             <div className="grid gap-4">
-              <div className="rounded-md border border-line bg-white p-4">
+              <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Evidence view (not authoritative)</h3>
                 <p className="mt-2 text-sm text-amber-800">
                   Score interpretations below are evidence only. Open the holding Decision Packet for the
@@ -226,7 +228,7 @@ function HoldingDetailContent() {
                 </div>
               </div>
 
-              <div className="rounded-md border border-line bg-white p-4">
+              <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="text-lg font-semibold">Technical Trend</h3>
@@ -258,7 +260,7 @@ function HoldingDetailContent() {
                 <HoldingInteractiveChart symbol={position.symbol} />
               </div>
 
-              <div className="rounded-md border border-line bg-white p-4">
+              <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <h3 className="text-lg font-semibold mb-3">Recent News & Catalysts</h3>
                 {news && news.length > 0 ? (
                   <div className="grid gap-3 max-h-[350px] overflow-y-auto pr-1">
@@ -288,13 +290,13 @@ function HoldingDetailContent() {
             </div>
 
             <div className="grid gap-4 self-start">
-              <div className="rounded-md border border-line bg-white p-4">
+              <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Sub-Scores</h3>
                 <div className="mt-4 grid gap-3">
                   {Object.entries(analysis.score.sub_scores).map(([label, value]) => (
                     <div key={label}>
                       <div className="mb-1 flex justify-between text-sm">
-                        <span className="capitalize">{label.replaceAll("_", " ")}</span>
+                        <span className="capitalize">{humanizeCode(label)}</span>
                         <span className="font-semibold">{value.toFixed(1)}</span>
                       </div>
                       <div className="h-2 rounded-full bg-panel">
@@ -305,7 +307,7 @@ function HoldingDetailContent() {
                 </div>
               </div>
 
-              <div className="rounded-md border border-line bg-white p-4">
+              <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <h3 className="text-lg font-semibold mb-3">Key Fundamentals & Valuation</h3>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -353,7 +355,7 @@ function HoldingDetailContent() {
                 </div>
               </div>
 
-              <div className="rounded-md border border-line bg-white p-4">
+              <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Evidence and Data Freshness</h3>
                 <ul className="mt-3 list-disc pl-5 grid gap-1.5 text-sm text-zinc-700">
                   {recommendation.evidence.map((item) => (

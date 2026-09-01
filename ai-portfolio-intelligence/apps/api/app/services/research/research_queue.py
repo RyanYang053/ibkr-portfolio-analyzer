@@ -57,4 +57,5 @@ class ResearchQueueService:
         }
 
     def list_queue(self, account_id: str) -> list[dict[str, Any]]:
-        return sort_by_priority(self.repo.list_for_account(account_id))
+        # One entry per instrument: superseded packets are history, not work.
+        return sort_by_priority(self.repo.list_current_for_account(account_id))

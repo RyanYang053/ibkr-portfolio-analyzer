@@ -5,15 +5,13 @@ type PerformanceSparklineProps = {
   width?: number;
   height?: number;
   strokeColor?: string;
-  fillColor?: string;
 };
 
 export function PerformanceSparkline({
   values,
   width = 300,
   height = 80,
-  strokeColor = "hsl(221, 83%, 53%)", // Accent Blue
-  fillColor = "rgba(59, 130, 246, 0.08)", // Transparent Blue
+  strokeColor = "var(--series-1)",
 }: PerformanceSparklineProps) {
   if (values.length < 2) {
     return <div className="text-xs text-zinc-400">Not enough data to plot</div>;
@@ -69,7 +67,9 @@ export function PerformanceSparkline({
           strokeLinejoin="round"
         />
 
-        {/* End Pulse Point */}
+        {/* Latest value marker. Deliberately static: an always-running pulse
+            keeps the compositor busy for the life of the page without telling
+            the reader anything the dot does not already say. */}
         {points.length > 0 && (
           <g>
             <circle
@@ -81,12 +81,11 @@ export function PerformanceSparkline({
             <circle
               cx={points[points.length - 1].x}
               cy={points[points.length - 1].y}
-              r="8"
+              r="7.5"
               fill="none"
               stroke={strokeColor}
+              strokeOpacity={0.35}
               strokeWidth="1.5"
-              className="animate-ping"
-              style={{ transformOrigin: `${points[points.length - 1].x}px ${points[points.length - 1].y}px` }}
             />
           </g>
         )}

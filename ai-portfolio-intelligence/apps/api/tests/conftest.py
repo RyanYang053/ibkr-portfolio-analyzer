@@ -59,3 +59,38 @@ def isolated_json_state(tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.audit.write_json_state", _audit_write)
 
     yield tmp_path
+
+
+# ---------------------------------------------------------------------------
+# Live market-data tests.
+#
+# A handful of tests assert against the real quote provider. They are real
+# coverage where the network is available, but without a marker an offline or
+# proxied machine reports them as product failures, which buries genuine
+# regressions in noise. Reachability is probed once per session.
+# ---------------------------------------------------------------------------
+
+_LIVE_PROVIDER_PROBE = "https://query1.finance.yahoo.com/v8/finance/chart/SPY"
+
+
+@pytest.fixture(scope="session")
+def live_market_data_available() -> bool:
+    import httpx
+
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(
+                _LIVE_PROVIDER_PROBE,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+        return response.status_code == 200
+    except Exception:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _skip_without_live_market_data(request):
+    if request.node.get_closest_marker("live_market_data") and not request.getfixturevalue(
+        "live_market_data_available"
+    ):
+        pytest.skip("live market-data provider is unreachable from this machine")

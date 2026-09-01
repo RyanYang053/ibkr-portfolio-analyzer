@@ -1,9 +1,12 @@
+import pytest
+
 from app.schemas.domain import AccountSummary, Position, utc_now
 from app.services.fundamentals.mock_provider import MockFundamentalProvider
 from app.services.market_data.mock_provider import MockMarketDataProvider
 from app.services.risk.history_reconstructor import reconstruct_portfolio_history
 
 
+@pytest.mark.live_market_data
 def test_live_yahoo_finance_connectivity():
     # 1. Test market price fetching
     market_provider = MockMarketDataProvider(allow_mock=False)
@@ -31,6 +34,7 @@ def test_live_yahoo_finance_connectivity():
     assert chart[0]["source"] == "live_yahoo_finance"
 
 
+@pytest.mark.live_market_data
 def test_live_history_reconstruction_and_alignment():
     # Construct a real position payload for AAPL
     pos_aapl = Position(
@@ -91,6 +95,7 @@ def test_live_history_reconstruction_and_alignment():
     assert all(-1.0 <= r <= 1.0 for r in recon["spy_returns"])
 
 
+@pytest.mark.live_market_data
 def test_live_advanced_risk_metrics_calculation(monkeypatch):
     import sys
 

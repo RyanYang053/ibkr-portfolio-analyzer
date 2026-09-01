@@ -11,6 +11,7 @@ addopts = "--strict-markers --strict-config"
 markers = [
     "postgres: tests requiring Postgres persistence",
     "golden: externally validated golden fixtures",
+    "live_market_data: needs outbound access to the live market-data provider",
 ]
 
 [tool.coverage.run]

@@ -61,7 +61,7 @@ function NotesContent() {
       </div>
       <Disclaimer />
 
-      <form onSubmit={create} className="grid gap-3 rounded-md border border-line bg-white p-4">
+      <form onSubmit={create} className="grid gap-3 rounded-lg border border-hairline bg-surface shadow-sm p-4">
         <div className="grid gap-3 md:grid-cols-3">
           <input className="rounded-md border border-line px-3 py-2 text-sm" placeholder="Instrument (e.g. MSFT)" value={instrument} onChange={(e) => setInstrument(e.target.value)} aria-label="Instrument" />
           <select className="rounded-md border border-line px-3 py-2 text-sm" value={type} onChange={(e) => setType(e.target.value)} aria-label="Note type">
@@ -80,7 +80,7 @@ function NotesContent() {
           <p className="text-sm text-zinc-600">No notes yet.</p>
         ) : (
           notes.map((n) => (
-            <div key={String(n.note_id)} className="rounded-md border border-line bg-white p-3">
+            <div key={String(n.note_id)} className="rounded-lg border border-hairline bg-surface shadow-sm p-3">
               <div className="flex justify-between text-sm">
                 <span className="font-semibold">{String(n.title || n.symbol || "note")}</span>
                 <span className="text-zinc-500">{String(n.note_type)} · v{String(n.version)}</span>

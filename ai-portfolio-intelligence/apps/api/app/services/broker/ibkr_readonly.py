@@ -82,6 +82,40 @@ class FxQuote:
     expires_at: datetime
 
 
+# Deterministic rates for demo mode only. Every value returned from here is
+# labelled `mock_fx` so no caller can mistake it for an observed market rate.
+_MOCK_FX_RATES: dict[tuple[str, str], float] = {
+    ("USD", "CAD"): 1.35,
+    ("CAD", "USD"): 1 / 1.35,
+    ("USD", "EUR"): 0.92,
+    ("EUR", "USD"): 1 / 0.92,
+    ("USD", "GBP"): 0.79,
+    ("GBP", "USD"): 1 / 0.79,
+}
+
+
+def _mock_fx_quote(pair: tuple[str, str]) -> FxQuote | None:
+    """Demo-mode FX, or None when demo mode is off or the pair is unknown.
+
+    Demo mode ships a CAD account alongside a USD one, so the consolidated view
+    — the thing the demo exists to show — needs a cross rate. Reaching the live
+    FX endpoint made that view fail whenever the machine was offline, in a
+    product that otherwise runs entirely locally.
+    """
+    if settings.broker_mode != "mock_ibkr_readonly":
+        return None
+    rate = _MOCK_FX_RATES.get(pair)
+    if rate is None:
+        return None
+    now = datetime.now(timezone.utc)
+    return FxQuote(
+        rate=rate,
+        source="mock_fx",
+        observed_at=now,
+        expires_at=now + timedelta(seconds=CURRENT_FX_TTL_SECONDS),
+    )
+
+
 def _fetch_current_fx_quote(pair: tuple[str, str]) -> FxQuote:
     import httpx
 
@@ -116,6 +150,13 @@ def get_exchange_rate_quote(from_curr: str, to_curr: str) -> FxQuote:
 
     pair = (from_curr.upper(), to_curr.upper())
     now = datetime.now(timezone.utc)
+
+    # Demo mode resolves locally and never reaches the network, matching the
+    # fixed prices the mock broker reports. Live mode still fails closed when
+    # no rate can be observed.
+    mock = _mock_fx_quote(pair)
+    if mock is not None:
+        return mock
 
     with _fx_cache_lock:
         cached = _fx_cache.get(pair)

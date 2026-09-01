@@ -62,12 +62,15 @@ export function AccountSwitcher() {
   const pathname = usePathname();
 
   const [activeAccountId, setActiveAccountId] = useState<string>("all");
-  const [accounts, setAccounts] = useState<Array<Record<string, unknown>>>(() => {
-    return readAccountsCache()?.accounts ?? [];
-  });
-  const [isLoading, setIsLoading] = useState(() => !readAccountsCache());
+  // Seeded after mount, never in the initial state: reading sessionStorage
+  // during the first render disagrees with the prerendered HTML and makes React
+  // throw the whole tree away and re-render it (hydration error #418).
+  const [accounts, setAccounts] = useState<Array<Record<string, unknown>>>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const current = readActiveAccountId();
     if (current) {
       setActiveAccountId(current);
@@ -136,7 +139,9 @@ export function AccountSwitcher() {
     router.push(`${pathname}?${params.toString()}`);
   }
 
-  if (accounts.length <= 1 && !isLoading) {
+  // Render nothing until mounted so the server HTML and the first client render
+  // agree; the switcher only matters once the account list has actually loaded.
+  if (!mounted || (accounts.length <= 1 && !isLoading)) {
     return null;
   }
 

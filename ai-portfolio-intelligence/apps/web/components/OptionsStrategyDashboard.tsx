@@ -69,7 +69,7 @@ export function OptionsStrategyDashboard({ initialData, symbol, accountId, conId
   if (loading) {
     return (
       <div className="grid gap-6 animate-pulse">
-        <div className="rounded-md border border-line bg-white p-5 h-48 flex flex-col justify-between">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-5 h-48 flex flex-col justify-between">
           <div className="h-6 bg-zinc-200 rounded w-1/4"></div>
           <div className="h-4 bg-zinc-200 rounded w-3/4"></div>
           <div className="grid grid-cols-4 gap-4 mt-4">
@@ -81,8 +81,8 @@ export function OptionsStrategyDashboard({ initialData, symbol, accountId, conId
         </div>
         <div className="h-6 bg-zinc-200 rounded w-1/3 mt-2"></div>
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-md border border-line bg-white p-5 h-64"></div>
-          <div className="rounded-md border border-line bg-white p-5 h-64"></div>
+          <div className="rounded-lg border border-hairline bg-surface shadow-sm p-5 h-64"></div>
+          <div className="rounded-lg border border-hairline bg-surface shadow-sm p-5 h-64"></div>
         </div>
       </div>
     );
@@ -90,7 +90,7 @@ export function OptionsStrategyDashboard({ initialData, symbol, accountId, conId
 
   if (error || !data || !data.strategies || data.strategies.length === 0) {
     return (
-      <div className="rounded-md border border-line bg-white p-8 text-center">
+      <div className="rounded-lg border border-hairline bg-surface shadow-sm p-8 text-center">
         <AlertTriangle className="h-8 w-8 text-zinc-400 mx-auto mb-2" />
         <p className="text-sm font-semibold text-zinc-800">No option strategies generated</p>
         <p className="text-xs text-zinc-500 mt-1">
@@ -119,7 +119,7 @@ export function OptionsStrategyDashboard({ initialData, symbol, accountId, conId
       )}
 
       {/* Options Market Overview Header */}
-      <div className="rounded-md border border-line bg-white p-5">
+      <div className="rounded-lg border border-hairline bg-surface shadow-sm p-5">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-accent mb-1">
@@ -241,7 +241,7 @@ export function OptionsStrategyDashboard({ initialData, symbol, accountId, conId
       <div className="grid gap-6 lg:grid-cols-2">
         {data.strategies.length > 0 ? (
           data.strategies.map((strat: OptionsStrategyDetails, idx: number) => (
-            <div key={idx} className="rounded-md border border-line bg-white p-5 flex flex-col justify-between">
+            <div key={idx} className="rounded-lg border border-hairline bg-surface shadow-sm p-5 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between gap-2">
                   <span className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-semibold capitalize ${getStrategyTypeBadgeStyle(strat.type)}`}>
@@ -323,7 +323,7 @@ export function OptionsStrategyDashboard({ initialData, symbol, accountId, conId
             </div>
           ))
         ) : (
-          <div className="rounded-md border border-line bg-white p-8 text-center col-span-2">
+          <div className="rounded-lg border border-hairline bg-surface shadow-sm p-8 text-center col-span-2">
             <AlertTriangle className="h-8 w-8 text-zinc-400 mx-auto mb-2" />
             <p className="text-sm font-semibold text-zinc-800">No option strategies generated</p>
             <p className="text-xs text-zinc-500 mt-1">Please ensure Gemini is configured and active to generate options strategies.</p>

@@ -2,6 +2,7 @@
 
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getAuditLogs } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 
@@ -17,10 +18,10 @@ export default function AuditPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Security and activity</p>
-        <h2 className="text-3xl font-semibold">Audit Log</h2>
-      </div>
+      <PageHeader
+        eyebrow="Security and activity"
+        title="Audit Log"
+      />
       <Disclaimer />
       {error ? <PageErrorBanner message={error} /> : null}
       <div className="overflow-x-auto rounded-md border border-line bg-white">

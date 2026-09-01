@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { AppLink as Link } from "@/components/AppLink";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getDecisionQueue } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 import { requireJson } from "@/lib/api";
@@ -43,12 +44,12 @@ function HistoryContent() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">History</p>
-        <h2 className="text-3xl font-semibold">Decision and outcome history</h2>
-      </div>
+      <PageHeader
+        eyebrow="History"
+        title="Decision and outcome history"
+      />
       <Disclaimer />
-      <section className="rounded-md border border-line bg-white p-4">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
         <h3 className="mb-3 font-semibold">Recent decision queue instruments</h3>
         <div className="flex flex-wrap gap-2">
           {queue.length === 0 ? (
@@ -68,7 +69,7 @@ function HistoryContent() {
         </div>
       </section>
       {instrumentKey ? (
-        <section className="rounded-md border border-line bg-white p-4 text-sm">
+        <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
           <h3 className="mb-3 font-semibold">History for {instrumentKey}</h3>
           {historyError ? <PageErrorBanner message={historyError} /> : null}
           {history && history.length === 0 ? (

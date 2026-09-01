@@ -6,6 +6,7 @@ import { Disclaimer } from "@/components/Disclaimer";
 import { DegradedStateBanner } from "@/components/DegradedStateBanner";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { StatCard } from "@/components/StatCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 import {
   addJournalReview,
   createJournalEntry,
@@ -14,6 +15,7 @@ import {
   updateJournalEntry,
 } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 type Entry = Record<string, unknown>;
 
@@ -64,14 +66,12 @@ function JournalContent() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Trade Journal</p>
-        <h2 className="text-3xl font-semibold">Learn from your process</h2>
-        <p className="text-sm text-zinc-600">
-          These metrics evaluate decision quality — not trade frequency. They are withheld until
-          there are enough closed trades to be meaningful.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Trade Journal"
+        title="Learn from your process"
+        description="These metrics evaluate decision quality — not trade frequency. They are withheld until
+          there are enough closed trades to be meaningful."
+      />
       <Disclaimer />
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -95,7 +95,7 @@ function JournalContent() {
         )}
       </section>
 
-      <form onSubmit={create} className="grid gap-3 rounded-md border border-line bg-white p-4 md:grid-cols-3">
+      <form onSubmit={create} className="grid gap-3 rounded-lg border border-hairline bg-surface shadow-sm p-4 md:grid-cols-3">
         <input className="rounded-md border border-line px-3 py-2 text-sm" placeholder="Instrument id (e.g. MSFT)" value={instrument} onChange={(e) => setInstrument(e.target.value)} aria-label="Instrument" />
         <input className="rounded-md border border-line px-3 py-2 text-sm md:col-span-1" placeholder="Entry thesis" value={thesis} onChange={(e) => setThesis(e.target.value)} aria-label="Entry thesis" />
         <button type="submit" className="justify-self-start rounded-md border border-line px-3 py-2 text-sm hover:bg-panel">New entry</button>
@@ -137,14 +137,14 @@ function JournalRow({ entry, onChanged }: { entry: Entry; onChanged: () => void 
   }
 
   return (
-    <div className="rounded-md border border-line bg-white p-3">
+    <div className="rounded-lg border border-hairline bg-surface shadow-sm p-3">
       <button type="button" className="flex w-full items-center justify-between text-left" onClick={() => setOpen((v) => !v)}>
         <div>
           <div className="text-sm font-semibold">{str(entry.symbol)}</div>
           <p className="text-xs text-zinc-600">{str(entry.entry_thesis, "no thesis")}</p>
         </div>
         <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700">
-          {str(entry.outcome_classification).replaceAll("_", " ")}
+          {humanizeCode(entry.outcome_classification)}
           {closed ? ` · ${pct(entry.realized_return)}` : ""}
         </span>
       </button>

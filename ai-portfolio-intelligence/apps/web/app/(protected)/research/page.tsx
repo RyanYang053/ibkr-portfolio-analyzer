@@ -6,6 +6,7 @@ import { AppLink as Link } from "@/components/AppLink";
 import { Disclaimer } from "@/components/Disclaimer";
 import { DegradedStateBanner } from "@/components/DegradedStateBanner";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getResearchChangeFeed, getResearchQueue } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 
@@ -41,16 +42,14 @@ function ResearchContent() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Research</p>
-        <h2 className="text-3xl font-semibold">Queue and change feed</h2>
-        <p className="text-sm text-zinc-600">
-          Universe limited to holdings, watchlist, approved ETFs, and manually approved names.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Research"
+        title="Queue and change feed"
+        description="Universe limited to holdings, watchlist, approved ETFs, and manually approved names."
+      />
       <Disclaimer />
       <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-3 font-semibold">Research queue</h3>
           <div className="grid gap-2 text-sm">
             {queue.length === 0 ? (
@@ -67,7 +66,7 @@ function ResearchContent() {
             )}
           </div>
         </div>
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-3 font-semibold">Change feed</h3>
           <div className="grid gap-2 text-sm">
             {changeFeedDegraded ? (
@@ -87,7 +86,7 @@ function ResearchContent() {
           </div>
         </div>
       </section>
-      <section className="rounded-md border border-line bg-white p-4">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
         <h3 className="mb-3 font-semibold">Catalyst calendar</h3>
         <div className="grid gap-2 text-sm">
           {catalysts.length === 0 ? (

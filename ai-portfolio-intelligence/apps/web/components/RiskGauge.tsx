@@ -17,24 +17,30 @@ export function RiskGauge({ score, label = "Risk Score" }: RiskGaugeProps) {
   const needleRotation = (normalizedScore / 100) * 180 - 90;
 
   // Determine color/description based on score levels
-  let rating = "Low Risk";
-  let textColor = "text-emerald-600";
+  let rating = "Low risk";
+  let textColor = "text-positive";
   if (normalizedScore > 75) {
-    rating = "Very High Risk";
-    textColor = "text-danger";
+    rating = "Very high risk";
+    textColor = "text-negative";
   } else if (normalizedScore > 50) {
-    rating = "Elevated Risk";
+    rating = "Elevated risk";
     textColor = "text-warning";
   } else if (normalizedScore > 25) {
-    rating = "Moderate Risk";
-    textColor = "text-amber-500";
+    rating = "Moderate risk";
+    textColor = "text-warning";
   }
 
   return (
-    <div className="flex flex-col items-center p-3 bg-white rounded-md border border-line">
-      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-2">{label}</div>
-      <div className="relative w-[180px] h-[105px] overflow-hidden">
-        <svg viewBox="0 0 200 110" width="100%" height="100%">
+    <div className="flex flex-col items-center rounded-lg border border-hairline bg-surface p-3 shadow-sm">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className="relative h-[105px] w-[180px] overflow-hidden">
+        <svg
+          viewBox="0 0 200 110"
+          width="100%"
+          height="100%"
+          role="img"
+          aria-label={`${label}: ${normalizedScore.toFixed(1)} out of 100 — ${rating}`}
+        >
           <defs>
             {/* Gradient for the gauge arc */}
             <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -49,7 +55,7 @@ export function RiskGauge({ score, label = "Risk Score" }: RiskGaugeProps) {
           <path
             d="M 25 95 A 75 75 0 0 1 175 95"
             fill="none"
-            stroke="hsl(240, 5%, 96%)"
+            stroke="var(--c-3)"
             strokeWidth="14"
             strokeLinecap="round"
           />
@@ -67,7 +73,7 @@ export function RiskGauge({ score, label = "Risk Score" }: RiskGaugeProps) {
           />
 
           {/* Center Pivot Point */}
-          <circle cx="100" cy="95" r="8" fill="hsl(240, 10%, 20%)" />
+          <circle cx="100" cy="95" r="8" fill="var(--c-8)" />
 
           {/* Needle Pointer */}
           <line
@@ -75,7 +81,7 @@ export function RiskGauge({ score, label = "Risk Score" }: RiskGaugeProps) {
             y1="95"
             x2="100"
             y2="32"
-            stroke="hsl(240, 10%, 20%)"
+            stroke="var(--c-8)"
             strokeWidth="3.5"
             strokeLinecap="round"
             style={{
@@ -88,7 +94,7 @@ export function RiskGauge({ score, label = "Risk Score" }: RiskGaugeProps) {
       </div>
 
       <div className="mt-1 flex flex-col items-center">
-        <span className="text-3xl font-bold text-zinc-800">{normalizedScore.toFixed(1)}</span>
+        <span className="num text-3xl font-bold text-zinc-900">{normalizedScore.toFixed(1)}</span>
         <span className={`text-xs font-semibold uppercase tracking-wider ${textColor} mt-0.5`}>
           {rating}
         </span>

@@ -9,6 +9,8 @@ import { DegradedStateBanner } from "@/components/DegradedStateBanner";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { StatCard } from "@/components/StatCard";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Tabs, useUrlTab } from "@/components/ui/Tabs";
 import {
   getChartData,
   getFundamentals,
@@ -20,6 +22,7 @@ import {
 } from "@/lib/api";
 import { useAppRouter } from "@/lib/use-app-router";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 type Section = Record<string, unknown>;
 
@@ -76,7 +79,7 @@ function OverviewTab({ instrumentId, accountId }: { instrumentId: string; accoun
         />
       </section>
       <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-3 text-lg font-semibold">Market</h3>
           {market.status === "available" ? (
             <dl className="grid grid-cols-2 gap-2 text-sm">
@@ -91,7 +94,7 @@ function OverviewTab({ instrumentId, accountId }: { instrumentId: string; accoun
             <DegradedStateBanner message="No quote source is configured for this security — a price is not shown rather than invented." />
           )}
         </div>
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-3 text-lg font-semibold">Current decision</h3>
           {decision.status === "available" ? (
             <div className="grid gap-2 text-sm">
@@ -105,7 +108,7 @@ function OverviewTab({ instrumentId, accountId }: { instrumentId: string; accoun
               {Array.isArray(decision.top_risks) && (decision.top_risks as string[]).length > 0 ? (
                 <ul className="mt-1 list-disc pl-5 text-xs text-zinc-700">
                   {(decision.top_risks as string[]).map((risk) => (
-                    <li key={risk}>{risk.replaceAll("_", " ")}</li>
+                    <li key={risk}>{humanizeCode(risk)}</li>
                   ))}
                 </ul>
               ) : null}
@@ -153,35 +156,20 @@ function DataTab<T>({
 function SecurityWorkspace({ instrumentId }: { instrumentId: string }) {
   const searchParams = useSearchParams();
   const accountId = searchParams.get("account_id") || undefined;
-  const [tab, setTab] = useState<Tab>("Overview");
+  const [tab, setTab] = useUrlTab<Tab>(TABS);
   const symbol = instrumentId.split(":")[0].toUpperCase();
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Security workspace</p>
-        <h2 className="text-3xl font-semibold">{symbol}</h2>
-        <p className="text-sm text-zinc-600">
-          One workspace for owned, watchlist, benchmark, ETF, and unowned securities. Technicals are
-          evidence, not trade instructions.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Security workspace"
+        title={symbol}
+        description="One workspace for owned, watchlist, benchmark, ETF, and unowned securities. Technicals are
+          evidence, not trade instructions."
+      />
       <Disclaimer />
 
-      <div className="flex flex-wrap gap-1 border-b border-line">
-        {TABS.map((name) => (
-          <button
-            key={name}
-            type="button"
-            onClick={() => setTab(name)}
-            className={`px-3 py-2 text-sm ${
-              tab === name ? "border-b-2 border-accent font-semibold text-accent" : "text-zinc-600"
-            }`}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} value={tab} onChange={setTab} label="Security sections" />
 
       {tab === "Overview" ? <OverviewTab instrumentId={instrumentId} accountId={accountId} /> : null}
 
@@ -192,7 +180,7 @@ function SecurityWorkspace({ instrumentId }: { instrumentId: string }) {
           render={(rows) => {
             const closes = rows.map((r) => r.close);
             return (
-              <div className="rounded-md border border-line bg-white p-4">
+              <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <h3 className="mb-3 text-lg font-semibold">Price ({rows.length} sessions)</h3>
                 {closes.length >= 2 ? <PerformanceSparkline values={closes} /> : null}
                 <table className="mt-3 w-full text-sm">
@@ -226,7 +214,7 @@ function SecurityWorkspace({ instrumentId }: { instrumentId: string }) {
           loader={() => getTechnicals(symbol)}
           deps={[symbol]}
           render={(t) => (
-            <div className="rounded-md border border-line bg-white p-4">
+            <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
               <h3 className="mb-3 text-lg font-semibold">Technicals</h3>
               <dl className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
                 <div><dt className="text-zinc-500">Trend</dt><dd>{str(t.trend_classification)}</dd></div>
@@ -245,7 +233,7 @@ function SecurityWorkspace({ instrumentId }: { instrumentId: string }) {
           loader={() => getFundamentals(symbol)}
           deps={[symbol]}
           render={(f) => (
-            <div className="rounded-md border border-line bg-white p-4">
+            <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
               <h3 className="mb-3 text-lg font-semibold">Financials · {str(f.period)} {str(f.report_date, "")}</h3>
               <dl className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
                 <div><dt className="text-zinc-500">Revenue growth YoY</dt><dd>{pct(f.revenue_growth_yoy)}</dd></div>
@@ -268,7 +256,7 @@ function SecurityWorkspace({ instrumentId }: { instrumentId: string }) {
             const val = v as Section;
             const status = str(val.status ?? val.data_quality_status ?? "");
             return (
-              <div className="rounded-md border border-line bg-white p-4">
+              <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <h3 className="mb-3 text-lg font-semibold">Valuation</h3>
                 {status.toLowerCase().includes("withheld") ? (
                   <DegradedStateBanner message="Valuation is withheld until an approved methodology and sufficient data exist — no estimate is fabricated." />
@@ -288,7 +276,7 @@ function SecurityWorkspace({ instrumentId }: { instrumentId: string }) {
           loader={() => getOptionsStrategy(symbol, accountId)}
           deps={[symbol, accountId]}
           render={(report) => (
-            <div className="rounded-md border border-line bg-white p-4">
+            <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
               <h3 className="mb-3 text-lg font-semibold">Options strategies</h3>
               <p className="mb-2 text-xs text-zinc-500">
                 Model estimates and expiry payoffs — not order instructions.
@@ -309,7 +297,7 @@ function SecurityWorkspace({ instrumentId }: { instrumentId: string }) {
             const lots = ((payload as Section).lots as Section[] | undefined) ?? [];
             const forSymbol = lots.filter((l) => String(l.symbol ?? "").toUpperCase() === symbol);
             return (
-              <div className="rounded-md border border-line bg-white p-4">
+              <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
                 <h3 className="mb-3 text-lg font-semibold">Tax lots</h3>
                 {forSymbol.length === 0 ? (
                   <p className="text-sm text-zinc-600">No tax lots for {symbol} (owned securities only).</p>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { MessageSquare, X, Send, Sparkles, Plus, Trash2, HelpCircle } from "lucide-react";
 import { sendChatMessage, getPositions } from "@/lib/api";
+import { readCurrentAccountId } from "@/lib/desktop-navigation";
 import type { Position } from "@/lib/types";
 
 interface Message {
@@ -61,10 +62,25 @@ export function FloatingChatbot() {
     }
   }
 
-  // Fetch portfolio holdings for quick-tagging options
+  // Fetch portfolio holdings for quick-tagging options.
+  // Scoped to the active account: with more than one IBKR account the API
+  // rejects an unscoped positions request, which left the tag list silently
+  // empty on every page.
   useEffect(() => {
-    getPositions().then(setPositions).catch(() => {});
-  }, []);
+    if (!isOpen) {
+      return; // Nothing to tag until the panel is opened.
+    }
+    const accountId = readCurrentAccountId() ?? undefined;
+    let cancelled = false;
+    getPositions(accountId)
+      .then((rows) => {
+        if (!cancelled) setPositions(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   // Listen for global tag event from stock research detail pages
   useEffect(() => {
@@ -287,7 +303,7 @@ export function FloatingChatbot() {
 
             {/* Tag Selection Dropdown Overlay */}
             {showTagDropdown && (
-              <div className="mt-1.5 rounded-md border border-line bg-white p-3 shadow-md grid gap-2.5">
+              <div className="mt-1.5 rounded-lg border border-hairline bg-surface shadow-sm p-3 shadow-md grid gap-2.5">
                 <form onSubmit={addCustomTicker} className="flex gap-1.5">
                   <input
                     type="text"

@@ -6,6 +6,7 @@ import { AppLink as Link } from "@/components/AppLink";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
 import { StatCard } from "@/components/StatCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 import {
   evaluateTradePlan,
   getTradePlan,
@@ -14,6 +15,7 @@ import {
   updateTradePlan,
 } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 type Plan = Record<string, unknown>;
 type Check = { check_id: string; passed: boolean; detail: string; waived: boolean };
@@ -53,13 +55,11 @@ function PlanDetail({ planId }: { planId: string }) {
   return (
     <div className="grid gap-6">
       <div className="flex items-end justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-accent">Trade Plan</p>
-          <h2 className="text-3xl font-semibold">
-            {str(plan.symbol)} · {str(plan.direction)}
-          </h2>
-          <p className="text-sm text-zinc-600">Status: {str(plan.status).replaceAll("_", " ")} · order generated: never</p>
-        </div>
+        <PageHeader
+        eyebrow="Trade Plan"
+        title={`${str(plan.symbol)} · ${str(plan.direction)}`}
+        description={`Status: ${humanizeCode(plan.status)} · order generated: never`}
+      />
         <Link className="text-sm text-accent hover:underline" href="/trade-plans">
           ← All plans
         </Link>
@@ -94,13 +94,13 @@ function PlanDetail({ planId }: { planId: string }) {
       </div>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <h3 className="mb-3 text-lg font-semibold">Pre-trade checklist</h3>
           {checklist?.checks ? (
             <ul className="grid gap-1 text-sm">
               {checklist.checks.map((c) => (
                 <li key={c.check_id} className="flex items-center justify-between">
-                  <span>{c.check_id.replaceAll("_", " ")}</span>
+                  <span>{humanizeCode(c.check_id)}</span>
                   <span className={c.passed ? "text-emerald-700" : c.waived ? "text-zinc-400" : "text-red-600"}>
                     {c.passed ? "pass" : c.waived ? "waived" : "blocking"}
                   </span>
@@ -160,7 +160,7 @@ function PlanEditor({
   }
 
   return (
-    <div className="rounded-md border border-line bg-white p-4">
+    <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
       <h3 className="mb-3 text-lg font-semibold">Plan inputs</h3>
       <div className="grid gap-3 text-sm">
         <label className="grid gap-1">

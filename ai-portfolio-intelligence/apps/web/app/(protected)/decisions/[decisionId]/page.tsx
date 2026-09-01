@@ -4,8 +4,10 @@ import { use, useState } from "react";
 import { AppLink as Link } from "@/components/AppLink";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getDecisionPacket, respondToDecision } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
+import { humanizeCode } from "@/lib/format";
 
 export default function DecisionDetailPage({ params }: { params: Promise<{ decisionId: string }> }) {
   const { decisionId } = use(params);
@@ -38,26 +40,23 @@ export default function DecisionDetailPage({ params }: { params: Promise<{ decis
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Decision packet</p>
-        <h2 className="text-3xl font-semibold">{String(packet.symbol)}</h2>
-        <p className="text-sm text-zinc-600">
-          {String(packet.outcome)} · Priority {String(packet.priority ?? "routine")} · Confidence{" "}
-          {String(packet.confidence_status ?? "provisional")}
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Decision packet"
+        title={String(packet.symbol)}
+        description={`${humanizeCode(packet.outcome)} · Priority ${humanizeCode(packet.priority ?? "routine")} · Confidence ${humanizeCode(packet.confidence_status ?? "provisional")}`}
+      />
       <Disclaimer />
 
       <section className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <div className="text-xs uppercase text-zinc-500">Implementation</div>
           <div className="mt-1 font-semibold">{String(packet.implementation_status ?? "blocked")}</div>
         </div>
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <div className="text-xs uppercase text-zinc-500">Order generated</div>
           <div className="mt-1 font-semibold">{packet.order_generated ? "yes" : "never"}</div>
         </div>
-        <div className="rounded-md border border-line bg-white p-4">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
           <div className="text-xs uppercase text-zinc-500">Gates failed</div>
           <div className="mt-1 font-semibold">{gates.filter((g) => !g.passed).length}</div>
         </div>
@@ -74,7 +73,7 @@ export default function DecisionDetailPage({ params }: { params: Promise<{ decis
         </section>
       ) : null}
 
-      <section className="rounded-md border border-line bg-white p-4">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
         <h3 className="mb-3 font-semibold">Gates</h3>
         <ul className="grid gap-1 text-sm">
           {gates.map((g) => (
@@ -88,7 +87,7 @@ export default function DecisionDetailPage({ params }: { params: Promise<{ decis
         </ul>
       </section>
 
-      <section className="rounded-md border border-line bg-white p-4">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
         <h3 className="mb-3 font-semibold">Evidence</h3>
         {evidence.length === 0 ? (
           <p className="text-sm text-zinc-600">No evidence refs on this packet.</p>
@@ -109,7 +108,7 @@ export default function DecisionDetailPage({ params }: { params: Promise<{ decis
         )}
       </section>
 
-      <section className="rounded-md border border-line bg-white p-4 overflow-x-auto">
+      <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 overflow-x-auto">
         <h3 className="mb-3 font-semibold">Scenarios</h3>
         {scenarios.length === 0 ? (
           <p className="text-sm text-zinc-600">No scenarios on this packet.</p>
@@ -140,7 +139,7 @@ export default function DecisionDetailPage({ params }: { params: Promise<{ decis
       </section>
 
       {responses.length ? (
-        <section className="rounded-md border border-line bg-white p-4 text-sm">
+        <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
           <h3 className="mb-2 font-semibold">Recorded responses</h3>
           <ul className="grid gap-1">
             {responses.map((row, idx) => (
@@ -160,7 +159,7 @@ export default function DecisionDetailPage({ params }: { params: Promise<{ decis
             className="rounded-md border border-line px-3 py-2 text-sm hover:bg-panel"
             onClick={() => onRespond(response)}
           >
-            {response.replaceAll("_", " ")}
+            {humanizeCode(response)}
           </button>
         ))}
       </section>

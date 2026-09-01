@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getFinancialPlan, getPlanFeasibility, requireJson } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 
@@ -133,13 +134,13 @@ export default function PlanPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Financial plan</p>
-        <h2 className="text-3xl font-semibold">Plan & Policy</h2>
-      </div>
+      <PageHeader
+        eyebrow="Financial plan"
+        title="Plan & Policy"
+      />
       <Disclaimer />
       {!exists ? (
-        <div className="rounded-md border border-line bg-white p-4 text-sm text-zinc-700">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm text-zinc-700">
           <p>No plan yet. Create a starter plan with moderate risk defaults.</p>
           <button
             type="button"
@@ -153,7 +154,7 @@ export default function PlanPage() {
         </div>
       ) : (
         <>
-          <section className="rounded-md border border-line bg-white p-4">
+          <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="font-semibold">Goals</h3>
               <button
@@ -191,7 +192,7 @@ export default function PlanPage() {
               </ul>
             )}
           </section>
-          <section className="rounded-md border border-line bg-white p-4">
+          <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
             <h3 className="mb-3 font-semibold">Goal feasibility</h3>
             {feasibility.length === 0 ? (
               <p className="text-sm text-zinc-600">No feasibility assessments yet.</p>
@@ -224,7 +225,7 @@ export default function PlanPage() {
               </ul>
             )}
           </section>
-          <section className="rounded-md border border-line bg-white p-4">
+          <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
             <h3 className="mb-3 font-semibold">Account roles</h3>
             {roles.length === 0 ? (
               <p className="text-sm text-zinc-600">No account roles mapped.</p>
@@ -239,7 +240,7 @@ export default function PlanPage() {
               </ul>
             )}
           </section>
-          <section className="rounded-md border border-line bg-white p-4">
+          <section className="rounded-lg border border-hairline bg-surface shadow-sm p-4">
             <h3 className="mb-3 font-semibold">Investment policy</h3>
             {policy ? (
               <dl className="grid gap-2 text-sm md:grid-cols-2">

@@ -13,8 +13,12 @@ import {
 const desktopLocal = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "desktop_local";
 
 export function DesktopRuntimeGate({ children }: { children: ReactNode }) {
-  // Instant gate when Tauri already injected runtime (or sessionStorage restore).
-  const [ready, setReady] = useState(() => !desktopLocal || isDesktopRuntimeAvailable());
+  // Must start false in the desktop build even when the runtime is already
+  // injected: reading `window` during the first render disagrees with the
+  // prerendered HTML, and React then discards and re-renders the whole tree
+  // (hydration error #418) on every single page load. The effect below flips
+  // it synchronously after mount, so a ready runtime still gates in one frame.
+  const [ready, setReady] = useState(!desktopLocal);
 
   useEffect(() => {
     if (!desktopLocal) {

@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Disclaimer } from "@/components/Disclaimer";
 import { PageErrorBanner, PageLoading } from "@/components/PageLoadState";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { getConstructionScenarios, getReplacementUniverse } from "@/lib/api";
 import { useClientResource } from "@/lib/use-client-resource";
 
@@ -52,13 +53,11 @@ function ConstructionContent() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Construction</p>
-        <h2 className="text-3xl font-semibold">Scenario comparison</h2>
-        <p className="text-sm text-zinc-600">
-          Every run includes a no-trade baseline. No orders are generated.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Construction"
+        title="Scenario comparison"
+        description="Every run includes a no-trade baseline. No orders are generated."
+      />
       <Disclaimer />
       <div className="overflow-x-auto rounded-md border border-line bg-white">
         <table className="min-w-full text-left text-sm">
@@ -86,7 +85,7 @@ function ConstructionContent() {
       </div>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-md border border-line bg-white p-4 text-sm">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
           <h3 className="mb-2 font-semibold">Buy candidates</h3>
           {buyCandidates.length === 0 ? (
             <p className="text-zinc-600">No watchlist/plan candidates outside current holdings.</p>
@@ -100,14 +99,14 @@ function ConstructionContent() {
             </ul>
           )}
         </div>
-        <div className="rounded-md border border-line bg-white p-4 text-sm">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
           <h3 className="mb-2 font-semibold">Core ETF</h3>
           <p className="font-medium">{String(universe.core_etf || constraints.core_etf || "Not configured")}</p>
           <p className="mt-2 text-xs text-zinc-500">
             Sourced from plan policy constraints or approved watchlist ETFs only.
           </p>
         </div>
-        <div className="rounded-md border border-line bg-white p-4 text-sm">
+        <div className="rounded-lg border border-hairline bg-surface shadow-sm p-4 text-sm">
           <h3 className="mb-2 font-semibold">Constraints</h3>
           <dl className="grid gap-2">
             <div>
