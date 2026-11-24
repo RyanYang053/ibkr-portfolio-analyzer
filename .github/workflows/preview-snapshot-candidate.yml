@@ -1,0 +1,48 @@
+name: Verified preview snapshot candidate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/preview-snapshot-candidate.yml'
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    if: github.head_ref == 'docs/verified-preview-assets'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r ai-portfolio-intelligence/apps/api/requirements.txt
+      - run: |
+          mkdir -p public-preview
+          python scripts/demo.py --output public-preview/portfolio-demo.html
+          python -m pip install playwright pillow
+          python -m playwright install --with-deps chromium
+          python scripts/render_preview.py --report public-preview/portfolio-demo.html --output-dir public-preview
+      - name: Encode reviewed synthetic preview assets for maintainer import
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import base64, hashlib
+          root=Path('public-preview')
+          for name in ('demo-screenshot','social-preview'):
+              with Image.open(root/(name+'.png')) as im:
+                  im.convert('RGB').save(root/(name+'.webp'),format='WEBP',quality=88,method=6)
+          for path in [root/'demo-screenshot.webp',root/'social-preview.webp',root/'portfolio-demo.html']:
+              data=path.read_bytes()
+              encoded=base64.b64encode(data).decode('ascii')
+              print('SNAPSHOT_SHA256',path.name,hashlib.sha256(data).hexdigest())
+              for i in range(0,len(encoded),1600):
+                  print('SNAPSHOT_CHUNK',path.name,i//1600,encoded[i:i+1600])
+              print('SNAPSHOT_END',path.name,(len(encoded)+1599)//1600)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-preview-snapshot
+          path: public-preview/
+          if-no-files-found: error
