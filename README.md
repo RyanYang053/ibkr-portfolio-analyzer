@@ -4,6 +4,8 @@
 
 # IBKR Portfolio Analyzer
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 **Understand your IBKR portfolio without giving an app permission to trade.**
 
 Local-first desktop analytics for holdings, performance, risk and research. Built with Tauri, Next.js, FastAPI and SQLite.
@@ -59,6 +61,8 @@ flowchart LR
 
 ## Desktop setup
 
+See the [platform and capability matrix](docs/PLATFORM_SUPPORT.md) for the difference between available source workflows and verified public installers.
+
 - [Desktop architecture and local smoke tests](ai-portfolio-intelligence/README.md)
 - [IBKR read-only connection](ai-portfolio-intelligence/docs/ibkr-readonly-setup.md)
 - [Release and signing](ai-portfolio-intelligence/docs/RELEASE_AND_SIGNING.md)
@@ -81,13 +85,13 @@ See [engineering reference](ENGINEERING.md) for the preserved previous technical
 | Resource | Start here |
 | --- | --- |
 | First use | [Quick start](#quick-start) |
-| Technical detail | [Engineering reference](ENGINEERING.md) |
+| Technical detail | [Engineering reference](ENGINEERING.md) · [Platform and capability matrix](docs/PLATFORM_SUPPORT.md) |
 | Frequently asked questions | [FAQ](FAQ.md) |
-| Current plans and gaps | [Roadmap](ROADMAP.md) |
+| Current plans and gaps | [Roadmap](ROADMAP.md) · [Vision](VISION.md) |
 | Changes | [Changelog](CHANGELOG.md) |
 | Security and privacy | [Security policy](SECURITY.md) |
 | Licensing | [License status](LICENSING.md) |
-| Contribution process | [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) |
+| Contribution process | [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Support](SUPPORT.md) |
 | Releases | [GitHub Releases](https://github.com/RyanYang053/ibkr-portfolio-analyzer/releases) (check current availability) |
 | Research reference | [Citation metadata](CITATION.cff) |
 
