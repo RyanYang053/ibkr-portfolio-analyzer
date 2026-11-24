@@ -9,7 +9,7 @@ def esc(v):
 def table(headers, rows):
     return "<section><table><thead><tr>" + "".join("<th>"+esc(x)+"</th>" for x in headers) + "</tr></thead><tbody>" + "".join("<tr>"+"".join("<td>"+esc(x)+"</td>" for x in row)+"</tr>" for row in rows) + "</tbody></table></section>"
 def write_report(path, title, summary, body):
-    document = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title)+'</title><style>'+STYLE+'</style></head><body><main><small>SYNTHETIC RESEARCH DEMO</small><h1>'+esc(title)+'</h1><p>'+esc(summary)+'</p>'+body+'<p>Fixture data only. No investment recommendation or live performance claim.</p></main></body></html>'
+    document = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; style-src &apos;unsafe-inline&apos;; base-uri &apos;none&apos;; form-action &apos;none&apos;"><title>'+esc(title)+'</title><style>'+STYLE+'</style></head><body><main><small>SYNTHETIC RESEARCH DEMO</small><h1>'+esc(title)+'</h1><p>'+esc(summary)+'</p>'+body+'<p>Fixture data only. No investment recommendation or live performance claim.</p></main></body></html>'
     with path.open("x", encoding="utf-8") as handle:
         handle.write(document)
     print(f"Report: {path.resolve()}")
@@ -29,7 +29,13 @@ def main():
         summary = adapter.get_account_summary(account.id)
         body += "<h2>"+esc(account.account_alias)+"</h2>"
         body += table(["Currency","Net liquidation","Cash","Unrealized P&L"], [(summary.base_currency, f"{summary.net_liquidation:,.2f}", f"{summary.cash:,.2f}", f"{summary.total_unrealized_pnl:,.2f}")])
-        rows = [(p.symbol, p.currency, f"{p.quantity:g}", f"{p.market_value:,.2f}", f"{p.unrealized_pnl:,.2f}", f"{p.portfolio_weight:.2f}%") for p in sorted(adapter.get_positions(account.id), key=lambda p: p.market_value, reverse=True)]
+        positions = sorted(adapter.get_positions(account.id), key=lambda p: p.market_value, reverse=True)
+        body += "<h3>Invested allocation</h3><section>"
+        for p in positions[:6]:
+            weight = max(0, min(100, float(p.portfolio_weight)))
+            body += "<p>"+esc(p.symbol)+" · "+esc(f"{weight:.2f}%")+"<br><meter min='0' max='100' value='"+esc(f"{weight:.2f}")+"' style='width:100%;height:20px'></meter></p>"
+        body += "</section>"
+        rows = [(p.symbol, p.currency, f"{p.quantity:g}", f"{p.market_value:,.2f}", f"{p.unrealized_pnl:,.2f}", f"{p.portfolio_weight:.2f}%") for p in positions]
         body += table(["Symbol","Currency","Quantity","Value","Unrealized P&L","Invested weight"], rows)
     body += "<p>Account values are kept separate by currency; no FX conversion or consolidated total is implied.</p>"
     write_report(out, "Portfolio Analyzer sample holdings", "Mock adapter output, not a screenshot of the full app.", body)
