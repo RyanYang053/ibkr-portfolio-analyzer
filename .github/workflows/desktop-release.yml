@@ -128,7 +128,7 @@ jobs:
           PY
 
       - name: Upload validate gate attestations
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: validate-gates-${{ github.sha }}
           if-no-files-found: error
@@ -408,7 +408,7 @@ jobs:
           fi
 
       - name: Upload exact-SHA installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portfolio-analyzer-${{ matrix.target }}-${{ github.sha }}
           if-no-files-found: error
