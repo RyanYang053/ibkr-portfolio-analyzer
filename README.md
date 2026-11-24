@@ -1,169 +1,109 @@
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="IBKR Portfolio Analyzer — Multi-account holdings • Performance • Risk" width="100%">
+</p>
+
 # IBKR Portfolio Analyzer
 
-A read-only portfolio intelligence and decision-support dashboard integrated with the Interactive Brokers (IBKR) Gateway. This tool aggregates multi-account holdings, tracks historical PnL, performs connection diagnostics, and provides AI-powered stock and portfolio analysis.
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-> **Important**: This application is strictly read-only. It has no order execution capabilities and cannot place, modify, or cancel trades.
+**Understand your IBKR portfolio without giving an app permission to trade.**
 
----
+Local-first desktop analytics for holdings, performance, risk and research. Built with Tauri, Next.js, FastAPI and SQLite.
 
-## Download & install
+[Try the demo](#try-the-demo) · [Quick start](#quick-start) · [Documentation](#documentation) · [Roadmap](ROADMAP.md) · [FAQ](FAQ.md) · [Contribute](CONTRIBUTING.md)
 
-**Portfolio Analyzer is a desktop app** for **macOS** and **Windows** (Linux too). It runs entirely
-on your machine — no account, no login, no cloud.
+[![CI](https://github.com/RyanYang053/ibkr-portfolio-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/RyanYang053/ibkr-portfolio-analyzer/actions/workflows/ci.yml)
+![Research only](https://img.shields.io/badge/live%20orders-disabled-555)
 
-Download the installer for your platform from the
-[**Releases page**](https://github.com/RyanYang053/ibkr-portfolio-analyzer/releases):
+[![Stars](https://img.shields.io/github/stars/RyanYang053/ibkr-portfolio-analyzer?style=flat)](https://github.com/RyanYang053/ibkr-portfolio-analyzer/stargazers) [![Forks](https://img.shields.io/github/forks/RyanYang053/ibkr-portfolio-analyzer?style=flat)](https://github.com/RyanYang053/ibkr-portfolio-analyzer/forks)
+[![Demo build](https://github.com/RyanYang053/ibkr-portfolio-analyzer/actions/workflows/public-demo.yml/badge.svg)](https://github.com/RyanYang053/ibkr-portfolio-analyzer/actions/workflows/public-demo.yml) [![Issues](https://img.shields.io/github/issues/RyanYang053/ibkr-portfolio-analyzer)](https://github.com/RyanYang053/ibkr-portfolio-analyzer/issues) [![Contributions](https://img.shields.io/badge/contributions-welcome-27845d)](CONTRIBUTING.md)
 
-| Platform | File | Install |
-| --- | --- | --- |
-| macOS | `Portfolio Analyzer_*.dmg` | Open the DMG, drag the app to **Applications**. Unsigned build? Right-click → **Open** once; if macOS says *"damaged"*, run `xattr -dr com.apple.quarantine "/Applications/Portfolio Analyzer.app"`. |
-| Windows | `Portfolio Analyzer_*-setup.exe` | Run the installer. Unsigned build? On SmartScreen, click **More info → Run anyway**. |
-| Linux | `*.AppImage` / `*.deb` | Run the AppImage, or `sudo dpkg -i` the `.deb`. |
+## Try the demo
 
-Once configured, the app **updates itself** on launch. If no release has been published yet, a
-maintainer tags `desktop-v*` to build one (see the
-[release & signing runbook](ai-portfolio-intelligence/docs/RELEASE_AND_SIGNING.md)), or you can build
-locally: `python3 ai-portfolio-intelligence/scripts/build-macos-installer.py`.
+No personal portfolio, API key or live brokerage session is needed. [Open the public demo workflow](https://github.com/RyanYang053/ibkr-portfolio-analyzer/actions/workflows/public-demo.yml), select a successful run from the branch you want to inspect, download its preview artifact (HTML and PNGs), unzip it and open `portfolio-demo.html`. GitHub may require sign-in to download an artifact; artifacts expire. The source-checkout commands below work independently of GitHub artifact availability.
 
-## Using the app
+The demo is generated from fixture data, not a marketing mock-up, live market quote or financial performance claim.
 
-1. **Launch it** — the app boots a local, loopback-only engine and opens the dashboard. No sign-up.
-2. **Connect Interactive Brokers (read-only)** — add an IBKR **Flex** token so it can read your
-   positions, transactions, and history. It **never** places orders and **never** asks for your IBKR
-   password. Guide: [ibkr-readonly-setup.md](ai-portfolio-intelligence/docs/ibkr-readonly-setup.md).
-   No broker handy? Preview with mock data (see **Mock Demo Mode** below).
-3. **Explore** — consolidated holdings & P&L, risk analytics (Sharpe / Sortino / Calmar / drawdown /
-   VaR + up-down capture), a securities workspace with interactive candlestick charts, screener,
-   options, tax lots, trade journal, trade-plan drafts (never submitted), market/regime view, and
-   monthly/performance reports.
-4. **Your data stays local** — stored under your OS Application Support folder; nothing leaves your device.
+## Quick start
 
-> The **Local Setup** section below is for **developers/contributors** who want to run the API and
-> web app from source. Everyday users only need the installer above.
-
----
-
-## Key Features
-
-- **Multi-Account Consolidated Holdings**: Aggregates and converts positions across multiple Interactive Brokers accounts into a single view, supporting both USD and CAD balances.
-- **Connection Diagnostics**: Monitor connection health and socket latency to the IBKR Gateway or Trader Workstation (TWS).
-- **Historical PnL Snapshots**: A background scheduler automatically records daily portfolio valuations and position changes, storing them locally for trend analysis.
-- **AI Research Assistant**: Generate stock analyses and portfolio summary memos using Google Gemini models, with a deterministic local fallback if no API key is provided.
-- **Interactive Chatbot**: Ask questions about portfolio allocation, sector concentration, or individual stock metrics with persistent session history.
-
-## Project Structure
-
-This monorepo is split into the frontend, backend, and infrastructure configuration:
-
-* `apps/api/` - FastAPI backend application.
-* `apps/web/` - Next.js frontend dashboard built with TypeScript and Tailwind CSS.
-* `infra/` - Docker Compose file (Postgres + API + scheduler + web) for the `development` deployment mode. The shipping product is a local-first Tauri desktop app on SQLite with no login; see `ai-portfolio-intelligence/README.md`.
-
----
-
-## Local Setup
-
-### Prerequisites
-
-- **Python**: 3.10 or higher.
-- **Node.js**: 18.x or higher.
-- **IBKR Gateway or Trader Workstation (TWS)**: Running locally and configured to allow API connections (default ports are `4001`/`4002` or `7496`/`7497`).
-
-### 1. Set Up the Backend API
-
-1. Navigate to the API directory:
-   ```bash
-   cd ai-portfolio-intelligence/apps/api
-   ```
-
-2. Create a virtual environment and install dependencies:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
-3. Configure environment variables in a `.env` file (or export them):
-   ```ini
-   # API Configuration
-   JWT_SECRET=your_jwt_secret_here
-   DATABASE_URL=postgresql+psycopg://portfolio:portfolio@localhost:5432/portfolio
-   
-   # IBKR Gateway Configuration
-   BROKER_MODE=ibkr_readonly
-   IBKR_HOST=127.0.0.1
-   IBKR_PORT=4001
-   IBKR_CLIENT_ID=10
-   
-   # AI Configuration (Optional)
-   GEMINI_API_KEY=your_gemini_api_key_here
-   GEMINI_MODEL=gemini-2.5-flash
-   ```
-
-4. Run the development server:
-   ```bash
-   uvicorn app.main:app --reload --port 8000
-   ```
-
-### 2. Set Up the Next.js Frontend
-
-1. Navigate to the web directory:
-   ```bash
-   cd ai-portfolio-intelligence/apps/web
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the Next.js development server:
-   ```bash
-   npm run dev
-   ```
-   Open [http://localhost:3000](http://localhost:3000) to view the dashboard.
-
-### 3. Run via Docker Compose (Alternative)
-
-To spin up PostgreSQL, the API, the scheduler, and the Web UI together (development mode):
-
-1. Navigate to the infra directory:
-   ```bash
-   cd ai-portfolio-intelligence/infra
-   ```
-
-2. Run the compose services:
-   ```bash
-   GEMINI_API_KEY="your_api_key_here" docker compose up --build
-   ```
-
----
-
-## Testing & Verification
-
-Run the test suite on the backend:
 ```bash
-cd ai-portfolio-intelligence
-npm run api:test
+git clone https://github.com/RyanYang053/ibkr-portfolio-analyzer.git
+cd ibkr-portfolio-analyzer
+python -m venv .venv
 ```
 
-Verify the production build of the frontend:
+Activate with `source .venv/bin/activate` on macOS/Linux or `.venv\Scripts\Activate.ps1` in PowerShell.
+
 ```bash
-cd ai-portfolio-intelligence/apps/web
-npm run build
+python -m pip install -r ai-portfolio-intelligence/apps/api/requirements.txt
+python scripts/demo.py --output portfolio-demo.html
 ```
 
----
+Open the generated HTML file locally. A small HTML preview generated from the actual mock broker adapter, showing fictional accounts and holdings. It is not the full desktop UI and uses no brokerage credentials.
 
-## Mock Demo Mode
+## What you can explore
 
-If you do not have an active IBKR Gateway connection running, you can run the application with mock data to preview features:
+| Area | Capability |
+| --- | --- |
+| Accounts | USD/CAD holdings, multi-account views, Flex ingestion |
+| Performance | Historical valuations, P&L, benchmark and return analysis |
+| Risk | Drawdown, volatility, concentration and risk metrics |
+| Research | Securities workspace, charts, screening, optional AI |
+| Workflow | Tax estimates, journal and draft trade plans; no submitted orders |
 
-1. Set `BROKER_MODE` to `mock_ibkr_readonly` in your `.env` file.
-2. Restart the FastAPI server. The dashboard will show pre-populated positions and history.
+```mermaid
+flowchart LR
+ B[IBKR read-only data] --> A[Local FastAPI engine]
+ A --> S[SQLite]
+ A --> U[Tauri desktop / Next.js]
+ A -. optional market data or AI .-> X[External providers]
+```
 
----
+## Desktop setup
 
-## Disclaimer
+See the [platform and capability matrix](docs/PLATFORM_SUPPORT.md) for the difference between available source workflows and verified public installers.
 
-This software is for educational and research purposes only. It is not financial advice. No trading or order execution capability is implemented. The user is responsible for reviewing and confirming all data before making investment decisions.
+- [Desktop architecture and local smoke tests](ai-portfolio-intelligence/README.md)
+- [IBKR read-only connection](ai-portfolio-intelligence/docs/ibkr-readonly-setup.md)
+- [Release and signing](ai-portfolio-intelligence/docs/RELEASE_AND_SIGNING.md)
+- [Product scope](ai-portfolio-intelligence/docs/PRODUCT_SCOPE.md)
+
+**Release status:** no published desktop installers at the time of this update. Source checkout only; check CI and release certification before deployment. Do not bypass OS security to install unverified builds.
+
+The local desktop engine uses a loopback-only API. Optional AI and data providers can make network requests; review their data flows and policies before enabling them. Never share real account statements or tokens. No order execution.
+
+## Verification
+
+```bash
+cd ai-portfolio-intelligence/apps/api && python -m pytest tests -q
+```
+
+See [engineering reference](ENGINEERING.md) for the preserved previous technical documentation, [launch gates](docs/LAUNCH.md) and [license status](LICENSING.md).
+
+## Documentation
+
+| Resource | Start here |
+| --- | --- |
+| First use | [Quick start](#quick-start) |
+| Technical detail | [Engineering reference](ENGINEERING.md) · [Platform and capability matrix](docs/PLATFORM_SUPPORT.md) |
+| Frequently asked questions | [FAQ](FAQ.md) |
+| Current plans and gaps | [Roadmap](ROADMAP.md) · [Vision](VISION.md) |
+| Changes | [Changelog](CHANGELOG.md) |
+| Security and privacy | [Security policy](SECURITY.md) |
+| Licensing | [License status](LICENSING.md) |
+| Contribution process | [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Support](SUPPORT.md) |
+| Releases | [GitHub Releases](https://github.com/RyanYang053/ibkr-portfolio-analyzer/releases) (check current availability) |
+| Research reference | [Citation metadata](CITATION.cff) |
+
+## Related projects
+
+- [Atlas Investment OS](https://github.com/RyanYang053/50agent-invest-system) — Local-first research, valuation, quantitative analysis, risk and governance.
+- [IBKR Agent Harness](https://github.com/RyanYang053/IBKR-Agent-harness) — Local-first Python and MCP toolkit for Interactive Brokers portfolio research, combining deterministic calculations, investment policy checks, valuation and persistent workflows with human approval.
+
+These are separate projects, not a claimed integrated deployment.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). If the project is useful, consider starring it or reporting a reproducible improvement.
+
+Research and educational use only; not financial or tax advice.

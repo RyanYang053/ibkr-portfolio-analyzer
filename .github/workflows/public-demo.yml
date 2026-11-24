@@ -1,0 +1,36 @@
+name: Public fixture demo
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r ai-portfolio-intelligence/apps/api/requirements.txt
+      - name: Generate synthetic preview
+        run: |
+          mkdir -p public-preview
+          python scripts/demo.py --output public-preview/portfolio-demo.html
+      - name: Install preview browser
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Capture fixture preview and social artwork
+        run: python scripts/render_preview.py --report public-preview/portfolio-demo.html --output-dir public-preview
+      - name: Upload HTML and visual preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-fixture-preview
+          path: public-preview/
+          if-no-files-found: error
+          retention-days: 30
