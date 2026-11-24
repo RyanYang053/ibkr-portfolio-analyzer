@@ -23,6 +23,8 @@ jobs:
       - name: Resolve explicit security patch candidate
         run: |
           npm pkg set dependencies.next=15.5.29 devDependencies.eslint-config-next=15.5.29 --workspace apps/web
+          npm pkg set devDependencies.postcss='^8.5.23' --workspace apps/web
+          npm pkg set 'overrides.next.postcss=^8.5.23'
           npm install --package-lock-only --ignore-scripts --no-audit
           npm audit fix --package-lock-only --ignore-scripts --omit=dev || true
       - name: Preserve candidate and registry evidence
@@ -30,7 +32,7 @@ jobs:
           npm audit --omit=dev --audit-level=high --json > /tmp/production-audit.json || true
           python - <<'PY'
           import json, pathlib, hashlib
-          for key,path in [('MANIFEST','apps/web/package.json'),('LOCK','package-lock.json')]:
+          for key,path in [('ROOT','package.json'),('MANIFEST','apps/web/package.json'),('LOCK','package-lock.json')]:
               raw=pathlib.Path(path).read_text(encoding='utf-8')
               print('CANDIDATE_SHA256',key,hashlib.sha256(raw.encode()).hexdigest())
               for i in range(0,len(raw),1800):
@@ -43,14 +45,16 @@ jobs:
         with:
           name: web-lock-candidate
           path: |
+            ai-portfolio-intelligence/package.json
             ai-portfolio-intelligence/apps/web/package.json
             ai-portfolio-intelligence/package-lock.json
             /tmp/production-audit.json
       - name: Install locked dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci
       - name: Production audit gate
         run: npm audit --omit=dev --audit-level=high
       - name: Web typecheck and build
         run: |
+          npm run web:lint
           npm run web:typecheck
           npm run web:build
