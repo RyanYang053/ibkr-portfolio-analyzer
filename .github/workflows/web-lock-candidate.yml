@@ -1,0 +1,60 @@
+name: Web security lockfile candidate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/web-lock-candidate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resolve:
+    if: github.head_ref == 'security/web-lock-refresh-20261124'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ai-portfolio-intelligence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve explicit security patch candidate
+        run: |
+          npm pkg set dependencies.next=15.5.29 devDependencies.eslint-config-next=15.5.29 --workspace apps/web
+          npm pkg set devDependencies.postcss='^8.5.23' --workspace apps/web
+          npm pkg set 'overrides.next.postcss=^8.5.23'
+          npm install --package-lock-only --ignore-scripts --no-audit
+          npm audit fix --package-lock-only --ignore-scripts --omit=dev || true
+      - name: Preserve candidate and registry evidence
+        run: |
+          npm audit --omit=dev --audit-level=high --json > /tmp/production-audit.json || true
+          python - <<'PY'
+          import json, pathlib, hashlib
+          for key,path in [('ROOT','package.json'),('MANIFEST','apps/web/package.json'),('LOCK','package-lock.json')]:
+              raw=pathlib.Path(path).read_text(encoding='utf-8')
+              print('CANDIDATE_SHA256',key,hashlib.sha256(raw.encode()).hexdigest())
+              for i in range(0,len(raw),1800):
+                  print('CANDIDATE_'+key, i//1800, json.dumps(raw[i:i+1800], ensure_ascii=True))
+              print('CANDIDATE_END',key,(len(raw)+1799)//1800)
+          audit=json.loads(pathlib.Path('/tmp/production-audit.json').read_text())
+          print('CANDIDATE_AUDIT',json.dumps(audit.get('metadata',{}).get('vulnerabilities',{})))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-lock-candidate
+          path: |
+            ai-portfolio-intelligence/package.json
+            ai-portfolio-intelligence/apps/web/package.json
+            ai-portfolio-intelligence/package-lock.json
+            /tmp/production-audit.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Production audit gate
+        run: npm audit --omit=dev --audit-level=high
+      - name: Web typecheck and build
+        run: |
+          npm run web:lint
+          npm run web:typecheck
+          npm run web:build
