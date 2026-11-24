@@ -165,7 +165,7 @@ jobs:
           fi
       - name: Upload release evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-evidence-${{ github.sha }}
           if-no-files-found: error
@@ -255,7 +255,7 @@ jobs:
             --cov=app --cov-report=term-missing --cov-report=xml:coverage/coverage.xml --cov-fail-under=35 -q
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ github.sha }}
           if-no-files-found: warn
@@ -302,7 +302,7 @@ jobs:
             || { echo "pip-audit failed"; cat security-reports/pip-audit.json || true; exit 1; }
       - name: Upload security reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-reports-${{ github.sha }}
           if-no-files-found: warn

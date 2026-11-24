@@ -28,7 +28,7 @@ jobs:
       - name: Capture fixture preview and social artwork
         run: python scripts/render_preview.py --report public-preview/portfolio-demo.html --output-dir public-preview
       - name: Upload HTML and visual preview
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: public-fixture-preview
           path: public-preview/
