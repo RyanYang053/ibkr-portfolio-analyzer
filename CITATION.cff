@@ -1,0 +1,7 @@
+cff-version: 1.2.0
+message: "If you reference this software, please cite its repository and the exact commit used."
+title: "IBKR Portfolio Analyzer"
+type: software
+authors:
+  - name: "IBKR Portfolio Analyzer contributors"
+repository-code: "https://github.com/RyanYang053/ibkr-portfolio-analyzer"
